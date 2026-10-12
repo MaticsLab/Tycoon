@@ -25,6 +25,13 @@ You can also befriend villagers whose personalities change based on how you trea
 - **Public places:** the Town Square, City Hall, Willow Park (a lake, a gazebo and benches) and the Harvest Fair (a pumpkin patch, corn rows and market stalls).
 - **Seasons follow the real calendar.** From September to November the trees turn red and gold, leaves cover the ground and pumpkins fill the fair.
   In October the village decorates for Halloween with jack-o'-lanterns, hay bales, bubbling cauldrons and a spooky graveyard. Fall decorations are also for sale in build mode.
+- **City Hall and elections.** Talk to **Mabel, the City Clerk** (an AI villager) at City Hall, then tap **🏛️ City Hall business**.
+  - **Elections** every 4 village years (about 4½ real days) for a **mayor** and a **50-seat council**. Players file a platform and vote in person at City Hall.
+    A new village holds a founding election straight away. Seats nobody wins go to **AI caretakers**, and **Mayor Bramble (AI)** serves if nobody runs for mayor.
+  - **Proposals**: close the road across your plot, set the price of land, or pass a resolution. The council votes for two village days.
+    AI caretakers vote as a bloc on advice from Workers AI, which weighs the city data. A player mayor signs or vetoes; unsigned bills become law after a day.
+  - **City data**: road traffic, visits to public places, the economy and the treasury (land payments go to the city). Mabel sees all of it and answers questions about it.
+  - Only villagers with an account can run, vote or bring proposals.
 - **Village clock:** a day runs from 5:00 AM to 5:00 AM. The clock moves in 10-minute steps, about 6 real seconds each, and there are 112 days in a year.
 - **Sims-style build mode** on your own plot:
   - **Walls** sit on the grid lines between tiles. Drag to draw a wall, or use the **Room** tool to drag out four walls plus a floor at once. There are six wall materials.
@@ -49,6 +56,7 @@ You can also befriend villagers whose personalities change based on how you trea
   - `motherlode` gives +50,000. `kaching` and `rosebud` give +1,000.
   - `freerealestate on` makes land changes free.
   - `bb.enablefreebuild` turns free building on or off.
+  - `tp cityhall`, `tp park`, `tp fair` or `tp square` teleports you.
   The server setting `CHEATS` in `worker/wrangler.jsonc` controls who can use cheats: `all`, `admins` (only the usernames listed in `ADMINS`) or `off`.
 - **Character creator** in the Stardew style: roll the dice, turn the preview, pick a build, then skin, hair (16 styles), shirt (20 designs) and accessory (glasses, beards, hats and more) with the arrows.
   Sliders set eye, hair and pants colour, and you name yourself, your farm and your favourite thing. Change your look later from **👤 Me → Change look**.

@@ -1,4 +1,5 @@
-import { generateWorld, applyRoads, TILE, PLAYER_SPEED, WORLD_VERSION, STARTER_PLOTS, MAP_W } from '../../shared/world.js';
+import { generateWorld, applyRoads, worldClock, publicAreaAt, TILE, PLAYER_SPEED, WORLD_VERSION, STARTER_PLOTS, MAP_W, CIVIC } from '../../shared/world.js';
+import { City } from './city.js';
 import { ITEMS, GOODS, CROPS, START_COINS, cropStage, itemName } from '../../shared/catalog.js';
 import {
   key, inInterior, tilesOf, objAt, occChanged, placementError, canStand, levelView,
@@ -23,6 +24,7 @@ const TALK_RANGE = TILE * 3.5;
 //   npc:<id>        NPC mind
 //   gossip          shared village news
 //   roads           player road edits { add: [tile index], del: [tile index] }
+//   city            City Hall: officials, elections, proposals, treasury, city data
 export class Game {
   constructor(saved = {}, { now = () => Date.now(), ai = null, cheats = 'all', admins = [] } = {}) {
     this.now = now;
@@ -64,6 +66,7 @@ export class Game {
     this.npcs = {};
     for (const id of Object.keys(NPCS)) this.npcs[id] = new Npc(id, saved.npcs?.[id]);
     this.sessions = new Map(); // player id -> session
+    this.city = new City(this, saved.city);
     this.dirty = new Set(saved.meta && !this.freshLand ? [] : ['meta']);
     if (this.freshLand) for (const id of Object.keys(this.plots)) this.dirty.add(`plot:${id}`);
     for (const k of this.dirtyLater || []) this.dirty.add(k);
@@ -79,6 +82,7 @@ export class Game {
       if (k === 'meta') out[k] = { epoch: this.epoch, version: WORLD_VERSION, nextPlotId: this.nextPlotId };
       else if (k === 'gossip') out[k] = this.gossip;
       else if (k === 'roads') out[k] = this.roads;
+      else if (k === 'city') out[k] = this.city.s;
       else if (kind === 'plot') out[k] = this.plots[id] ?? null;
       else if (kind === 'profile') out[k] = this.profiles[id] ?? null;
       else if (kind === 'npc') out[k] = this.npcs[id].s;
@@ -96,6 +100,7 @@ export class Game {
       if (kind === 'meta') saved.meta = v;
       else if (kind === 'gossip') saved.gossip = v;
       else if (kind === 'roads') saved.roads = v;
+      else if (kind === 'city') saved.city = v;
       else if (kind === 'plot') saved.plots[id] = v;
       else if (kind === 'profile') saved.profiles[id] = v;
       else if (kind === 'npc') saved.npcs[id] = v;
@@ -149,6 +154,11 @@ export class Game {
       case 'mergePlot': return this.mergePlot(s, msg);
       case 'splitPlot': return this.splitPlot(s, msg);
       case 'road': return this.road(s, msg);
+      case 'cityRun': return this.cityAction(s, () => this.city.run(s, msg.office, msg.platform, this.day()));
+      case 'cityVote': return this.cityAction(s, () => this.city.vote(s, msg.office, msg.candidate, this.day()));
+      case 'cityPropose': return this.cityAction(s, () => this.city.propose(s, msg, this.day()));
+      case 'councilVote': return this.cityAction(s, () => this.city.councilVote(s, msg.id, msg.vote));
+      case 'mayorAct': return this.cityAction(s, () => this.city.mayorAct(s, msg.id, !!msg.sign, this.day()));
       case 'cheat': return this.cheat(s, msg);
       case 'setLook': return this.setLook(s, msg);
       case 'harvest': return this.harvest(s, msg);
@@ -263,6 +273,7 @@ export class Game {
       npcs: Object.values(this.npcs).map((n) => ({ id: n.id, x: n.x, y: n.y, dir: n.dir })),
       plots: Object.values(this.plots),
       roads: this.roads,
+      city: this.city.view(this.day(), profile),
     });
     this.broadcast({ type: 'join', player: this.publicPlayer(s) }, s);
     if (profile.plotId != null) this.broadcast({ type: 'plot', plot: this.plots[profile.plotId] });
@@ -289,6 +300,15 @@ export class Game {
       return;
     }
     s.x = x; s.y = y; s.level = level; s.lastMove = now;
+    // City data: road traffic and visits to public places.
+    const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
+    if (tx !== s.tx || ty !== s.ty) {
+      s.tx = tx; s.ty = ty;
+      this.city.onStep(tx, ty);
+      const area = publicAreaAt(tx, ty)?.name || null;
+      if (area && area !== s.area) this.city.onEnterArea(area);
+      s.area = area;
+    }
     s.dir = [0, 1, 2, 3].includes(d) ? d : s.dir;
     s.moving = !!m;
   }
@@ -311,6 +331,7 @@ export class Game {
 
   coins(s, delta) {
     s.profile.coins += delta;
+    this.city.onCoins(delta);
     s.send({ type: 'coins', coins: s.profile.coins });
     this.markProfile(s.profile);
   }
@@ -525,7 +546,8 @@ export class Game {
   }
 
   // ----- land: resize, merge, split -----
-  landCost(s, tiles) { return s.cheats.land ? 0 : Math.max(0, tiles) * LAND_PRICE; }
+  landCost(s, tiles) { return s.cheats.land ? 0 : Math.max(0, tiles) * this.city.landPrice; }
+  payLand(s, cost) { if (cost) { this.coins(s, -cost); this.city.onLand(cost); } }
 
   landChanged(changed, removed = []) {
     indexPlots(this.world, this.plots);
@@ -551,7 +573,7 @@ export class Game {
     if (cost > s.profile.coins) return s.send({ type: 'error', msg: `Not enough coins (needs 🪙${cost})` });
     shiftContent(plot, plot.x - x, plot.y - y);
     Object.assign(plot, rect);
-    if (cost) this.coins(s, -cost);
+    this.payLand(s, cost);
     this.landChanged([plot]);
   }
 
@@ -572,7 +594,7 @@ export class Game {
     shiftContent(plot, plot.x - rect.x, plot.y - rect.y);
     Object.assign(plot, rect);
     delete this.plots[o.id];
-    if (cost) this.coins(s, -cost);
+    this.payLand(s, cost);
     this.landChanged([plot], [o.id]);
   }
 
@@ -614,6 +636,35 @@ export class Game {
     this.setRoads({ add: [...add], del: [...del] });
   }
 
+  // City Hall approved closing the roads on this plot: every road tile on it goes.
+  closeRoadsOn(plot) {
+    const add = new Set(this.roads.add), del = new Set(this.roads.del);
+    for (let ly = 0; ly < plot.h; ly++) for (let lx = 0; lx < plot.w; lx++) {
+      if (!roadIn(this.world, plot, lx, ly)) continue;
+      const i = (plot.y + ly) * MAP_W + plot.x + lx;
+      if (this.world.baseRoads[i]) del.add(i); else add.delete(i);
+    }
+    this.setRoads({ add: [...add], del: [...del] });
+  }
+
+  // ----- City Hall -----
+  day() { return worldClock(this.now(), this.epoch).day; }
+
+  // Government business happens in person, at City Hall.
+  cityAction(s, fn) {
+    const tx = Math.floor(s.x / TILE), ty = Math.floor(s.y / TILE);
+    const here = tx >= CIVIC.x && ty >= CIVIC.y && tx < CIVIC.x + CIVIC.w && ty < CIVIC.y + CIVIC.h;
+    const err = here ? fn() : 'Come to City Hall to do that';
+    if (err) return s.send({ type: 'error', msg: err });
+    this.sendCity();
+  }
+
+  sendCity() {
+    this.city.dirtyView = false;
+    const day = this.day();
+    for (const o of this.sessions.values()) o.send({ type: 'city', city: this.city.view(day, o.profile) });
+  }
+
   setRoads(roads) {
     this.roads = roads;
     applyRoads(this.world, roads);
@@ -631,7 +682,7 @@ export class Game {
     const off = (v) => ['false', 'off', '0', 'no'].includes(v);
     if (!c) return;
     if (c === 'help') {
-      return say('testingcheats true · money <amount> · motherlode · kaching · rosebud · freerealestate on/off · bb.enablefreebuild');
+      return say('testingcheats true · money <amount> · motherlode · kaching · rosebud · freerealestate on/off · bb.enablefreebuild · tp cityhall|park|fair|square');
     }
     if (c === 'testingcheats') {
       if (on(args[0])) { s.cheats.testing = true; return say('Cheats are enabled.'); }
@@ -654,6 +705,14 @@ export class Game {
         if (on(args[0])) { s.cheats.land = true; return say('Free real estate: land changes cost nothing.'); }
         if (off(args[0])) { s.cheats.land = false; return say('Free real estate is off.'); }
         return say('Usage: freerealestate on | off');
+      case 'tp': {
+        const spots = { cityhall: [139.5, 37.5], hall: [139.5, 37.5], park: [138.5, 47.5], fair: [129.5, 69.5], square: [60, 59.5], plaza: [60, 59.5] };
+        const to = spots[args[0]];
+        if (!to) return say('Usage: tp cityhall | park | fair | square');
+        s.x = to[0] * TILE; s.y = to[1] * TILE; s.level = 0; s.lastMove = this.now();
+        s.send({ type: 'pos', x: s.x, y: s.y, level: 0 });
+        return say(`Whoosh! You’re at the ${args[0]}.`);
+      }
       case 'bb.enablefreebuild':
         s.cheats.build = !s.cheats.build;
         s.send({ type: 'freebuild', on: s.cheats.build });
@@ -750,7 +809,7 @@ export class Game {
   // Ask the NPC's mind for a reply. `forced` overrides the sentiment (used for gifts).
   async converse(s, n, text, forced) {
     const now = this.now();
-    const ctx = { now, epoch: this.epoch, playerFacts: this.playerFacts(s), gossip: this.gossip.slice(-6) };
+    const ctx = { now, epoch: this.epoch, playerFacts: this.playerFacts(s), gossip: this.gossip.slice(-6), city: n.def.clerk ? this.city.brief() : null };
     let res = null;
     if (this.ai) {
       try { res = await this.ai(n.buildPrompt(s.profile, text, ctx), REPLY_SCHEMA, parseAiReply); } catch (e) { console.error('ai error', e); }
@@ -830,6 +889,9 @@ export class Game {
     const now = this.now();
     const dt = Math.min(0.5, (now - this.lastTick) / 1000);
     this.lastTick = now;
+    this.city.update(this.day());
+    if (this.city.dirtyView && now - (this.lastCitySend || 0) > 1000) { this.lastCitySend = now; this.sendCity(); }
+    if (this.city.statsDirty && now - (this.lastCitySave || 0) > 30_000) { this.lastCitySave = now; this.city.statsDirty = false; this.mark('city'); }
     if (!this.sessions.size) return;
     for (const n of Object.values(this.npcs)) {
       n.tick(dt, now, this.world, this.plots);

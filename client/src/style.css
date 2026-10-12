@@ -230,3 +230,25 @@ body.building #topbar { left: calc(186px + var(--sal)); }
 .me-card { display: flex; align-items: center; gap: 10px; }
 #npcpanel .sheet-head { align-items: center; }
 #npcpanel .portrait { width: 56px; height: 56px; }
+
+/* City Hall panel */
+.city-tabs { position: sticky; top: 0; z-index: 1; }
+.city-pane { display: flex; flex-direction: column; gap: 8px; }
+.city-card { background: #fff6e0; border: 2px solid var(--wood-light); border-radius: 10px; padding: 8px 10px; font-size: 14px; line-height: 1.45; }
+.city-card > div + div { margin-top: 3px; }
+.city-card.hl { background: #fff0c2; border-color: #d9a441; }
+.tag { display: inline-block; font-size: 11px; font-weight: bold; padding: 1px 6px; border-radius: 999px; background: #d8e8ff; color: #2c4f80; vertical-align: middle; }
+.news { font-size: 14px; }
+.small { font-size: 12px; }
+.cand { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: #fffaf0; border: 1px solid #e6d3a8; font-size: 14px; }
+.bill { border: 2px solid #e6d3a8; border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; background: #fffaf0; }
+.bill.passed { border-color: #6bb36b; } .bill.failed, .bill.vetoed { border-color: #d48a8a; opacity: .85; } .bill.awaiting { border-color: #d9a441; }
+.advice { font-size: 13px; background: #eef3ff; border-radius: 6px; padding: 4px 6px; }
+.bar { display: grid; grid-template-columns: 120px 1fr 40px; align-items: center; gap: 6px; font-size: 13px; }
+.bar i { display: block; height: 10px; background: linear-gradient(90deg, #e8a33a, #d9622a); border-radius: 4px; }
+.bar b { text-align: right; }
+.hist { border-collapse: collapse; font-size: 13px; width: 100%; }
+.hist th, .hist td { text-align: right; padding: 2px 6px; border-bottom: 1px solid #e6d3a8; }
+.hist th:first-child, .hist td:first-child { text-align: left; }
+#modal-body select { font: inherit; font-size: 16px; padding: 8px; border: 3px solid var(--wood-light); border-radius: 10px; background: #fffaf0; }
+#modal-body input[hidden] { display: none; }

@@ -40,6 +40,18 @@ export const NPCS = {
     likes: ['berry', 'pumpkin', 'tea'], dislikes: ['honeycake'],
     buys: [], sells: [],
   },
+  mabel: {
+    name: 'Mabel',
+    role: 'City Clerk · City Hall',
+    icon: '🏛️',
+    clerk: true,
+    look: { body: 1, skin: 9, hair: 1, shirt: 7, acc: 2, eyes: [60, 45, 40], hairColor: [0, 0, 82], pants: [62, 40, 30] },
+    home: { x: 139.5 * TILE, y: 34.8 * TILE }, wander: 1.5 * TILE,
+    bio: 'You are Mabel, the village’s City Clerk. You run the front desk at City Hall: you register candidates, explain how elections and council proposals work, and keep every public record — who lives where, how busy each road is, where villagers like to spend their time, and how the village economy is doing. You are precise, warm and fond of a good statistic, and you care that everyone gets a fair say. You never reveal how anyone voted.',
+    base: { warmth: 60, cheer: 58, trust: 66, generosity: 55, energy: 52 },
+    likes: ['tea', 'bookgift'], dislikes: ['bouquet'],
+    buys: [], sells: [],
+  },
 };
 
 // Human-readable words for a trait value (0..100). Empty string = unremarkable.

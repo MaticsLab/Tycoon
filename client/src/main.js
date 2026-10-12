@@ -14,6 +14,7 @@ import { itemIcon } from './sprites.js';
 import { View, LEVEL_H } from './gfx/view.js';
 import { Ghost } from './gfx/ghost.js';
 import { openCreator, closeCreator } from './creator.js';
+import { renderCity } from './cityui.js';
 import { drawLook } from './people.js';
 import { httpBase, signInGuest, signIn, signUp, getSession, signOut } from './auth.js';
 
@@ -130,6 +131,7 @@ function onMessage(m) {
       for (const n of m.npcs) S.npcs.set(n.id, { ...n, tx: n.x, ty: n.y, moving: false, name: NPCS[n.id].name });
       applyRoads(world, m.roads);
       view.refreshTerrain();
+      S.city = m.city;
       S.plots = {};
       for (const p of m.plots) S.plots[p.id] = p;
       indexPlots(world, S.plots);
@@ -203,6 +205,11 @@ function onMessage(m) {
       indexPlots(world, S.plots);
       plotsDirty = true;
       if (S.mode === 'build') refreshPreview();
+      break;
+    case 'city':
+      S.city = m.city;
+      if (modalKind === 'city') showCity();
+      toolInfo();
       break;
     case 'roads':
       applyRoads(world, m.roads);
@@ -465,6 +472,7 @@ function openTalk(v) {
   if (v.say) S.talk.lines.push({ who: 'them', text: v.say });
   $('npcpanel').hidden = false;
   $('npc-shop').hidden = !(v.sells.length || v.buys.length);
+  $('npc-city').hidden = !def.clerk;
   renderStatus(); renderLog(); renderExtra();
 }
 
@@ -613,6 +621,7 @@ function renderExtra() {
   }
   box.appendChild(list);
 }
+$('npc-city').onclick = () => showCity();
 $('npc-shop').onclick = () => { S.talk.extra = S.talk.extra === 'shop' ? null : 'shop'; renderExtra(); };
 $('npc-gift').onclick = () => { S.talk.extra = S.talk.extra === 'gift' ? null : 'gift'; renderExtra(); };
 $('npc-form').onsubmit = (e) => {
@@ -638,6 +647,13 @@ function openModal(kind, title) {
 }
 function closeModal() { modalKind = null; $('modal').hidden = true; }
 $('modal-close').onclick = closeModal;
+
+function showCity() {
+  const keep = modalKind === 'city' ? $('modal-body').scrollTop : 0;
+  const body = openModal('city', '🏛️ City Hall');
+  renderCity(body, { city: S.city, me: S.me, myPlot: S.myPlot, plots: S.plots, send, rerender: showCity });
+  body.scrollTop = keep;
+}
 
 function showBag() {
   const body = openModal('bag', '🎒 Your bag');
@@ -862,7 +878,7 @@ function toolInfo(extra) {
     roofRemove: 'Tap a roofed tile to remove that roof.',
     obj: d?.crop ? 'Plant on tilled soil.' : 'Drag to position, release to place. ↻ rotates.',
     remove: 'Tap something to remove it.',
-    resize: `Drag any side of your plot. Growing costs 🪙${LAND_PRICE} per tile. Plots can cover roads, but roads stay public.`,
+    resize: `Drag any side of your plot. Growing costs 🪙${landPrice()} per tile. Plots can cover roads, but roads stay public.`,
     pave: 'Drag to lay road on your land. Roads are public: anyone may walk them and nothing can be built on them.',
     dig: 'Drag to dig up road on your land. You can move a road, but every end must stay connected. To close one, ask at City Hall.',
     merge: 'Tap the empty plot next door to join it to yours.',
@@ -895,6 +911,8 @@ function setMode(mode) {
   }
   plotsDirty = true;
 }
+
+const landPrice = () => S.city?.landPrice ?? LAND_PRICE;
 
 // --- picking helpers (plot-local) ---
 function myDef() { return S.plots[S.myPlot]; }
@@ -1019,7 +1037,7 @@ function landPlan(h) {
   const plot = myDef(), t = S.tool;
   const q = pickWorld(h.cx, h.cy);
   if (!q) return null;
-  const landCost = (n) => (S.freeLand ? 0 : Math.max(0, n) * LAND_PRICE);
+  const landCost = (n) => (S.freeLand ? 0 : Math.max(0, n) * landPrice());
   if (t.kind === 'resize') {
     // Which side are we dragging? Picked on pointer-down, else the nearest one.
     const dist = { west: Math.abs(q.x - plot.x), east: Math.abs(q.x - plot.x - plot.w), north: Math.abs(q.z - plot.y), south: Math.abs(q.z - plot.y - plot.h) };
@@ -1140,7 +1158,7 @@ const consoleForm = $('console');
 const consoleLog = $('console-log');
 const consoleInput = $('console-input');
 consoleForm.remove();
-const CHEAT_CHIPS = ['testingcheats true', 'motherlode', 'kaching', 'freerealestate on', 'bb.enablefreebuild', 'help'];
+const CHEAT_CHIPS = ['testingcheats true', 'motherlode', 'kaching', 'freerealestate on', 'bb.enablefreebuild', 'tp cityhall', 'help'];
 
 function showSettings() {
   const body = openModal('settings', '⚙️ Settings');

@@ -268,7 +268,7 @@ test('"home" lands on a walkable tile outside every plot gate', async () => {
 test('NPCs wander but stay on walkable ground', () => {
   let clock = 0;
   const game = new Game({}, { now: () => clock });
-  game.sessions.set('x', { profile: { id: 'x', uid: 'x', name: 'X' }, x: 0, y: 0, greeted: {}, sendRaw() {} });
+  game.sessions.set('x', { profile: { id: 'x', uid: 'x', name: 'X' }, x: 0, y: 0, greeted: {}, sendRaw() {}, send() {} });
   for (let i = 0; i < 3000; i++) { clock += 100; game.tick(); }
   for (const n of Object.values(game.npcs)) {
     assert.ok(canStand(game.world, game.plots, n.x, n.y), n.id);
@@ -646,4 +646,86 @@ test('v3 saves keep their plots; anything left on the new roads is refunded', ()
   const out = game.takeDirty();
   assert.equal(out.meta.version, WORLD_VERSION);
   assert.ok(out['plot:0'] && out['profile:u1']);
+});
+
+test('City Hall: founding election, council proposals, AI caretakers and the mayor’s pen', async () => {
+  const { DAY_MS } = await import('../../shared/world.js');
+  const { game, join, advance } = setup();
+  const tickDays = (d) => { advance(d * DAY_MS); game.tick(); };
+  const atHall = (p) => { const s = p.session(); s.x = 139.5 * TILE; s.y = 37.5 * TILE; };
+  const ana = await join({ name: 'Ana' });
+  const ben = await join({ name: 'Ben' });
+  const guest = await join({ name: 'Gus' }, { userId: 'g1', name: 'Gus', isAnonymous: true });
+  game.tick();
+  const e = game.city.s.election;
+  assert.ok(e && e.founding, 'a new village opens its founding election');
+
+  // Filing happens in person, by registered villagers.
+  ana.send({ type: 'cityRun', office: 'mayor', platform: 'Pumpkins for all' });
+  assert.match(ana.last('error').msg, /City Hall/);
+  for (const p of [ana, ben, guest]) atHall(p);
+  guest.send({ type: 'cityRun', office: 'council' });
+  assert.match(guest.last('error').msg, /account/);
+  ana.send({ type: 'cityRun', office: 'mayor', platform: 'Pumpkins for all' });
+  ben.send({ type: 'cityRun', office: 'council' });
+  assert.equal(e.candidates.length, 2);
+  // Voting opens after filing.
+  ana.send({ type: 'cityVote', office: 'mayor', candidate: ana.welcome.you.id });
+  assert.match(ana.last('error').msg, /Voting/);
+  tickDays(e.filingEnd - game.day());
+  ana.send({ type: 'cityVote', office: 'mayor', candidate: ana.welcome.you.id });
+  ben.send({ type: 'cityVote', office: 'mayor', candidate: ana.welcome.you.id });
+  ben.send({ type: 'cityVote', office: 'council', candidate: ben.welcome.you.id });
+  assert.equal(ben.last('city').city.election.myVotes.mayor, ana.welcome.you.id);
+  tickDays(e.votingEnd - game.day());
+  const off = game.city.s.officials;
+  assert.equal(off.mayor.name, 'Ana');
+  assert.deepEqual(off.council.map((c) => c.name), ['Ben']);
+  assert.equal(game.city.aiSeats(), 49);
+
+  // Ana covers the road with her plot and asks the city to close it.
+  const s = ana.session();
+  ana.send({ type: 'cheat', cmd: 'testingcheats true' });
+  ana.send({ type: 'cheat', cmd: 'motherlode' });
+  ana.send({ type: 'claim', plotId: 0 });
+  const plot = game.plots[0];
+  ana.send({ type: 'resizePlot', plotId: 0, x: plot.x, y: plot.y, w: plot.w, h: 21 });
+  assert.equal(plot.h, 21);
+  atHall(ana);
+  ana.send({ type: 'cityPropose', kind: 'closeRoad', plotId: 0, text: 'Nobody uses it' });
+  const bill = game.city.s.proposals.at(-1);
+  assert.equal(bill.kind, 'closeRoad');
+  assert.equal(game.city.advice(bill).recommend, 'yes', 'light traffic, nobody cut off');
+  ana.send({ type: 'councilVote', id: bill.id, vote: 'yes' });
+  assert.match(ana.last('error').msg, /council members/);
+  ben.send({ type: 'councilVote', id: bill.id, vote: 'no' });
+  tickDays(2);
+  assert.equal(bill.status, 'awaiting', 'passed 49–1, on the mayor’s desk');
+  assert.deepEqual([bill.result.yes, bill.result.no], [49, 1]);
+  ana.send({ type: 'mayorAct', id: bill.id, sign: true });
+  assert.equal(bill.status, 'passed');
+  assert.equal(game.world.tiles[(plot.y + 18) * MAP_W + plot.x + 5], T.GRASS, 'road closed');
+  assert.ok(ana.last('roads'));
+
+  // Land price change, and the treasury collects land payments.
+  atHall(ben);
+  ben.send({ type: 'cityPropose', kind: 'landPrice', price: 4 });
+  const lp = game.city.s.proposals.at(-1);
+  tickDays(2);
+  assert.equal(lp.status, 'awaiting');
+  tickDays(1);
+  assert.equal(lp.status, 'passed', 'unsigned bills become law');
+  assert.equal(game.city.landPrice, 4);
+  ana.send({ type: 'cheat', cmd: 'testingcheats false' });
+  s.x = game.world.spawn.x; s.y = game.world.spawn.y;
+  const t0 = game.city.s.treasury, c0 = s.profile.coins;
+  ana.send({ type: 'resizePlot', plotId: 0, x: plot.x, y: plot.y, w: plot.w + 1, h: plot.h });
+  assert.equal(c0 - s.profile.coins, plot.h * 4);
+  assert.equal(game.city.s.treasury - t0, plot.h * 4);
+
+  // City data and the clerk's brief.
+  for (let i = 0; i < 5; i++) ben.send({ type: 'move', x: (40 + i) * TILE + 8, y: 22.5 * TILE, d: 3, m: true });
+  assert.ok(game.city.brief().includes('Mayor: Ana'));
+  const saved = game.takeDirty();
+  assert.equal(saved.city.officials.mayor.name, 'Ana');
 });

@@ -130,6 +130,7 @@ export class Npc {
         rosa: `Oh! A new face. I'm Rosa — I'll buy any crops you grow, and I've got gifts if you want to make friends around here.`,
         otto: `Hmph. Otto. I make furniture — real furniture, built to last. Look around, don't touch the varnish.`,
         juniper: `Hello hello! I'm Juniper. The tulips told me someone new was coming. Welcome to the village, ${n}!`,
+        mabel: `Welcome to City Hall, ${n}. I'm Mabel, the City Clerk. Elections, proposals, road requests, city records: it all goes through my desk.`,
       }[this.id];
     }
     if (r.affinity <= -45) return `${n}. What do you want.`;
@@ -146,7 +147,7 @@ export class Npc {
     if (a <= -45) return '…';
     if (m < -0.4) return 'Hmph.';
     if (a >= 40) return `${n}! Come say hi!`;
-    return { rosa: 'Fresh gifts today!', otto: 'Quality furniture. No rush.', juniper: `Hi ${n}! 🌼` }[this.id];
+    return { rosa: 'Fresh gifts today!', otto: 'Quality furniture. No rush.', juniper: `Hi ${n}! 🌼`, mabel: 'Every vote counts!' }[this.id];
   }
 
   buildPrompt(profile, text, ctx) {
@@ -168,6 +169,7 @@ export class Npc {
     ];
     if (r.notes.length) lines.push(`Things you remember about ${profile.name}:\n- ${r.notes.join('\n- ')}`);
     if (this.s.diary.length) lines.push(`Your own recent feelings:\n- ${this.s.diary.slice(-3).join('\n- ')}`);
+    if (ctx.city) lines.push(`The city records on your desk (use them to answer questions about roads, traffic, the economy, elections and the council):\n${ctx.city}`);
     if (ctx.gossip.length) lines.push(`Village news you've heard:\n- ${ctx.gossip.join('\n- ')}`);
     if (r.history.length) lines.push(`Your recent conversation with ${profile.name}:\n${r.history.join('\n')}`);
     if (this.def.sells.length) lines.push(`You sell: ${this.def.sells.map(itemName).join(', ')}.`);
@@ -189,10 +191,10 @@ export class Npc {
     const m = this.mood(now) + s * 0.2;
     const n = profile.name;
     const reply = s < 0
-      ? { rosa: `Well! There's no need for that, ${n}.`, otto: 'Watch your tone in my shop.', juniper: 'Oh… that stung a little.' }[this.id]
+      ? { rosa: `Well! There's no need for that, ${n}.`, otto: 'Watch your tone in my shop.', juniper: 'Oh… that stung a little.', mabel: `I’ll note that in the record, ${n}.` }[this.id]
       : m > 0.15
-        ? { rosa: `Ha! You always know how to make me smile, ${n}.`, otto: 'Hm. Not bad, not bad at all.', juniper: 'The sunflowers agree with you!' }[this.id]
-        : { rosa: `Mm-hm, I hear you, ${n}.`, otto: 'Hm.', juniper: 'Interesting! I’ll tell the roses.' }[this.id];
+        ? { rosa: `Ha! You always know how to make me smile, ${n}.`, otto: 'Hm. Not bad, not bad at all.', juniper: 'The sunflowers agree with you!', mabel: 'Lovely! Civic spirit, that’s what I like to see.' }[this.id]
+        : { rosa: `Mm-hm, I hear you, ${n}.`, otto: 'Hm.', juniper: 'Interesting! I’ll tell the roses.', mabel: 'Noted. Anything I can file for you today?' }[this.id];
     return { reply, sentiment: s, remember: '', gossip: '' };
   }
 
