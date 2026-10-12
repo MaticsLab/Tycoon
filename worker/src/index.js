@@ -41,9 +41,14 @@ export default {
       headers.set('X-User-Name', encodeURIComponent(user.displayUsername || user.name || ''));
       headers.set('X-Username', user.username || '');
       headers.set('X-Anonymous', user.isAnonymous ? '1' : '0');
+      headers.set('X-Version', env.CF_VERSION_METADATA?.id || '');
       return worldStub(env).fetch(new Request(request, { headers }));
     }
-    if (url.pathname === '/health') return worldStub(env).fetch(request);
+    if (url.pathname === '/health') {
+      const headers = new Headers(request.headers);
+      headers.set('X-Version', env.CF_VERSION_METADATA?.id || '');
+      return worldStub(env).fetch(new Request(request, { headers }));
+    }
     return env.ASSETS.fetch(request);
   },
 };
@@ -84,6 +89,16 @@ export class World extends DurableObject {
   }
 
   async fetch(request) {
+    // A Durable Object can outlive a deploy while players are connected. If the Worker
+    // in front of us is a newer version, save, drop connections and restart on new code
+    // (clients reconnect automatically).
+    const want = request.headers.get('X-Version'), mine = this.env.CF_VERSION_METADATA?.id;
+    if (want && mine && want !== mine) {
+      this.flush();
+      for (const s of [...this.game.sessions.values()]) { try { s.conn.close(); } catch { /* gone */ } }
+      this.ctx.abort('Restarting on the newly deployed version');
+      return new Response('Updating, please reconnect', { status: 503 });
+    }
     if (new URL(request.url).pathname === '/health') {
       return Response.json({ ok: true, online: this.game.sessions.size, world: WORLD_VERSION, version: this.env.CF_VERSION_METADATA?.id || null });
     }
