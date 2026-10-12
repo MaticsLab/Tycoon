@@ -1,4 +1,4 @@
-import { generateWorld, applyRoads, worldClock, publicAreaAt, TILE, PLAYER_SPEED, WORLD_VERSION, STARTER_PLOTS, MAP_W, CIVIC } from '../../shared/world.js';
+import { generateWorld, applyRoads, worldClock, publicAreaAt, TILE, PLAYER_SPEED, RUN_MULT, WORLD_VERSION, STARTER_PLOTS, MAP_W, CIVIC } from '../../shared/world.js';
 import { City } from './city.js';
 import { ITEMS, GOODS, CROPS, START_COINS, cropStage, itemName } from '../../shared/catalog.js';
 import {
@@ -294,7 +294,7 @@ export class Game {
     const now = this.now();
     const dt = Math.min(1, (now - s.lastMove) / 1000);
     const dist = Math.hypot(x - s.x, y - s.y);
-    const level = dist > PLAYER_SPEED * dt * 1.6 + 12 ? -1 : stepLevel(this.world, this.plots, x, y, s.level);
+    const level = dist > PLAYER_SPEED * RUN_MULT * dt * 1.4 + 12 ? -1 : stepLevel(this.world, this.plots, x, y, s.level);
     if (level < 0) {
       s.send({ type: 'pos', x: s.x, y: s.y, level: s.level });
       return;
@@ -310,7 +310,7 @@ export class Game {
       s.area = area;
     }
     s.dir = [0, 1, 2, 3].includes(d) ? d : s.dir;
-    s.moving = !!m;
+    s.moving = m === 2 ? 2 : m ? 1 : 0; // 2 = running
   }
 
   chat(s, msg) {
@@ -904,7 +904,7 @@ export class Game {
       }
     }
     const p = [];
-    for (const s of this.sessions.values()) p.push([s.profile.id, Math.round(s.x * 10) / 10, Math.round(s.y * 10) / 10, s.dir, s.moving ? 1 : 0, s.level || 0]);
+    for (const s of this.sessions.values()) p.push([s.profile.id, Math.round(s.x * 10) / 10, Math.round(s.y * 10) / 10, s.dir, s.moving || 0, s.level || 0]);
     const npcs = Object.values(this.npcs).map((n) => [n.id, Math.round(n.x * 10) / 10, Math.round(n.y * 10) / 10, n.dir, n.moving ? 1 : 0]);
     this.broadcast({ type: 'state', t: now, p, n: npcs });
   }

@@ -15,6 +15,7 @@ export const MAP_H = 88;
 export const PLOT_W = 24; // default plot size
 export const PLOT_H = 16;
 export const PLAYER_SPEED = 76; // world px per second
+export const RUN_MULT = 1.75;   // holding Shift (or pushing the joystick far) runs
 
 export const T = {
   GRASS: 0, PATH: 1, WATER: 2, TREE: 3, LAWN: 4, FENCE: 5, GATE: 6,

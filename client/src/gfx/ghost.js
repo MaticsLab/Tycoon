@@ -65,3 +65,45 @@ export class Ghost {
     this.group.add(new THREE.Mesh(boxAt(def.x + lx + 0.02, level * LEVEL_H, def.y + ly + 0.02, 0.96, height, 0.96), BAD));
   }
 }
+
+// Plot boundaries for build mode: a bright outline with corner posts around your plot,
+// faint outlines of the plots around it, and the public road tiles you can't build on.
+const LINE = new THREE.MeshBasicMaterial({ color: '#ffe36e', transparent: true, opacity: 0.95, depthWrite: false });
+const POST = new THREE.MeshBasicMaterial({ color: '#fff3b0' });
+const OTHER = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.35, depthWrite: false });
+const ROAD = new THREE.MeshBasicMaterial({ color: '#ff7a4a', transparent: true, opacity: 0.28, depthWrite: false });
+
+export class Outline {
+  constructor(scene) {
+    this.group = new THREE.Group();
+    this.group.renderOrder = 4;
+    scene.add(this.group);
+    this.sig = '';
+  }
+
+  clear() {
+    for (const c of this.group.children) c.geometry?.dispose();
+    this.group.clear();
+    this.sig = '';
+  }
+
+  // plot: your plot; others: nearby plots; roads: [[x, y]] world tiles of road inside it.
+  show(plot, others, roads, level) {
+    const sig = JSON.stringify([plot.x, plot.y, plot.w, plot.h, others.map((o) => [o.x, o.y, o.w, o.h]), roads, level]);
+    if (sig === this.sig) return;
+    this.clear();
+    this.sig = sig;
+    const y = level * LEVEL_H + 0.03;
+    const frame = (r, mat, t, h) => {
+      for (const [bx, bz, bw, bd] of [[r.x, r.y - t / 2, r.w, t], [r.x, r.y + r.h - t / 2, r.w, t], [r.x - t / 2, r.y, t, r.h], [r.x + r.w - t / 2, r.y, t, r.h]]) {
+        this.group.add(new THREE.Mesh(boxAt(bx, y, bz, bw, h, bd), mat));
+      }
+    };
+    for (const o of others) frame(o, OTHER, 0.06, 0.03);
+    frame(plot, LINE, 0.12, 0.05);
+    for (const [px, pz] of [[plot.x, plot.y], [plot.x + plot.w, plot.y], [plot.x, plot.y + plot.h], [plot.x + plot.w, plot.y + plot.h]]) {
+      this.group.add(new THREE.Mesh(boxAt(px - 0.07, y, pz - 0.07, 0.14, 0.7, 0.14), POST));
+    }
+    for (const [tx, tz] of roads) this.group.add(new THREE.Mesh(boxAt(tx + 0.03, y, tz + 0.03, 0.94, 0.02, 0.94), ROAD));
+  }
+}

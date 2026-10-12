@@ -1,6 +1,6 @@
 import {
   generateWorld, applyRoads, plotIdAtPixel, worldClock, darkness,
-  TILE, MAP_W, MAP_H, PLAYER_SPEED, WORLD_VERSION,
+  TILE, MAP_W, MAP_H, PLAYER_SPEED, RUN_MULT, WORLD_VERSION,
 } from '@shared/world.js';
 import {
   canStand, inInterior, key, placementError, objAt, footprint, canRotate, levelView,
@@ -12,7 +12,7 @@ import { ITEMS, GOODS, CATEGORIES, cropStage, itemName } from '@shared/catalog.j
 import { NPCS } from '@shared/npcs.js';
 import { itemIcon } from './sprites.js';
 import { View, LEVEL_H } from './gfx/view.js';
-import { Ghost } from './gfx/ghost.js';
+import { Ghost, Outline } from './gfx/ghost.js';
 import { openCreator, closeCreator } from './creator.js';
 import { renderCity } from './cityui.js';
 import { drawLook } from './people.js';
@@ -29,6 +29,7 @@ const store = {
 const world = generateWorld(undefined, { date: new Date() });
 const view = new View($('game'), world);
 const ghost = new Ghost(view.scene);
+const outline = new Outline(view.scene);
 const U = (px) => px / TILE; // world pixels -> 3D units
 
 const S = {
@@ -176,7 +177,7 @@ function onMessage(m) {
       for (const [id, x, y, dir, moving, level] of m.p) {
         const p = S.players.get(id);
         if (!p) continue;
-        p.tx = x; p.ty = y; p.dir = dir; p.moving = !!moving; p.level = level || 0;
+        p.tx = x; p.ty = y; p.dir = dir; p.moving = !!moving; p.running = moving === 2; p.level = level || 0;
         if (Math.hypot(p.x - x, p.y - y) > 96) { p.x = x; p.y = y; }
       }
       for (const [id, x, y, dir, moving] of m.n || []) {
@@ -1185,6 +1186,7 @@ function showSettings() {
     <h3>🎮 Controls</h3>
     <div class="keys">
       <span>Walk</span><span>WASD / arrows · drag on a phone</span>
+      <span>Run</span><span>hold Shift · drag the joystick far out</span>
       <span>Rotate camera</span><span>hold the scroll wheel and drag · Q / E · two-finger twist</span>
       <span>Move camera</span><span>right-drag · two-finger drag</span>
       <span>Zoom</span><span>mouse wheel · pinch</span>
@@ -1396,12 +1398,14 @@ function inputVector() {
   if (keys.has('arrowright') || keys.has('d')) x += 1;
   if (keys.has('arrowup') || keys.has('w')) y -= 1;
   if (keys.has('arrowdown') || keys.has('s')) y += 1;
+  let run = keys.has('shift');
   if (stick.active) {
     const dx = stick.x - stick.sx, dy = stick.y - stick.sy, d = Math.hypot(dx, dy);
     if (d > 8) { const k = Math.min(1, d / 40) / d; x = dx * k; y = dy * k; }
+    run = d > 75; // drag the joystick far out to run
   }
   const len = Math.hypot(x, y);
-  return len > 1 ? { x: x / len, y: y / len } : { x, y };
+  return len > 1 ? { x: x / len, y: y / len, run } : { x, y, run };
 }
 
 // ---------- Plots in 3D ----------
@@ -1440,12 +1444,13 @@ function update(dt) {
   const me = S.me;
   const v = S.mode === 'walk' ? inputVector() : { x: 0, y: 0 };
   me.moving = Math.hypot(v.x, v.y) > 0.1;
+  me.running = me.moving && !!v.run;
   if (me.moving) view.offset.multiplyScalar(Math.max(0, 1 - dt * 3));
   if (view.quadrant !== lastQuadrant) { lastQuadrant = view.quadrant; plotsDirty = true; }
   if (me.moving) {
     const g = view.ground();
     const wx = g.rx * v.x - g.fx * v.y, wz = g.rz * v.x - g.fz * v.y;
-    const sp = PLAYER_SPEED * dt;
+    const sp = PLAYER_SPEED * (me.running ? RUN_MULT : 1) * dt;
     const nx = me.x + wx * sp, ny = me.y + wz * sp;
     // Each axis separately, so you slide along walls; stairs change your level.
     let l = stepLevel(world, S.plots, nx, me.y, me.level);
@@ -1467,7 +1472,7 @@ function update(dt) {
   sendAcc += dt;
   if (sendAcc >= 0.1) {
     sendAcc = 0;
-    const msg = { type: 'move', x: Math.round(me.x * 10) / 10, y: Math.round(me.y * 10) / 10, d: me.dir, m: me.moving ? 1 : 0 };
+    const msg = { type: 'move', x: Math.round(me.x * 10) / 10, y: Math.round(me.y * 10) / 10, d: me.dir, m: me.running ? 2 : me.moving ? 1 : 0 };
     const sig = `${msg.x},${msg.y},${msg.d},${msg.m}`;
     if (sig !== lastSent) { lastSent = sig; send(msg); }
   }
@@ -1512,13 +1517,78 @@ function petSpot(plot) {
   spotCache.set(plot, spot);
   return spot;
 }
+// ---- pet path finding: breadth-first search over tiles near the pet ----
+const petTileOK = (tx, ty, lvl) => canStand(world, S.plots, (tx + 0.5) * TILE, (ty + 0.5) * TILE + 3, lvl);
+const petStepOK = (ax, ay, bx, by, lvl) => canStand(world, S.plots, ((ax + bx) / 2 + 0.5) * TILE, ((ay + by) / 2 + 0.5) * TILE + 3, lvl);
+// Tiles reachable from (sx, sy) inside `box`: Map key -> previous key.
+function petReach(sx, sy, lvl, box) {
+  const prev = new Map([[key(sx, sy), null]]);
+  const queue = [[sx, sy]];
+  while (queue.length && prev.size < 1500) {
+    const [x, y] = queue.shift();
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy, k = key(nx, ny);
+      if (prev.has(k) || nx < box.x || ny < box.y || nx >= box.x + box.w || ny >= box.y + box.h) continue;
+      if (!petTileOK(nx, ny, lvl) || !petStepOK(x, y, nx, ny, lvl)) continue;
+      prev.set(k, key(x, y));
+      queue.push([nx, ny]);
+    }
+  }
+  return prev;
+}
+// World-pixel waypoints from the start of a search to tile k.
+function petRoute(prev, k) {
+  const out = [];
+  for (let c = k; c; c = prev.get(c)) { const [x, y] = c.split(',').map(Number); out.unshift({ x: (x + 0.5) * TILE, y: (y + 0.5) * TILE + 3 }); }
+  return out.slice(1);
+}
+// Walk a pet along its route; returns true while it's still going.
+function petStroll(p, dt, speed) {
+  let budget = speed * dt;
+  p.moving = false;
+  while (budget > 0.01 && p.route?.length) {
+    const q = p.route[0];
+    const dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy);
+    if (d > 0.01) p.dir = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 2 : 3) : (dy < 0 ? 1 : 0);
+    if (d <= budget) { p.x = q.x; p.y = q.y; p.route.shift(); budget -= d; } else { p.x += (dx / d) * budget; p.y += (dy / d) * budget; budget = 0; }
+    p.moving = true;
+  }
+  return !!p.route?.length;
+}
+// While you're home, your pet potters around: it strolls to a spot it can reach on your
+// plot (indoors if you are), sits a while, then picks somewhere else.
+function petWander(p, o, home, dt, now) {
+  p.path = [];
+  if (petStroll(p, dt, PET_SPEED * 0.55)) return;
+  p.idle += dt;
+  if (now < (p.restUntil || 0) || p.heartUntil > now) return;
+  const tx = Math.floor(p.x / TILE), ty = Math.floor((p.y - 3) / TILE);
+  const reach = petReach(tx, ty, p.level, { x: home.x - 1, y: home.y - 1, w: home.w + 2, h: home.h + 2 });
+  const ownerIn = levelView(home, o.level || 0).floor[key(Math.floor(o.x / TILE) - home.x, Math.floor(o.y / TILE) - home.y)];
+  const picks = [...reach.keys()].filter((k) => {
+    const [x, y] = k.split(',').map(Number);
+    const d = Math.abs(x - tx) + Math.abs(y - ty);
+    if (d < 2 || d > 9) return false;
+    // Stay indoors while the owner is indoors.
+    return !ownerIn || levelView(home, p.level).floor[key(x - home.x, y - home.y)];
+  });
+  // Now and then, come and sit by the owner.
+  const byOwner = Math.random() < 0.3 && reach.has(key(Math.floor(o.x / TILE), Math.floor(o.y / TILE)));
+  const k = byOwner ? key(Math.floor(o.x / TILE), Math.floor(o.y / TILE)) : picks[Math.floor(Math.random() * picks.length)];
+  if (k) p.route = petRoute(reach, k);
+  if (byOwner && p.route?.length) p.route.pop();
+  p.restUntil = now + 2500 + Math.random() * 5000;
+  p.idle = 0;
+}
+
 const isPetBedtime = () => { const h = worldClock(serverNow(), S.epoch).hours; return h >= 22 || h < 6; };
 
 function updatePets(dt) {
   const seen = new Set();
   const night = isPetBedtime();
+  const now = performance.now();
   const homes = new Map();
-  if (night) for (const pl of Object.values(S.plots)) if (pl.owner) homes.set(pl.owner, pl);
+  for (const pl of Object.values(S.plots)) if (pl.owner) homes.set(pl.owner, pl);
   for (const o of [S.me, ...S.players.values()]) {
     if (!o || petOf(o) == null) continue;
     seen.add(o.id);
@@ -1528,7 +1598,10 @@ function updatePets(dt) {
     // Bedtime: the pet heads home and curls up. If you're home it trots over to bed;
     // otherwise it's already asleep there when you get back.
     const home = night ? homes.get(o.id) : null;
+    const myHome = homes.get(o.id);
+    const ownerHome = myHome && plotIdAtPixel(world, o.x, o.y) === myHome.id;
     if (home) {
+      p.route = null; p.wandering = false;
       const spot = petSpot(home);
       const d = Math.hypot(spot.x - p.x, spot.y - p.y);
       p.path = []; p.level = 0;
@@ -1541,6 +1614,30 @@ function updatePets(dt) {
       continue;
     }
     if (p.sleeping) { Object.assign(p, { sleeping: false, x: o.x, y: o.y + 4, level: lvl, path: [], idle: 0 }); }
+    // At home (and on the same floor, and close enough to be in the house): wander.
+    if (ownerHome && p.level === lvl && Math.hypot(p.x - o.x, p.y - o.y) < TILE * 14) {
+      p.wandering = true;
+      petWander(p, o, myHome, dt, now);
+      continue;
+    }
+    // Leaving home: find a way back to the owner first, then follow the trail again.
+    if (p.wandering) {
+      p.wandering = false;
+      const tx = Math.floor(p.x / TILE), ty = Math.floor((p.y - 3) / TILE);
+      const ox = Math.floor(o.x / TILE), oy = Math.floor(o.y / TILE);
+      const box = { x: Math.min(tx, ox) - 6, y: Math.min(ty, oy) - 6, w: Math.abs(tx - ox) + 13, h: Math.abs(ty - oy) + 13 };
+      const reach = p.level === lvl ? petReach(tx, ty, p.level, box) : null;
+      p.route = reach?.has(key(ox, oy)) ? petRoute(reach, key(ox, oy)) : null;
+      p.path = [];
+      if (!p.route) Object.assign(p, { x: o.x, y: o.y + 4, level: lvl });
+    }
+    if (p.route?.length) {
+      petStroll(p, dt, PET_SPEED * 1.5);
+      if (Math.hypot(p.x - o.x, p.y - o.y) < PET_GAP + 6) p.route = null;
+      p.path = [{ x: o.x, y: o.y, level: lvl }];
+      p.idle = 0;
+      continue;
+    }
     // Record the owner's trail; a big jump (home, teleport) means start over beside them.
     const last = p.path[p.path.length - 1] || p;
     const jump = Math.hypot(o.x - last.x, o.y - last.y);
@@ -1551,7 +1648,7 @@ function updatePets(dt) {
     let left = 0, px0 = p.x, py0 = p.y;
     for (const q of p.path) { left += Math.hypot(q.x - px0, q.y - py0); px0 = q.x; py0 = q.y; }
     p.moving = false;
-    let budget = left > PET_GAP ? Math.min(left - PET_GAP, PET_SPEED * (left > 80 ? 1.6 : 1) * dt) : 0;
+    let budget = left > PET_GAP ? Math.min(left - PET_GAP, PET_SPEED * (o.running ? RUN_MULT : 1) * (left > 80 ? 1.6 : 1) * dt) : 0;
     while (budget > 0.01 && p.path.length) {
       const q = p.path[0];
       const dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy);
@@ -1569,18 +1666,28 @@ function nearMyPet() {
   return p && Math.hypot(p.x - S.me.x, p.y - S.me.y) < TILE * 1.8 ? p : null;
 }
 
+// Build mode shows where your land ends, the plots around it and the public roads on it.
+function updateOutline() {
+  const plot = S.mode === 'build' ? S.plots[S.myPlot] : null;
+  if (!plot) { if (outline.sig) outline.clear(); return; }
+  const near = (o) => o.id !== plot.id && o.x < plot.x + plot.w + 30 && o.x + o.w > plot.x - 30 && o.y < plot.y + plot.h + 24 && o.y + o.h > plot.y - 24;
+  const roads = [];
+  for (let ly = 0; ly < plot.h; ly++) for (let lx = 0; lx < plot.w; lx++) if (roadIn(world, plot, lx, ly)) roads.push([plot.x + lx, plot.y + ly]);
+  outline.show(plot, Object.values(S.plots).filter(near), roads, S.level);
+}
+
 // ---------- Render ----------
 function render(now) {
   const hOf = (p) => heightAt(world, S.plots, p.x, p.y, p.level || 0);
   const myH = hOf(S.me);
   if (S.mode !== 'build' || !S.me) view.setTarget(U(S.me.x), U(S.me.y), false, myH);
   const sNow = serverNow();
-  for (const p of S.players.values()) view.actor(p.id, U(p.x), U(p.y), p.dir, p.moving, p.look, now, true, hOf(p));
+  for (const p of S.players.values()) view.actor(p.id, U(p.x), U(p.y), p.dir, p.running ? 'run' : p.moving, p.look, now, true, hOf(p));
   for (const n of S.npcs.values()) {
     const d = NPCS[n.id];
     view.actor(`npc:${n.id}`, U(n.x), U(n.y), n.dir, n.moving, d.look, now);
   }
-  view.actor(S.me.id, U(S.me.x), U(S.me.y), S.me.dir, S.me.moving, S.me.look, now, true, myH);
+  view.actor(S.me.id, U(S.me.x), U(S.me.y), S.me.dir, S.me.running ? 'run' : S.me.moving, S.me.look, now, true, myH);
   for (const [id, p] of pets) {
     const owner = id === S.me.id ? S.me : S.players.get(id);
     if (!owner) continue;
@@ -1588,6 +1695,7 @@ function render(now) {
     view.actor(`pet:${id}`, U(p.x), U(p.y), p.dir, p.moving, null, now, true, heightAt(world, S.plots, p.x, p.y, p.level), { idx: petOf(owner), sit: pose });
   }
   view.pruneActors();
+  updateOutline();
   view.render(now, darkness(worldClock(sNow, S.epoch).hours), S.mode !== 'build');
   drawOverlay(now);
 }

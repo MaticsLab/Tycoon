@@ -22,6 +22,7 @@ You can also befriend villagers whose personalities change based on how you trea
   - **Split**: cut off an empty side, which goes up for sale as a new plot.
   - **Pave road / Dig up road**: move a road that crosses your land. Every end of the road must stay connected. To close a road completely, ask City Hall.
   Your house keeps its place in the world while the plot's edges move around it.
+  In build mode your plot is outlined, nearby plots show faintly, and public road tiles on your land are shaded.
 - **Public places:** the Town Square, City Hall, Willow Park (a lake, a gazebo and benches) and the Harvest Fair (a pumpkin patch, corn rows and market stalls).
 - **Seasons follow the real calendar.** From September to November the trees turn red and gold, leaves cover the ground and pumpkins fill the fair.
   In October the village decorates for Halloween with jack-o'-lanterns, hay bales, bubbling cauldrons and a spooky graveyard. Fall decorations are also for sale in build mode.
@@ -60,7 +61,7 @@ You can also befriend villagers whose personalities change based on how you trea
   The server setting `CHEATS` in `worker/wrangler.jsonc` controls who can use cheats: `all`, `admins` (only the usernames listed in `ADMINS`) or `off`.
 - **Character creator** in the Stardew style: roll the dice, turn the preview, pick a build, then skin, hair (22 styles, from swept spikes and emo fringes to curls and long waves), shirt (20 designs) and accessory (glasses, beards, hats and more) with the arrows.
   Sliders set eye, hair and pants colour, and you name yourself, your farm and your favourite thing. Change your look later from **👤 Me → Change look**.
-  Choose a cat or a dog under **Animal Preference** (tap it again for another breed). Your pet follows you everywhere (indoors and upstairs too), sits when you stop, and loves being petted. From 10 PM to 6 AM it sleeps at home, on its **Pet Bed** if you've bought one, and rejoins you in the morning.
+  Choose a cat or a dog under **Animal Preference** (tap it again for another breed). Your pet follows you everywhere (indoors and upstairs too), sits when you stop, and loves being petted. While you're home it wanders around the house. From 10 PM to 6 AM it sleeps at home, on its **Pet Bed** if you've bought one, and rejoins you in the morning.
   Villagers and players are Stardew-style pixel sprites with four walking directions, and NPCs show a portrait when you talk to them.
 - **Accounts.** Sign up with email and password, and log in with either your username or email. Your plot follows you to any device.
   "Play now" starts you as a guest; signing up later keeps the guest's plot, coins and friendships.
@@ -123,6 +124,7 @@ Players can also change the server under **Server** on the join screen.
 |                 | Desktop                                       | Phone                              |
 |-----------------|-----------------------------------------------|------------------------------------|
 | Walk            | WASD / arrows (relative to the camera)        | drag anywhere (virtual joystick)   |
+| Run             | hold Shift while walking                      | drag the joystick far out          |
 | Camera          | middle-drag to orbit, right-drag to pan, Q / E to turn, wheel to zoom | two-finger drag to pan, twist to rotate, pinch to zoom, ⟲ ⟳ + − buttons |
 | Talk / interact | Enter, or click an NPC                        | tap the action button or the NPC   |
 | Build mode      | B · R rotate · V walls · PgUp/PgDn floors · WASD or right-drag to pan | two-finger drag to pan |

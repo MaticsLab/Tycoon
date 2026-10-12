@@ -234,7 +234,7 @@ export class View {
     const g = this.ground();
     const along = a.vec[0] * g.rx + a.vec[1] * g.rz, away = a.vec[0] * g.fx + a.vec[1] * g.fz;
     const dir = Math.abs(along) > Math.abs(away) * 1.05 ? (along > 0 ? 3 : 2) : away > 0 ? 1 : 0;
-    const frame = moving ? Math.floor(now / (pet ? 100 : 130)) % 4 : 0;
+    const frame = moving ? Math.floor(now / (pet ? 100 : moving === 'run' ? 80 : 130)) % 4 : 0;
     let spr;
     if (pet) spr = petSprite(pet.idx, dir, frame, pet.sit);
     else {
