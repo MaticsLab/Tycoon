@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#2d5a3d" />
+  <meta name="description" content="A cozy multiplayer village: claim a plot, build your home, grow crops and befriend the villagers." />
   <title>Tycoon Village</title>
   <link rel="stylesheet" href="/src/style.css" />
 </head>
@@ -13,17 +14,37 @@
   <div id="join" class="panel-screen">
     <div class="card">
       <h1>Tycoon Village</h1>
-      <p class="sub">Claim a plot. Build your home. Grow your garden. Meet your neighbours.</p>
-      <label>Your name
-        <input id="name" maxlength="16" autocomplete="off" placeholder="Villager" />
-      </label>
-      <div class="label">Shirt colour</div>
-      <div id="colors"></div>
+      <p class="sub">Claim a plot. Build your home. Grow your garden. Befriend the villagers.</p>
+
+      <div id="saved" hidden>
+        <button id="continue" class="primary">Continue as <span id="savedname"></span></button>
+        <button id="switch" class="link">Log in to a different account</button>
+      </div>
+
+      <div id="fresh">
+        <div class="seg" id="modes">
+          <button data-mode="guest" class="sel">Play now</button>
+          <button data-mode="login">Log in</button>
+          <button data-mode="register">Sign up</button>
+        </div>
+        <div id="cred" hidden>
+          <label data-for="login">Username or email <input id="login" maxlength="120" autocomplete="username" autocapitalize="off" spellcheck="false" /></label>
+          <label data-for="register">Email <input id="email" type="email" maxlength="120" autocomplete="email" autocapitalize="off" spellcheck="false" /></label>
+          <label data-for="register">Username <input id="username" maxlength="16" autocomplete="username" autocapitalize="off" spellcheck="false" /></label>
+          <label>Password <input id="password" type="password" maxlength="128" autocomplete="current-password" /></label>
+        </div>
+        <div id="look">
+          <label>Your name <input id="name" maxlength="16" autocomplete="off" placeholder="Villager" /></label>
+          <div class="label">Shirt colour</div>
+          <div id="colors"></div>
+        </div>
+        <p id="modehint" class="hint">Jump straight in. You can save your progress to an account any time from the 👤 menu.</p>
+        <button id="enter" class="primary">Enter the world</button>
+      </div>
       <details>
         <summary>Server</summary>
         <input id="server" autocomplete="off" spellcheck="false" />
       </details>
-      <button id="enter" class="primary">Enter the world</button>
       <div id="joinerr"></div>
     </div>
   </div>
@@ -37,8 +58,10 @@
     </div>
     <div id="side">
       <button id="btn-build" title="Build (B)">🔨<small>Build</small></button>
+      <button id="btn-bag" title="Bag (I)">🎒<small>Bag</small></button>
       <button id="btn-home" title="Go home">🏠<small>Home</small></button>
       <button id="btn-chat" title="Chat (Enter)">💬<small>Chat</small></button>
+      <button id="btn-me" title="Account">👤<small>Me</small></button>
     </div>
     <button id="action" hidden></button>
     <div id="chatlog"></div>
@@ -46,11 +69,45 @@
       <input id="chatinput" maxlength="120" autocomplete="off" placeholder="Say something…" />
       <button>Send</button>
     </form>
+
     <div id="tray" hidden>
       <div id="tabs"></div>
+      <div id="traybtns">
+        <button id="btn-rotate" title="Rotate (R)">↻ Rotate</button>
+        <button id="btn-done" class="primary">Done</button>
+      </div>
       <div id="items"></div>
-      <button id="btn-done" class="primary">Done</button>
     </div>
+
+    <div id="npcpanel" class="sheet" hidden>
+      <div class="sheet-head">
+        <div>
+          <div id="npc-name"></div>
+          <div id="npc-role" class="muted"></div>
+        </div>
+        <button id="npc-close" class="x" aria-label="Close">✕</button>
+      </div>
+      <div id="npc-status"></div>
+      <div id="npc-log"></div>
+      <div id="npc-extra" hidden></div>
+      <form id="npc-form">
+        <input id="npc-input" maxlength="160" autocomplete="off" placeholder="Say something…" />
+        <button>Say</button>
+      </form>
+      <div class="row">
+        <button id="npc-shop" class="chip">🛍️ Shop</button>
+        <button id="npc-gift" class="chip">🎁 Give a gift</button>
+      </div>
+    </div>
+
+    <div id="modal" class="sheet" hidden>
+      <div class="sheet-head">
+        <div id="modal-title"></div>
+        <button id="modal-close" class="x" aria-label="Close">✕</button>
+      </div>
+      <div id="modal-body"></div>
+    </div>
+
     <div id="toast"></div>
   </div>
 

@@ -1,8 +1,7 @@
-// World layout, tile types, collision and clock. Shared by server and client so
-// both sides agree on the map without sending it over the wire.
-import { ITEMS } from './catalog.js';
+// World layout, tile types and clock. Shared by server and client so both sides
+// agree on the map without sending it over the wire.
 
-export const WORLD_VERSION = 1;
+export const WORLD_VERSION = 2;
 export const TILE = 16;
 export const MAP_W = 84;
 export const MAP_H = 70;
@@ -12,14 +11,20 @@ export const PLAYER_SPEED = 76; // world px per second
 
 export const T = {
   GRASS: 0, PATH: 1, WATER: 2, TREE: 3, LAWN: 4, FENCE: 5, GATE: 6,
-  FLOWERS: 7, SAND: 8, PLAZA: 9, FOUNTAIN: 10, ROCK: 11, TALLGRASS: 12,
+  FLOWERS: 7, SAND: 8, PLAZA: 9, FOUNTAIN: 10, ROCK: 11, TALLGRASS: 12, SHOP: 13,
 };
-const SOLID_TILES = new Set([T.WATER, T.TREE, T.FENCE, T.FOUNTAIN, T.ROCK]);
+export const SOLID_TILES = new Set([T.WATER, T.TREE, T.FENCE, T.FOUNTAIN, T.ROCK, T.SHOP]);
 
 const COL_X = [4, 24, 44, 64];
 const ROW_Y = [4, 20, 36, 52];
 // Middle row, middle two columns is the town square instead of plots.
 const SQUARE = { x: 24, y: 20, w: 36, h: 12 };
+
+// Shop buildings on the north side of the plaza. The keeper stands at the counter (door).
+export const SHOPS = [
+  { id: 'rosa', name: "Rosa's Market", x: 33, y: 20, w: 5, h: 3, roof: '#c0392b', awning: ['#e74c3c', '#fdf2e0'] },
+  { id: 'otto', name: "Otto's Furniture", x: 46, y: 20, w: 5, h: 3, roof: '#2c5d8a', awning: ['#3d7cb8', '#fdf2e0'] },
+];
 
 function mulberry32(a) {
   return function () {
@@ -72,6 +77,7 @@ export function generateWorld(seed = 20261012) {
     set(x, y, (x + y) % 3 === 0 ? T.FLOWERS : T.GRASS);
   }
   for (const [x, y] of [[53, 21], [58, 21], [53, 30], [58, 30], [55, 25]]) set(x, y, T.TREE);
+  for (const sh of SHOPS) fill(sh.x, sh.y, sh.w, sh.h, T.SHOP);
 
   // Plots.
   const plots = [];
@@ -106,36 +112,7 @@ export function generateWorld(seed = 20261012) {
   }
 
   const spawn = { x: 41.5 * TILE, y: 30 * TILE };
-  return { tiles, plotAt, plots, spawn, w: MAP_W, h: MAP_H };
-}
-
-export const key = (lx, ly) => `${lx},${ly}`;
-
-// Interior (buildable) local coordinates exclude the fence ring.
-export const inInterior = (lx, ly) => lx >= 1 && ly >= 1 && lx <= PLOT_W - 2 && ly <= PLOT_H - 2;
-
-// plotStates: array indexed by plot id of { obj: { "x,y": {t} } }.
-export function tileSolid(world, plotStates, tx, ty) {
-  if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) return true;
-  const i = ty * MAP_W + tx;
-  if (SOLID_TILES.has(world.tiles[i])) return true;
-  const pi = world.plotAt[i];
-  if (pi >= 0) {
-    const ps = plotStates[pi];
-    const p = world.plots[pi];
-    const o = ps && ps.obj[key(tx - p.x, ty - p.y)];
-    if (o && ITEMS[o.t] && ITEMS[o.t].solid) return true;
-  }
-  return false;
-}
-
-// (x, y) is the centre of the player's feet in world pixels.
-export function canStand(world, plotStates, x, y) {
-  const pts = [[x - 5, y - 5], [x + 5, y - 5], [x - 5, y - 0.5], [x + 5, y - 0.5]];
-  for (const [px, py] of pts) {
-    if (tileSolid(world, plotStates, Math.floor(px / TILE), Math.floor(py / TILE))) return false;
-  }
-  return true;
+  return { tiles, plotAt, plots, shops: SHOPS, spawn, w: MAP_W, h: MAP_H };
 }
 
 export function plotIdAtPixel(world, x, y) {

@@ -2,12 +2,15 @@
   "name": "tycoon",
   "private": true,
   "type": "module",
-  "workspaces": ["server", "client"],
+  "workspaces": [
+    "worker",
+    "client"
+  ],
   "scripts": {
-    "dev": "npm run dev -w server & npm run dev -w client",
     "build": "npm run build -w client",
-    "start": "npm start -w server",
-    "test": "npm test -w server",
+    "dev": "npm run build && npm run dev -w worker",
+    "deploy": "npm run build && npm run deploy -w worker",
+    "test": "npm test -w worker",
     "android": "npm run android -w client"
   }
 }
