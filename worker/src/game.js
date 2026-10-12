@@ -1,8 +1,8 @@
-import { generateWorld, TILE, PLAYER_SPEED, WORLD_VERSION, STARTER_PLOTS } from '../../shared/world.js';
+import { generateWorld, applyRoads, TILE, PLAYER_SPEED, WORLD_VERSION, STARTER_PLOTS, MAP_W } from '../../shared/world.js';
 import { ITEMS, GOODS, CROPS, START_COINS, cropStage, itemName } from '../../shared/catalog.js';
 import {
   key, inInterior, tilesOf, objAt, occChanged, placementError, canStand, levelView,
-  edgeKey, wallError, wallTouchesFeet, roofError, roofAt, gateTiles, indexPlots,
+  edgeKey, parseEdge, wallError, wallTouchesFeet, roofError, roofAt, indexPlots, roadIn, roadEditError, plotEntrance,
   landError, contentFits, shiftContent, mergedRect, splitRects, hasContent, LAND_PRICE, stepLevel,
 } from '../../shared/plot.js';
 import { NPCS } from '../../shared/npcs.js';
@@ -22,13 +22,16 @@ const TALK_RANGE = TILE * 3.5;
 //                   profile.id is a separate public id that other players see.
 //   npc:<id>        NPC mind
 //   gossip          shared village news
+//   roads           player road edits { add: [tile index], del: [tile index] }
 export class Game {
   constructor(saved = {}, { now = () => Date.now(), ai = null, cheats = 'all', admins = [] } = {}) {
     this.now = now;
     this.cheatsMode = cheats; // 'all' | 'admins' | 'off'
     this.admins = admins;
     this.ai = ai; // async (messages, schema, parse) => parsed reply or null; null ai = scripted NPCs
-    this.world = generateWorld();
+    this.world = generateWorld(undefined, { date: new Date(this.now()) });
+    this.roads = { add: saved.roads?.add || [], del: saved.roads?.del || [] };
+    applyRoads(this.world, this.roads);
     this.epoch = saved.meta?.epoch || this.now();
     this.profiles = saved.profiles || {}; // user id -> profile
     this.gossip = saved.gossip || [];
@@ -48,6 +51,16 @@ export class Game {
       this.freshLand = true;
     }
     indexPlots(this.world, this.plots);
+    // v3 -> v4: roads got wider and plots lost their fences. Plots keep their place;
+    // anything now standing on a public road is packed up and refunded.
+    if (sameMap && (saved.meta?.version || 0) < 4) {
+      for (const plot of Object.values(this.plots)) {
+        const refund = clearRoadContent(this.world, plot);
+        const owner = refund && Object.values(this.profiles).find((pr) => pr.id === plot.owner);
+        if (owner) { owner.coins += refund; this.dirtyLater = [...(this.dirtyLater || []), `profile:${owner.uid}`]; }
+        this.dirtyLater = [...(this.dirtyLater || []), `plot:${plot.id}`, 'meta'];
+      }
+    }
     this.npcs = {};
     for (const id of Object.keys(NPCS)) this.npcs[id] = new Npc(id, saved.npcs?.[id]);
     this.sessions = new Map(); // player id -> session
@@ -65,6 +78,7 @@ export class Game {
       const [kind, id] = [k.slice(0, k.indexOf(':')), k.slice(k.indexOf(':') + 1)];
       if (k === 'meta') out[k] = { epoch: this.epoch, version: WORLD_VERSION, nextPlotId: this.nextPlotId };
       else if (k === 'gossip') out[k] = this.gossip;
+      else if (k === 'roads') out[k] = this.roads;
       else if (kind === 'plot') out[k] = this.plots[id] ?? null;
       else if (kind === 'profile') out[k] = this.profiles[id] ?? null;
       else if (kind === 'npc') out[k] = this.npcs[id].s;
@@ -81,6 +95,7 @@ export class Game {
       const kind = i < 0 ? k : k.slice(0, i), id = k.slice(i + 1);
       if (kind === 'meta') saved.meta = v;
       else if (kind === 'gossip') saved.gossip = v;
+      else if (kind === 'roads') saved.roads = v;
       else if (kind === 'plot') saved.plots[id] = v;
       else if (kind === 'profile') saved.profiles[id] = v;
       else if (kind === 'npc') saved.npcs[id] = v;
@@ -133,6 +148,7 @@ export class Game {
       case 'resizePlot': return this.resizePlot(s, msg);
       case 'mergePlot': return this.mergePlot(s, msg);
       case 'splitPlot': return this.splitPlot(s, msg);
+      case 'road': return this.road(s, msg);
       case 'cheat': return this.cheat(s, msg);
       case 'setLook': return this.setLook(s, msg);
       case 'harvest': return this.harvest(s, msg);
@@ -246,6 +262,7 @@ export class Game {
       players: [...this.sessions.values()].filter((o) => o !== s).map((o) => this.publicPlayer(o)),
       npcs: Object.values(this.npcs).map((n) => ({ id: n.id, x: n.x, y: n.y, dir: n.dir })),
       plots: Object.values(this.plots),
+      roads: this.roads,
     });
     this.broadcast({ type: 'join', player: this.publicPlayer(s) }, s);
     if (profile.plotId != null) this.broadcast({ type: 'plot', plot: this.plots[profile.plotId] });
@@ -341,7 +358,7 @@ export class Game {
     if (![0, 1, 2, 3].includes(r)) r = 0;
     level = this.lvl(level);
     const def = ITEMS[item];
-    const err = placementError(plot, lx, ly, item, r, level);
+    const err = placementError(plot, lx, ly, item, r, level, this.world);
     if (err) return s.send({ type: 'error', msg: err });
     const view = levelView(plot, level);
     const k = key(lx, ly);
@@ -381,7 +398,7 @@ export class Game {
     level = this.lvl(level);
     const view = levelView(plot, level);
     const tiles = [];
-    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) if (!placementError(plot, x + i, y + j, item, 0, level)) tiles.push(key(x + i, y + j));
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) if (!placementError(plot, x + i, y + j, item, 0, level, this.world)) tiles.push(key(x + i, y + j));
     if (!tiles.length) return;
     const cost = s.cheats.build ? 0 : tiles.reduce((sum, k) => sum + def.price - (view.floor[k] ? ITEMS[view.floor[k]].price : 0), 0);
     if (cost > s.profile.coins) return s.send({ type: 'error', msg: `Not enough coins (needs 🪙${cost})` });
@@ -405,7 +422,7 @@ export class Game {
       const k = edgeKey(level, d, x, y);
       if (seen.has(k)) continue;
       seen.add(k);
-      const err = wallError(plot, level, d, x, y);
+      const err = wallError(plot, level, d, x, y, this.world);
       if (err) return s.send({ type: 'error', msg: err });
       const old = plot.walls[k];
       if (old?.m === m) continue;
@@ -445,7 +462,7 @@ export class Game {
     if (!plot || def?.layer !== 'roof') return;
     level = this.lvl(level);
     plot.roofs ||= [];
-    const err = roofError(plot, x, y, w, h, level) || (plot.roofs.length >= 12 ? 'Too many roofs' : null);
+    const err = roofError(plot, x, y, w, h, level, this.world) || (plot.roofs.length >= 12 ? 'Too many roofs' : null);
     if (err) return s.send({ type: 'error', msg: err });
     const cost = s.cheats.build ? 0 : def.price * w * h;
     if (cost > s.profile.coins) return s.send({ type: 'error', msg: `Not enough coins (needs 🪙${cost})` });
@@ -515,7 +532,7 @@ export class Game {
     for (const id of removed) { this.mark(`plot:${id}`); this.broadcast({ type: 'plotRemoved', id }); }
     for (const p of changed) this.plotChanged(p);
     this.mark('meta');
-    // Anyone now standing inside a new fence line gets moved out to the road.
+    // Anyone now stuck (inside a wall line, say) gets moved out to the road.
     for (const o of this.sessions.values()) {
       if (!canStand(this.world, this.plots, o.x, o.y, o.level || 0)) this.home(o);
     }
@@ -526,7 +543,7 @@ export class Game {
     const plot = this.ownPlot(s, plotId);
     if (!plot) return;
     const rect = { x, y, w, h };
-    const err = landError(this.plots, plot.id, rect) || (contentFits(plot, rect) ? null : 'Your house wouldn’t fit — move things first');
+    const err = landError(this.plots, plot.id, rect, this.world) || (contentFits(plot, rect) ? null : 'Your house wouldn’t fit — move things first');
     if (err) return s.send({ type: 'error', msg: err });
     const ix = Math.max(0, Math.min(x + w, plot.x + plot.w) - Math.max(x, plot.x));
     const iy = Math.max(0, Math.min(y + h, plot.y + plot.h) - Math.max(y, plot.y));
@@ -546,13 +563,13 @@ export class Game {
     if (o.owner) return s.send({ type: 'error', msg: 'That plot belongs to someone' });
     if (hasContent(o)) return s.send({ type: 'error', msg: 'That plot isn’t empty' });
     const rect = mergedRect(plot, o);
-    if (!rect) return s.send({ type: 'error', msg: 'Only plots side by side with the same depth can merge' });
+    if (!rect) return s.send({ type: 'error', msg: 'Plots must line up exactly to merge' });
     const rest = Object.fromEntries(Object.entries(this.plots).filter(([id]) => +id !== o.id));
-    const err = landError(rest, plot.id, rect);
+    const err = landError(rest, plot.id, rect, this.world);
     if (err) return s.send({ type: 'error', msg: err });
     const cost = this.landCost(s, o.w * o.h);
     if (cost > s.profile.coins) return s.send({ type: 'error', msg: `Not enough coins (needs 🪙${cost})` });
-    shiftContent(plot, plot.x - rect.x, 0);
+    shiftContent(plot, plot.x - rect.x, plot.y - rect.y);
     Object.assign(plot, rect);
     delete this.plots[o.id];
     if (cost) this.coins(s, -cost);
@@ -577,6 +594,31 @@ export class Game {
     const fresh = blankPlot(this.nextPlotId++, sold);
     this.plots[fresh.id] = fresh;
     this.landChanged([plot, fresh]);
+  }
+
+  // ----- roads -----
+  // Pave (on) or dig up (off) road tiles on your own plot. Roads stay public, so a
+  // road crossing your land can be moved but not cut (see roadEditError).
+  road(s, { plotId, tiles, on }) {
+    const plot = this.ownPlot(s, plotId);
+    if (!plot || !Array.isArray(tiles) || tiles.length > 400) return;
+    const list = tiles.filter((t) => Array.isArray(t) && t.length === 2 && t.every(Number.isInteger));
+    const err = roadEditError(this.world, plot, list, !!on);
+    if (err) return s.send({ type: 'error', msg: err });
+    const add = new Set(this.roads.add), del = new Set(this.roads.del);
+    for (const [lx, ly] of list) {
+      const i = (plot.y + ly) * MAP_W + plot.x + lx;
+      if (on) { if (this.world.baseRoads[i]) del.delete(i); else add.add(i); }
+      else { if (this.world.baseRoads[i]) del.add(i); else add.delete(i); }
+    }
+    this.setRoads({ add: [...add], del: [...del] });
+  }
+
+  setRoads(roads) {
+    this.roads = roads;
+    applyRoads(this.world, roads);
+    this.mark('roads');
+    this.broadcast({ type: 'roads', roads });
   }
 
   // ----- cheat console (Settings → Cheats) -----
@@ -645,7 +687,7 @@ export class Game {
   home(s) {
     const id = s.profile.plotId;
     const p = id != null ? this.plots[id] : null;
-    const target = p ? { x: (p.x + gateTiles(p)[1]) * TILE, y: (p.y + p.h) * TILE + 12 } : this.world.spawn;
+    const target = p ? plotEntrance(this.world, p) : this.world.spawn;
     s.x = target.x; s.y = target.y; s.level = 0; s.lastMove = this.now();
     s.send({ type: 'pos', x: s.x, y: s.y, level: 0 });
   }
@@ -808,6 +850,34 @@ export class Game {
 
 function blankPlot(id, r) {
   return { id, x: r.x, y: r.y, w: r.w, h: r.h, owner: null, ownerName: null, farm: null, floor: {}, obj: {}, l1: { floor: {}, obj: {} }, walls: {}, roofs: [] };
+}
+
+// Remove (and price up) everything on a plot that sits on a public road tile.
+function clearRoadContent(world, plot) {
+  let refund = 0;
+  const onRoad = (x, y) => inInterior(plot, x, y) && roadIn(world, plot, x, y);
+  for (const view of [plot, plot.l1]) {
+    if (!view) continue;
+    for (const k of Object.keys(view.floor)) {
+      const [x, y] = k.split(',').map(Number);
+      if (onRoad(x, y)) { refund += ITEMS[view.floor[k]]?.price || 0; delete view.floor[k]; }
+    }
+    for (const [k, o] of Object.entries(view.obj)) {
+      const [x, y] = k.split(',').map(Number);
+      if (tilesOf(o.t, o.r || 0, x, y).some(([tx, ty]) => onRoad(tx, ty))) { refund += ITEMS[o.t]?.price || 0; delete view.obj[k]; }
+    }
+  }
+  for (const [k, w] of Object.entries(plot.walls)) {
+    const e = parseEdge(k);
+    const [ax, ay] = e.d === 'h' ? [e.x, e.y - 1] : [e.x - 1, e.y];
+    if (onRoad(ax, ay) || onRoad(e.x, e.y)) { refund += (ITEMS[w.m]?.price || 0) + (ITEMS[w.f]?.price || 0); delete plot.walls[k]; }
+  }
+  plot.roofs = plot.roofs.filter((rf) => {
+    for (let j = 0; j < rf.h; j++) for (let i = 0; i < rf.w; i++) if (onRoad(rf.x + i, rf.y + j)) { refund += (ITEMS[rf.m]?.price || 0) * rf.w * rf.h; return false; }
+    return true;
+  });
+  occChanged(plot);
+  return refund;
 }
 
 function normalizePlot(p) {

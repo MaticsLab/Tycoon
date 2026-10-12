@@ -3,7 +3,7 @@
 // Sims cutaway, gable roofs, furniture models and pixel-art cards for plants/crops.
 import * as THREE from 'three';
 import { ITEMS, cropStage } from '@shared/catalog.js';
-import { parseEdge, levelView, footprint, gateTiles, LEVELS, LEVEL_H } from '@shared/plot.js';
+import { parseEdge, levelView, footprint, LEVELS, LEVEL_H } from '@shared/plot.js';
 import { wallTex, floorTex, roofTex, woodTex, signTex, WALL_H } from './textures.js';
 import { Batch, boxAt, gableRoof } from './geom.js';
 import { makeItem, hasModel, BILLBOARD } from './models.js';
@@ -43,27 +43,19 @@ function lowered(plot, e, level, cut) {
   return !!view.floor[`${far[0]},${far[1]}`];
 }
 
-// The wooden fence around a plot, with a 2-tile gate in the middle of the south side.
-function fence(batch, plot) {
-  const wood = mat('fencewood', () => lambert({ map: woodTex() }));
-  const cap = mat('fencecap', () => lambert({ color: '#c99363' }));
+// Plots have no fences. Land for sale gets little survey stakes at its corners.
+function stakes(batch, plot) {
+  const wood = mat('stake', () => lambert({ map: woodTex() }));
+  const flag = mat('stakeflag', () => lambert({ color: '#f39c12' }));
   const { x, y, w, h } = plot;
-  const [g0, g1] = gateTiles(plot);
-  const post = (px, pz, tall = false) => {
-    batch.add(wood, boxAt(px - 0.08, 0, pz - 0.08, 0.16, tall ? 1.05 : 0.78, 0.16));
-    batch.add(cap, boxAt(px - 0.1, tall ? 1.05 : 0.78, pz - 0.1, 0.2, 0.06, 0.2));
-  };
-  const railX = (x0, x1, z) => { for (const hh of [0.28, 0.56]) batch.add(wood, boxAt(x0, hh, z - 0.04, x1 - x0, 0.08, 0.08)); };
-  const railZ = (z0, z1, xx) => { for (const hh of [0.28, 0.56]) batch.add(wood, boxAt(xx - 0.04, hh, z0, 0.08, 0.08, z1 - z0)); };
-  for (let i = 0; i <= w; i++) { post(x + i, y); if (i < g0 || i > g1 + 1) post(x + i, y + h); }
-  for (let j = 1; j < h; j++) { post(x, y + j); post(x + w, y + j); }
-  post(x + g0, y + h, true); post(x + g1 + 1, y + h, true);
-  railX(x, x + w, y);
-  railX(x, x + g0, y + h); railX(x + g1 + 1, x + w, y + h);
-  railZ(y, y + h, x); railZ(y, y + h, x + w);
+  for (const [px, pz] of [[x, y], [x + w, y], [x, y + h], [x + w, y + h]]) {
+    batch.add(wood, boxAt(px - 0.05, 0, pz - 0.05, 0.1, 0.55, 0.1));
+    batch.add(flag, boxAt(px + 0.05, 0.38, pz - 0.02, 0.22, 0.14, 0.04));
+  }
 }
 
-// opts: { cut: { mode: 'up'|'cut'|'down', fx, fz }, maxLevel, roofs: bool, cards: BillboardSet, now }
+// opts: { cut: { mode: 'up'|'cut'|'down', fx, fz }, maxLevel, roofs: bool, cards: BillboardSet, now,
+//         entrance: { x, z } (tiles) where the plot meets the road }
 // Returns { group, lights: [{ x, y, z, kind }] }.
 export function buildPlot(plot, opts) {
   const group = new THREE.Group();
@@ -71,7 +63,7 @@ export function buildPlot(plot, opts) {
   const ox = plot.x, oz = plot.y;
   const batch = new Batch();
   const maxLevel = opts.maxLevel ?? LEVELS - 1;
-  fence(batch, plot);
+  if (!plot.owner) stakes(batch, plot);
 
   // Floors
   for (let l = 0; l <= maxLevel; l++) {
@@ -188,12 +180,15 @@ export function buildPlot(plot, opts) {
       if (o.t === 'lamp') lights.push({ x: ox + lx + 0.5, y: y + 1.3, z: oz + ly + 0.5, kind: 'lamp' });
       else if (o.t === 'lamppost') lights.push({ x: ox + lx + 0.5, y: y + 2.2, z: oz + ly + 0.5, kind: 'post' });
       else if (o.t === 'fireplace') lights.push({ x: ox + lx + w / 2, y: y + 0.4, z: oz + ly + h / 2 + 0.6, kind: 'fire' });
+      else if (o.t === 'jackolantern') lights.push({ x: ox + lx + 0.5, y: y + 0.5, z: oz + ly + 0.8, kind: 'pumpkin' });
+      else if (o.t === 'cauldron') lights.push({ x: ox + lx + 0.5, y: y + 0.9, z: oz + ly + 0.5, kind: 'cauldron' });
     }
   }
 
-  // "For sale" sign by the gate
+  // "For sale" sign where the plot meets the road
   if (!plot.owner) {
-    const sx = ox + gateTiles(plot)[0] - 1.5, sz = oz + plot.h + 0.3;
+    const e = opts.entrance || { x: ox + plot.w / 2, z: oz + plot.h };
+    const sx = Math.min(Math.max(e.x - 1.5, ox), ox + plot.w - 1), sz = Math.min(Math.max(e.z - 0.8, oz + 0.2), oz + plot.h - 0.3);
     const s = new Batch();
     s.add(doorMat(), boxAt(sx + 0.45, 0, sz, 0.1, 0.9, 0.1));
     s.build(group);

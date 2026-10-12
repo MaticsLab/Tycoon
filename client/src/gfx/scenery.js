@@ -1,8 +1,9 @@
 // The static village in 3D: terrain (the pixel-art ground painted in sprites.js),
 // fences, rocks, trees, the fountain, plaza lamps and the two shops.
 import * as THREE from 'three';
-import { T, MAP_W, MAP_H, SHOPS, SQUARE, FOUNTAIN, PLAZA_LAMPS, tileHash } from '@shared/world.js';
-import { renderGround, treeSprite, treeKind, r, px, disc } from '../sprites.js';
+import { T, MAP_W, MAP_H, SHOPS, SQUARE, FOUNTAIN, PLAZA_LAMPS, HALL, tileHash } from '@shared/world.js';
+import { ITEMS } from '@shared/catalog.js';
+import { renderGround, treeSprite, treeKind, objectSprite, r, px, disc } from '../sprites.js';
 import { canvasTex, paintTex, wallTex, roofTex, woodTex, stoneTex, signTex, WALL_H } from './textures.js';
 export { woodTex };
 import { Batch, boxAt, gableRoof } from './geom.js';
@@ -48,7 +49,13 @@ export function treeCards(world, set) {
     const v = tileHash(x * 3, y * 7);
     // The town square gets blossom trees.
     const inSquare = x >= SQUARE.x && x < SQUARE.x + SQUARE.w && y >= SQUARE.y && y < SQUARE.y + SQUARE.h;
-    const spr = treeSprite(v, inSquare ? 'blossom' : treeKind(v));
+    let kind = inSquare ? 'blossom' : treeKind(v);
+    // In fall, most broadleaf trees turn red, orange or gold.
+    if (world.season?.fall && kind !== 'pine') {
+      const f = tileHash(x * 11 + 5, y * 3 + 1);
+      kind = inSquare ? (f < 0.5 ? 'maple' : 'amber') : f < 0.3 ? 'maple' : f < 0.55 ? 'amber' : f < 0.75 ? 'gold' : kind;
+    }
+    const spr = treeSprite(v, kind);
     // Trees are drawn 1.5x so they tower over houses and villagers.
     set.add(spr, 8, 14, x + 0.5, 0, y + 0.55, { shadow: 1.5, scale: 1.5 });
   }
@@ -158,5 +165,84 @@ export function buildShop(shop) {
     grp.add(makeItem('dresser', 0, x1 - 1.1, 0, z1 + 0.05));
   }
   goods.build(grp);
+  return grp;
+}
+
+// ---------- public props & City Hall ----------
+// Decorations in the public places (benches, lamps, Halloween pumpkins...): 3D models,
+// pixel cards for scarecrows, plus corn on the fair's corn tiles. Returns { group, lights }.
+export function buildDecor(world, cards) {
+  const group = new THREE.Group();
+  const lights = [];
+  for (const d of world.decor) {
+    const [w, h] = ITEMS[d.t]?.size || [1, 1];
+    const [fw, fh] = d.r % 2 ? [h, w] : [w, h];
+    if (d.t === 'scarecrow') cards.add(objectSprite('scarecrow', 0, 0), 8, 14, d.x + 0.5, 0, d.y + 0.65, { shadow: 0.5 });
+    else group.add(makeItem(d.t, d.r || 0, d.x, 0, d.y));
+    if (d.t === 'lamppost') lights.push({ x: d.x + 0.5, y: 2.2, z: d.y + 0.5, kind: 'post' });
+    else if (d.t === 'jackolantern') lights.push({ x: d.x + 0.5, y: 0.5, z: d.y + fh / 2 + 0.3, kind: 'pumpkin' });
+    else if (d.t === 'cauldron') lights.push({ x: d.x + 0.5, y: 0.9, z: d.y + 0.5, kind: 'cauldron' });
+  }
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
+    if (world.tiles[y * MAP_W + x] === T.CORN) group.add(makeItem('cornstalks', 0, x, 0, y));
+  }
+  return { group, lights };
+}
+
+const hallSign = () => signTex('CITY HALL', 80, 18);
+const clockTex = () => paintTex('clockface', 16, 16, (c) => {
+  disc(c, 8, 8, 7, 7, '#4a2e18'); disc(c, 8, 8, 6, 6, '#f4f1ea');
+  for (const [x, y] of [[8, 2], [14, 8], [8, 14], [2, 8]]) px(c, x, y, '#4a2e18');
+  r(c, 8, 4, 1, 4, '#2a1a12'); r(c, 8, 8, 3, 1, '#2a1a12');
+}, false);
+
+// A two-storey stone hall with a white portico, a clock tower and the town flag.
+export function buildCityHall() {
+  const grp = new THREE.Group();
+  const b = new Batch();
+  const stone = lambert({ map: wallTex('wall_stone') });
+  const plaster = lambert({ map: wallTex('wall_white') });
+  const roofM = lambert({ map: roofTex('roof_blue') });
+  const trim = lambert({ color: '#4a2e18' });
+  const white = lambert({ color: '#f4f1ea' });
+  const found = lambert({ map: stoneTex() });
+  const x0 = HALL.x + 0.2, x1 = HALL.x + HALL.w - 0.2, z0 = HALL.y + 0.2, z1 = HALL.y + HALL.h - 1.6;
+  const H = WALL_H * 2;
+  b.add(found, boxAt(x0 - 0.1, 0, z0 - 0.1, x1 - x0 + 0.2, 0.3, z1 - z0 + 0.2));
+  b.add(stone, boxAt(x0, 0.3, z0, x1 - x0, WALL_H, z1 - z0));
+  b.add(plaster, boxAt(x0, 0.3 + WALL_H, z0, x1 - x0, WALL_H, z1 - z0));
+  b.add(trim, boxAt(x0 - 0.05, 0.3 + WALL_H - 0.08, z0 - 0.05, x1 - x0 + 0.1, 0.16, z1 - z0 + 0.1));
+  gableRoof(b, x0, z0, x1, z1, 0.3 + H, roofM, plaster, trim);
+  // Portico: steps, six columns and a pediment over the doors.
+  const cx = (x0 + x1) / 2, pw = 6;
+  for (let i = 0; i < 3; i++) b.add(found, boxAt(cx - pw / 2 - 0.3 + i * 0.15, 0, z1 + 1.3 - i * 0.4, pw + 0.6 - i * 0.3, 0.12 + i * 0.1, 0.45));
+  b.add(white, boxAt(cx - pw / 2, 0.3, z1, pw, 0.1, 1.3));
+  for (let i = 0; i < 6; i++) b.add(white, boxAt(cx - pw / 2 + 0.15 + i * (pw - 0.45) / 5, 0.4, z1 + 0.95, 0.3, H - 0.2, 0.3));
+  b.add(white, boxAt(cx - pw / 2 - 0.1, 0.2 + H, z1 - 0.05, pw + 0.2, 0.3, 1.45));
+  b.add(trim, boxAt(cx - pw / 2 - 0.1, 0.5 + H, z1 - 0.05, pw + 0.2, 0.06, 1.45));
+  // Clock tower
+  const tx = cx - 0.9, tz = z0 + 0.8;
+  b.add(plaster, boxAt(tx, 0.3 + H, tz, 1.8, 2.4, 1.8));
+  b.add(trim, boxAt(tx - 0.08, 2.7 + H, tz - 0.08, 1.96, 0.12, 1.96));
+  for (let i = 0; i < 4; i++) b.add(roofM, boxAt(tx - 0.1 + i * 0.25, 2.82 + H + i * 0.35, tz - 0.1 + i * 0.25, 2.0 - i * 0.5, 0.35, 2.0 - i * 0.5));
+  b.build(grp);
+  const plane = (tex, w, h, x, y, z) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), lambert({ map: tex, transparent: true, alphaTest: 0.5 }));
+    m.position.set(x, y, z); m.receiveShadow = true; grp.add(m); return m;
+  };
+  plane(clockTex(), 1.2, 1.2, cx, 1.6 + H, tz + 1.81);
+  plane(hallSign(), 3.4, 0.7, cx, 0.35 + H, z1 + 1.41);
+  // Doors and windows on the front wall
+  const door = paintTex('halldoor', 16, 24, (c) => {
+    r(c, 0, 0, 16, 24, '#4a2e18'); r(c, 1, 1, 6, 23, '#7a4a28'); r(c, 9, 1, 6, 23, '#7a4a28'); r(c, 2, 2, 4, 8, '#9fd8ef'); r(c, 10, 2, 4, 8, '#9fd8ef'); px(c, 7, 13, '#f5c542'); px(c, 8, 13, '#f5c542');
+  }, false);
+  plane(door, 1.4, 2.0, cx, 1.3, z1 + 0.012);
+  const win = paintTex('hallwin', 12, 16, (c) => {
+    r(c, 0, 0, 12, 16, '#f4f1ea'); r(c, 1, 1, 10, 14, '#7fb8d8'); r(c, 1, 1, 10, 4, '#b6e0f2'); r(c, 5, 1, 2, 14, '#f4f1ea'); r(c, 1, 7, 10, 2, '#f4f1ea');
+  }, false);
+  for (let i = 0; i < 4; i++) {
+    const wx = i < 2 ? x0 + 0.9 + i * 1.6 : x1 - 0.9 - (i - 2) * 1.6;
+    for (const wy of [1.5, 1.5 + WALL_H]) plane(win, 0.9, 1.2, wx, wy, z1 + 0.012);
+  }
   return grp;
 }

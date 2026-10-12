@@ -14,12 +14,18 @@ You can also befriend villagers whose personalities change based on how you trea
   - The camera orbits freely. Hold the **middle mouse button (scroll wheel) and drag** to rotate and tilt it, **right-drag** to move it anywhere, or turn in 90° steps with ⟲ ⟳ or Q / E. Zoom with + −, the mouse wheel or a pinch.
   - Distant textures are mip-mapped and the camera snaps to whole pixels, so the zoomed-out view stays steady instead of shimmering.
   - Sunlight casts shadows. At night, lamps, fireplaces and windows light up.
-- **Land you can reshape.** Plots are 24×18 to start, laid out along roads with open land between them.
-  The fence runs around the edge, with a gate onto the road. In build mode, the **🗺️ Land** tab lets you:
-  - **Resize**: drag your west, east or north fence. Growing costs 🪙2 per new tile.
-  - **Merge**: join the empty plot next door to yours.
+- **Land you can reshape.** Plots are open land with no fences, laid out along wide dirt roads with grassy verges.
+  A plot must touch a road and may cover one, but roads are always public: anyone can walk them and nothing can be built on them.
+  In build mode, the **🗺️ Land** tab lets you:
+  - **Resize**: drag any side of your plot. Growing costs 🪙2 per new tile.
+  - **Merge**: join an empty plot next door that lines up with yours.
   - **Split**: cut off an empty side, which goes up for sale as a new plot.
-  Your house keeps its place in the world while the fence moves around it.
+  - **Pave road / Dig up road**: move a road that crosses your land. Every end of the road must stay connected. To close a road completely, ask City Hall.
+  Your house keeps its place in the world while the plot's edges move around it.
+- **Public places:** the Town Square, City Hall, Willow Park (a lake, a gazebo and benches) and the Harvest Fair (a pumpkin patch, corn rows and market stalls).
+- **Seasons follow the real calendar.** From September to November the trees turn red and gold, leaves cover the ground and pumpkins fill the fair.
+  In October the village decorates for Halloween with jack-o'-lanterns, hay bales, bubbling cauldrons and a spooky graveyard. Fall decorations are also for sale in build mode.
+- **Village clock:** a day runs from 5:00 AM to 5:00 AM. The clock moves in 10-minute steps, about 6 real seconds each, and there are 112 days in a year.
 - **Sims-style build mode** on your own plot:
   - **Walls** sit on the grid lines between tiles. Drag to draw a wall, or use the **Room** tool to drag out four walls plus a floor at once. There are six wall materials.
   - **Doors and windows** go into walls: wood or French doors, archways, and normal or tall windows. Doors let people through; windows don't.
@@ -46,7 +52,7 @@ You can also befriend villagers whose personalities change based on how you trea
   The server setting `CHEATS` in `worker/wrangler.jsonc` controls who can use cheats: `all`, `admins` (only the usernames listed in `ADMINS`) or `off`.
 - **Character creator** in the Stardew style: roll the dice, turn the preview, pick a build, then skin, hair (16 styles), shirt (20 designs) and accessory (glasses, beards, hats and more) with the arrows.
   Sliders set eye, hair and pants colour, and you name yourself, your farm and your favourite thing. Change your look later from **👤 Me → Change look**.
-  Villagers and players are 16×32 pixel sprites with four walking directions, and NPCs show a portrait when you talk to them.
+  Villagers and players are cute chibi pixel sprites with four walking directions, and NPCs show a portrait when you talk to them.
 - **Accounts.** Sign up with email and password, and log in with either your username or email. Your plot follows you to any device.
   "Play now" starts you as a guest; signing up later keeps the guest's plot, coins and friendships.
 

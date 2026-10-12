@@ -86,13 +86,14 @@ function vnoise(x, y) {
 const fbm = (x, y) => vnoise(x / 9, y / 9) * 0.6 + vnoise(x / 4, y / 4) * 0.28 + vnoise(x / 2, y / 2) * 0.12;
 
 // ---------- ground ----------
-const C = { GRASS: 0, DIRT: 1, SAND: 2, WATER: 3, STONE: 4, LAWN: 5 };
+const C = { GRASS: 0, DIRT: 1, SAND: 2, WATER: 3, STONE: 4, LAWN: 5, FIELD: 6 };
 function tileClass(t) {
   switch (t) {
     case T.PATH: case T.GATE: return C.DIRT;
     case T.SAND: return C.SAND;
     case T.WATER: return C.WATER;
-    case T.PLAZA: case T.FOUNTAIN: case T.SHOP: return C.STONE;
+    case T.PLAZA: case T.FOUNTAIN: case T.SHOP: case T.HALL: return C.STONE;
+    case T.FIELD: case T.CORN: return C.FIELD;
     case T.LAWN: case T.FENCE: return C.LAWN;
     default: return C.GRASS;
   }
@@ -101,6 +102,7 @@ const PAL = {
   grass: ['#3d7a2b', '#4c9233', '#5aa63b', '#6db844', '#86cc52'],
   lawn: ['#478a30', '#56a138', '#65b441', '#78c54b', '#90d65a'],
   dirt: ['#94622f', '#a8733c', '#b98449', '#c99559', '#d8a96d'],
+  field: ['#4e2f18', '#5f3a1e', '#704626', '#82552e', '#93653a'],
   sand: ['#cfae6c', '#dcbe7d', '#e7cb8c', '#f0d9a2', '#f7e6b9'],
   stone: ['#9d9586', '#aea697', '#bcb4a5', '#cbc4b5', '#dad4c6'],
 };
@@ -120,10 +122,10 @@ export function renderGround(world, opts = {}) {
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const base = clsAtTile(x >> 4, y >> 4);
     let k = base;
-    if (base !== C.LAWN && base !== C.STONE) {
+    if (base !== C.LAWN && base !== C.STONE && base !== C.FIELD) {
       const wx = x + (vnoise(x / 5, y / 5) - 0.5) * 8, wy = y + (vnoise(x / 5 + 40, y / 5 + 40) - 0.5) * 8;
       const w = clsAtTile(Math.floor(wx / TILE), Math.floor(wy / TILE));
-      if (w !== C.LAWN && w !== C.STONE) k = w;
+      if (w !== C.LAWN && w !== C.STONE && w !== C.FIELD) k = w;
     }
     cls[y * W + x] = k;
   }
@@ -162,6 +164,12 @@ export function renderGround(world, opts = {}) {
       const below = at(x, y + 1), below2 = at(x, y + 2);
       if (!green(below) && below !== C.WATER) col = pal[0];
       else if (!green(below2) && below2 !== C.WATER) col = mix(pal[1], pal[0], 0.5);
+    } else if (k === C.FIELD) {
+      // Ploughed furrows running east-west.
+      const row = y % 8;
+      col = pick(PAL.field, n * 0.7 + (row < 2 ? 0.35 : row > 5 ? -0.05 : 0.15));
+      if (row === 2) col = PAL.field[4];
+      else if (row === 7) col = PAL.field[0];
     } else if (k === C.DIRT || k === C.SAND) {
       const pal = k === C.DIRT ? PAL.dirt : PAL.sand;
       col = pick(pal, n * 0.9 + 0.08);
@@ -222,12 +230,46 @@ export function renderGround(world, opts = {}) {
   c.drawImage(deco, 0, 0);
   // In 3D, grass tufts are painted softly (no outline) and more sparsely.
   if (opts.three) {
+    const green = (t) => t === T.GRASS || t === T.TALLGRASS || t === T.FLOWERS || t === T.LAWN;
     for (let ty = 0; ty < MAP_H; ty++) for (let tx = 0; tx < MAP_W; tx++) {
       const t = tile(tx, ty), hv = tileHash(tx, ty);
       if ((t === T.TALLGRASS && hv < 0.6) || (t === T.GRASS && hv < 0.05)) softTuft(c, tx * TILE + 3 + Math.floor(hv * 9), ty * TILE + 12, hv);
+      // Grassy verges: tufts creep onto the road along its edges.
+      if (t === T.PATH) {
+        const edges = [[0, -1], [0, 1], [-1, 0], [1, 0]].filter(([dx, dy]) => green(tile(tx + dx, ty + dy)));
+        for (const [dx, dy] of edges) {
+          for (let i = 0; i < 3; i++) {
+            const h2 = tileHash(tx * 5 + i * 17 + dx * 3, ty * 7 + i * 29 + dy * 5);
+            if (h2 < 0.25) continue;
+            const along = 2 + Math.floor(h2 * 12);
+            const inset = 1 + Math.floor(tileHash(tx + i, ty - i) * 4);
+            const px0 = tx * TILE + (dx ? (dx < 0 ? inset : TILE - inset) : along);
+            const py0 = ty * TILE + (dy ? (dy < 0 ? inset + 4 : TILE - inset + 2) : along + 3);
+            softTuft(c, px0, py0, h2);
+          }
+        }
+      }
     }
+    if (world.season?.fall) fallenLeaves(c, world, tile);
   }
   return cv;
+}
+
+// Fall: red, orange and gold leaves scattered on the grass, thicker under trees.
+function fallenLeaves(c, world, tile) {
+  const cols = ['#c8462a', '#e8703a', '#d6861e', '#f0ae3a', '#9a2e1c', '#e6cc4a'];
+  for (let ty = 0; ty < MAP_H; ty++) for (let tx = 0; tx < MAP_W; tx++) {
+    const t = tile(tx, ty);
+    if (t !== T.GRASS && t !== T.TALLGRASS && t !== T.LAWN && t !== T.PATH) continue;
+    let near = 0;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (tile(tx + dx, ty + dy) === T.TREE) near++;
+    const n = Math.min(9, Math.floor(tileHash(tx * 3, ty * 5) * 3) + near * (t === T.PATH ? 0.5 : 1.5));
+    for (let i = 0; i < n; i++) {
+      const lx = tx * TILE + Math.floor(tileHash(tx + i * 13, ty * 7) * 15), ly = ty * TILE + Math.floor(tileHash(ty + i * 11, tx * 3) * 15);
+      const col = cols[(tx + ty * 3 + i) % cols.length];
+      r(c, lx, ly, 2, 1, col); px(c, lx + (i % 2), ly + 1, dk(col, 0.25));
+    }
+  }
 }
 
 function flowers(d, x, y, tx, ty) {
@@ -323,6 +365,10 @@ const LEAF = {
   oak2: ['#1d4a2b', '#285f35', '#367a40', '#4b9850', '#6db86a'],
   blossom: ['#7d3c62', '#a65384', '#cf78a8', '#eba2c8', '#ffd2e8'],
   pine: ['#163d2c', '#1f5238', '#2a6a45', '#3c8656', '#5aa86c'],
+  // fall colours
+  maple: ['#6a1e14', '#9a2e1c', '#c8462a', '#e8703a', '#f8a25a'],
+  amber: ['#6e3a10', '#a35a16', '#d6861e', '#f0ae3a', '#ffd46a'],
+  gold: ['#6a5a14', '#9a8420', '#c8ac2e', '#e6cc4a', '#fbe680'],
 };
 const BARK = ['#3f2615', '#5a3a1e', '#7a5030', '#98673f'];
 
@@ -637,6 +683,23 @@ const OBJ = {
     for (let i = 0; i < 9; i++) { r(c, 2 + i, 5 - i, 4, 3, '#c9a24c'); px(c, 2 + i, 5 - i, '#f0d68a'); }
     r(c, 10, -6, 5, 5, '#9a7a2c'); r(c, 11, -5, 3, 3, '#4a6a8a'); px(c, 11, -5, '#bfe4ff'); r(c, 0, 5, 3, 3, '#7a5f22');
   },
+  pumpkin_deco(c) { pumpkinArt(c, false); },
+  jackolantern(c) { pumpkinArt(c, true); },
+  cornstalks(c) {
+    for (const [x, h, col] of [[3, 20, '#b8963c'], [6, 24, '#d8b65a'], [9, 22, '#c9a24c'], [12, 18, '#a8863a']]) {
+      r(c, x, 15 - h, 2, h, col); r(c, x - 2, 15 - h + 6, 2, 1, '#a8863a'); r(c, x + 2, 15 - h + 10, 2, 1, '#c9a24c');
+    }
+    r(c, 2, 6, 13, 2, '#8a5a2a');
+  },
+  leafpile(c) {
+    disc(c, 8, 11, 7, 4, '#b8562a'); disc(c, 8, 10, 5, 3, '#d6702e');
+    for (const [x, y, col] of [[3, 10, '#c8462a'], [7, 8, '#f0ae3a'], [11, 9, '#e8703a'], [5, 12, '#d6861e'], [10, 12, '#9a2e1c'], [8, 10, '#e6cc4a']]) r(c, x, y, 2, 1, col);
+  },
+  cauldron(c) {
+    r(c, 3, 13, 10, 2, '#ff8a2a'); r(c, 5, 13, 6, 1, '#ffd04a');
+    disc(c, 8, 7, 7, 6, '#26262c'); r(c, 1, 1, 14, 2, '#3a3a44'); r(c, 2, 1, 12, 1, '#79f26a');
+    disc(c, 5, -1, 2, 2, '#b6ff9a'); disc(c, 10, -3, 1, 1, '#d8ffc8'); px(c, 4, 6, '#4a4a56');
+  },
   statue(c) {
     r(c, 1, 9, 14, 7, '#a9a294'); r(c, 1, 9, 14, 2, '#d3cdbf'); r(c, 1, 9, 2, 7, '#c5beb0'); r(c, 1, 15, 14, 1, '#7d776b');
     disc(c, 8, -12, 3, 3, '#ece8de'); r(c, 5, -9, 6, 18, '#e3ddd0'); r(c, 5, -9, 2, 18, '#f6f2ea'); r(c, 10, -9, 1, 18, '#bdb6a8');
@@ -644,8 +707,23 @@ const OBJ = {
   },
 };
 
+function pumpkinArt(c, carved) {
+  disc(c, 8, 9, 7, 6, '#c25e12'); disc(c, 8, 9, 6, 5, '#e8781e'); r(c, 5, 4, 1, 10, '#c25e12'); r(c, 10, 4, 1, 10, '#c25e12'); r(c, 3, 6, 2, 3, '#f39a3a');
+  r(c, 7, 0, 2, 4, '#5a6b2a'); r(c, 9, 1, 3, 1, '#6f8f3a');
+  if (carved) { r(c, 4, 7, 2, 2, '#ffc23a'); r(c, 10, 7, 2, 2, '#ffc23a'); px(c, 8, 9, '#ffc23a'); r(c, 4, 11, 8, 2, '#ffc23a'); px(c, 6, 11, '#c25e12'); px(c, 9, 12, '#c25e12'); }
+}
+
 // Top-down items drawn in their unrotated footprint at (0, 0); rotation turns the drawing.
 const TURN = {
+  haybale(c) {
+    r(c, 1, 2, 30, 13, '#d9b44a'); r(c, 1, 2, 30, 2, '#e8c867'); r(c, 1, 13, 30, 2, '#b8902a');
+    for (let x = 3; x < 30; x += 4) r(c, x, 5, 1, 7, '#c9a23e');
+    r(c, 8, 2, 2, 13, '#7a4a22'); r(c, 22, 2, 2, 13, '#7a4a22');
+  },
+  ironfence(c) {
+    r(c, 0, 7, 16, 1, '#24242a'); r(c, 0, 11, 16, 1, '#24242a');
+    for (const x of [1, 5, 9, 13]) { r(c, x, 4, 1, 10, '#2c2c34'); px(c, x, 3, '#4a4a56'); }
+  },
   bed(c) {
     r(c, 0, 0, 16, 32, W8[1]); r(c, 0, 0, 16, 5, W8[3]); r(c, 0, 0, 16, 1, W8[4]); r(c, 0, 30, 16, 2, W8[0]);
     r(c, 1, 4, 14, 26, '#f4f1ea'); disc(c, 8, 8, 6, 3, '#ffffff'); r(c, 3, 10, 10, 1, '#d9d4c7');
@@ -687,6 +765,11 @@ const TURN = {
 const SOFA = ['#2a6458', '#357a6c', '#3f8f7f', '#4fab98', '#7cd0bc'];
 const ARM = ['#7a3020', '#a64a33', '#c0593e', '#d8735a', '#f09a7f'];
 const FACE = {
+  gravestone: {
+    down(c) { r(c, 3, 13, 10, 3, '#7d776b'); r(c, 4, 0, 8, 13, '#9a9384'); r(c, 5, -2, 6, 2, '#9a9384'); r(c, 4, 0, 2, 13, '#b6af9f'); r(c, 7, 3, 2, 7, '#5a554c'); r(c, 5, 5, 6, 2, '#5a554c'); px(c, 4, 11, '#5f8a3a'); px(c, 11, 12, '#5f8a3a'); },
+    up(c) { r(c, 3, 13, 10, 3, '#7d776b'); r(c, 4, 0, 8, 13, '#8e877a'); r(c, 5, -2, 6, 2, '#8e877a'); },
+    side(c) { r(c, 4, 13, 8, 3, '#7d776b'); r(c, 6, -1, 4, 14, '#9a9384'); r(c, 6, -1, 1, 14, '#b6af9f'); },
+  },
   chair: {
     down(c) { r(c, 3, 0, 10, 8, W8[1]); r(c, 4, 1, 8, 6, W8[3]); r(c, 4, 1, 8, 1, W8[4]); r(c, 2, 8, 12, 4, W8[3]); r(c, 2, 8, 12, 1, W8[4]); r(c, 3, 12, 2, 4, W8[1]); r(c, 11, 12, 2, 4, W8[1]); },
     up(c) { r(c, 2, 4, 12, 4, W8[3]); r(c, 3, 12, 2, 4, W8[1]); r(c, 11, 12, 2, 4, W8[1]); r(c, 3, 6, 10, 8, W8[1]); r(c, 4, 6, 8, 1, W8[3]); },

@@ -10,6 +10,7 @@
 //   crop:  seed that must go on tilled soil
 //   stairs: walkable between floors; climbs away from its front (see plot.js)
 //   shop:  only sold by that NPC; bought into your bag, placed from the Bag tab
+//   cat 'public': props for the village's public places, never for sale
 export const CATEGORIES = [
   { id: 'build', name: 'Walls & Stairs' },
   { id: 'opening', name: 'Doors & Windows' },
@@ -17,6 +18,7 @@ export const CATEGORIES = [
   { id: 'roof', name: 'Roofs' },
   { id: 'furniture', name: 'Furniture' },
   { id: 'garden', name: 'Garden' },
+  { id: 'fall', name: 'Fall & Halloween' },
   { id: 'farm', name: 'Farm' },
 ];
 
@@ -72,6 +74,21 @@ export const ITEMS = {
   lamppost:      { name: 'Lamp Post',    cat: 'garden', layer: 'obj', price: 30, solid: true, light: true },
   bench:         { name: 'Bench',        cat: 'garden', layer: 'obj', price: 25, solid: true, size: [2, 1], rot: 'turn' },
   mailbox:       { name: 'Mailbox',      cat: 'garden', layer: 'obj', price: 15, solid: true },
+
+  pumpkin_deco:  { name: 'Pumpkin',       cat: 'fall', layer: 'obj', price: 12 },
+  jackolantern:  { name: 'Jack-o’-Lantern', cat: 'fall', layer: 'obj', price: 25, solid: true, light: true, rot: 'face' },
+  haybale:       { name: 'Hay Bale',      cat: 'fall', layer: 'obj', price: 18, solid: true, size: [2, 1], rot: 'turn' },
+  cornstalks:    { name: 'Corn Stalks',   cat: 'fall', layer: 'obj', price: 10, solid: true },
+  leafpile:      { name: 'Leaf Pile',     cat: 'fall', layer: 'obj', price: 6, flat: true },
+  gravestone:    { name: 'Spooky Gravestone', cat: 'fall', layer: 'obj', price: 30, solid: true, rot: 'face' },
+  cauldron:      { name: 'Bubbling Cauldron', cat: 'fall', layer: 'obj', price: 45, solid: true, light: true },
+  ironfence:     { name: 'Iron Fence',    cat: 'fall', layer: 'obj', price: 12, solid: true, rot: 'turn' },
+
+  flagpole:      { name: 'Flagpole',      cat: 'public', layer: 'obj', price: 0, solid: true },
+  noticeboard:   { name: 'Notice Board',  cat: 'public', layer: 'obj', price: 0, solid: true, size: [2, 1] },
+  ballotbox:     { name: 'Ballot Box',    cat: 'public', layer: 'obj', price: 0, solid: true },
+  gazebo:        { name: 'Gazebo',        cat: 'public', layer: 'obj', price: 0, solid: true, size: [4, 4] },
+  stall:         { name: 'Market Stall',  cat: 'public', layer: 'obj', price: 0, solid: true, size: [3, 2] },
 
   soil:          { name: 'Tilled Soil',  cat: 'farm', layer: 'floor', price: 2 },
   seed_turnip:   { name: 'Turnip Seeds', cat: 'farm', layer: 'obj', price: 5, crop: 'turnip' },

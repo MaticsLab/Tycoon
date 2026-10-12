@@ -1,12 +1,12 @@
 import {
-  generateWorld, plotIdAtPixel, worldClock, darkness,
+  generateWorld, applyRoads, plotIdAtPixel, worldClock, darkness,
   TILE, MAP_W, MAP_H, PLAYER_SPEED, WORLD_VERSION,
 } from '@shared/world.js';
 import {
   canStand, inInterior, key, placementError, objAt, footprint, canRotate, levelView,
   LEVELS, wallError, lineEdges, rectEdges, roofError, roofAt, edgeKey,
   indexPlots, landError, contentFits, mergedRect, splitRects, hasContent, LAND_PRICE,
-  stepLevel, heightAt,
+  stepLevel, heightAt, roadEditError, roadIn, plotEntrance,
 } from '@shared/plot.js';
 import { ITEMS, GOODS, CATEGORIES, cropStage, itemName } from '@shared/catalog.js';
 import { NPCS } from '@shared/npcs.js';
@@ -24,7 +24,7 @@ const store = {
 };
 
 // ---------- World & 3D view ----------
-const world = generateWorld();
+const world = generateWorld(undefined, { date: new Date() });
 const view = new View($('game'), world);
 const ghost = new Ghost(view.scene);
 const U = (px) => px / TILE; // world pixels -> 3D units
@@ -128,6 +128,8 @@ function onMessage(m) {
       for (const p of m.players) S.players.set(p.id, { ...p, tx: p.x, ty: p.y });
       S.npcs.clear();
       for (const n of m.npcs) S.npcs.set(n.id, { ...n, tx: n.x, ty: n.y, moving: false, name: NPCS[n.id].name });
+      applyRoads(world, m.roads);
+      view.refreshTerrain();
       S.plots = {};
       for (const p of m.plots) S.plots[p.id] = p;
       indexPlots(world, S.plots);
@@ -199,6 +201,12 @@ function onMessage(m) {
     case 'plot':
       S.plots[m.plot.id] = m.plot;
       indexPlots(world, S.plots);
+      plotsDirty = true;
+      if (S.mode === 'build') refreshPreview();
+      break;
+    case 'roads':
+      applyRoads(world, m.roads);
+      view.refreshTerrain();
       plotsDirty = true;
       if (S.mode === 'build') refreshPreview();
       break;
@@ -751,7 +759,7 @@ function renderItems() {
     return;
   }
   if (S.cat === 'land') {
-    for (const [k, icon, label] of [['resize', '↔️', 'Resize'], ['merge', '🔗', 'Merge'], ['split', '✂️', 'Split']]) {
+    for (const [k, icon, label] of [['resize', '↔️', 'Resize'], ['merge', '🔗', 'Merge'], ['split', '✂️', 'Split'], ['pave', '🛣️', 'Pave road'], ['dig', '⛏️', 'Dig up road']]) {
       const b = document.createElement('button');
       b.dataset.tool = k;
       b.className = S.tool.kind === k ? 'sel' : '';
@@ -854,12 +862,14 @@ function toolInfo(extra) {
     roofRemove: 'Tap a roofed tile to remove that roof.',
     obj: d?.crop ? 'Plant on tilled soil.' : 'Drag to position, release to place. ↻ rotates.',
     remove: 'Tap something to remove it.',
-    resize: `Drag your fence's west, east or north side. Growing costs 🪙${LAND_PRICE} per tile.`,
+    resize: `Drag any side of your plot. Growing costs 🪙${LAND_PRICE} per tile. Plots can cover roads, but roads stay public.`,
+    pave: 'Drag to lay road on your land. Roads are public: anyone may walk them and nothing can be built on them.',
+    dig: 'Drag to dig up road on your land. You can move a road, but every end must stay connected. To close one, ask at City Hall.',
     merge: 'Tap the empty plot next door to join it to yours.',
     split: 'Drag across your plot to choose a cut line; the empty side goes up for sale.',
     none: '',
   };
-  $('toolinfo').textContent = (S.freeBuild ? '🆓 Free build · ' : '') + (extra ? extra + ' · ' : '') + (S.level && !['resize', 'merge', 'split'].includes(t.kind) ? 'Upstairs · ' : '') + (msgs[t.kind] || '');
+  $('toolinfo').textContent = (S.freeBuild ? '🆓 Free build · ' : '') + (extra ? extra + ' · ' : '') + (S.level && !['resize', 'merge', 'split', 'pave', 'dig'].includes(t.kind) ? 'Upstairs · ' : '') + (msgs[t.kind] || '');
 }
 
 function setMode(mode) {
@@ -938,7 +948,7 @@ function refreshPreview() {
     const plan = wallPlan();
     const news = plan.edges.filter((e) => plot.walls?.[edgeKey(S.level, ...e)]?.m !== t.id);
     const cost = news.length * d.price + (plan.room ? plan.room.w * plan.room.h * ITEMS.floor_wood.price : 0);
-    const ok = plan.edges.every((e) => !wallError(plot, S.level, ...e)) && afford(cost);
+    const ok = plan.edges.every((e) => !wallError(plot, S.level, ...e, world)) && afford(cost);
     ghost.walls(plan.edges, def, S.level, ok);
     toolInfo(plan.room ? `Room ${plan.room.w}×${plan.room.h} · 🪙${cost}` : `${news.length} wall${news.length === 1 ? '' : 's'} · 🪙${cost}`);
   } else if (t.kind === 'floor' || t.kind === 'roof') {
@@ -949,11 +959,11 @@ function refreshPreview() {
     const tiles = [];
     for (let j = 0; j < r.h; j++) for (let i = 0; i < r.w; i++) tiles.push([r.x + i, r.y + j]);
     if (t.kind === 'floor') {
-      const ok = tiles.filter(([x, y]) => !placementError(plot, x, y, t.id, 0, S.level));
+      const ok = tiles.filter(([x, y]) => !placementError(plot, x, y, t.id, 0, S.level, world));
       ghost.tiles(tiles, def, S.level, ok.length > 0 && afford(ok.length * d.price));
       if (drag) toolInfo(`${ok.length} tiles · 🪙${ok.length * d.price}`);
     } else {
-      const err = roofError(plot, r.x, r.y, r.w, r.h, S.level);
+      const err = roofError(plot, r.x, r.y, r.w, r.h, S.level, world);
       ghost.tiles(tiles, def, S.level + 1, !err && afford(r.w * r.h * d.price), 0.06);
       if (drag) toolInfo(`Roof ${r.w}×${r.h} · 🪙${r.w * r.h * d.price}${err ? ' · ' + err : ''}`);
     }
@@ -969,13 +979,18 @@ function refreshPreview() {
     const r = canRotate(t.id) ? S.rot : 0;
     const [w, h] = footprint(t.id, r);
     const lx = Math.round(q.fx - w / 2), ly = Math.round(q.fz - h / 2);
-    const ok = !placementError(plot, lx, ly, t.id, r, S.level) && (S.freeBuild || (d.shop ? S.inv[t.id] > 0 : d.price <= S.coins));
+    const ok = !placementError(plot, lx, ly, t.id, r, S.level, world) && (S.freeBuild || (d.shop ? S.inv[t.id] > 0 : d.price <= S.coins));
     ghost.item(t.id, r, def, lx, ly, S.level, ok);
   } else if (t.kind === 'remove' || t.kind === 'roofRemove') {
     const target = removeTarget(hover);
     if (!target) return;
     if (target.edge) ghost.walls([target.edge], def, S.level, false);
     else if (target.tiles) ghost.tiles(target.tiles, def, target.level ?? S.level, false, 0.3);
+  } else if (t.kind === 'pave' || t.kind === 'dig') {
+    const plan = roadPlan(hover);
+    if (!plan) return;
+    ghost.tiles(plan.tiles, def, 0, !plan.err, 0.06);
+    toolInfo(`${plan.tiles.length} tile${plan.tiles.length === 1 ? '' : 's'}${plan.err ? ' · ' + plan.err : ''}`);
   } else if (t.kind === 'resize' || t.kind === 'merge' || t.kind === 'split') {
     const plan = landPlan(hover);
     if (!plan) { ghost.rect(def.x, def.y, def.w, def.h, true); return; }
@@ -985,8 +1000,21 @@ function refreshPreview() {
   }
 }
 
+// The road tools: the tiles under the drag that would change, and why not if refused.
+function roadPlan(h) {
+  const plot = S.plots[S.myPlot];
+  const q = pickLocal(h.cx, h.cy);
+  if (!q) return null;
+  const on = S.tool.kind === 'pave';
+  const r = clampRect(drag ? rectOf(drag.start, drag.cur) : rectOf(tileOf(q), tileOf(q)));
+  const tiles = [];
+  for (let j = 0; j < r.h; j++) for (let i = 0; i < r.w; i++) if (roadIn(world, plot, r.x + i, r.y + j) !== on) tiles.push([r.x + i, r.y + j]);
+  if (!tiles.length) return { tiles: [[r.x, r.y]], err: on ? 'already road' : 'no road there' };
+  return { tiles, on, err: roadEditError(world, plot, tiles, on) };
+}
+
 // What the land tools would do at the pointer: { rect, ok, info, ...message fields }.
-const LAND_SIDES = ['west', 'east', 'north'];
+const LAND_SIDES = ['west', 'east', 'north', 'south'];
 function landPlan(h) {
   const plot = myDef(), t = S.tool;
   const q = pickWorld(h.cx, h.cy);
@@ -994,17 +1022,18 @@ function landPlan(h) {
   const landCost = (n) => (S.freeLand ? 0 : Math.max(0, n) * LAND_PRICE);
   if (t.kind === 'resize') {
     // Which side are we dragging? Picked on pointer-down, else the nearest one.
-    const dist = { west: Math.abs(q.x - plot.x), east: Math.abs(q.x - plot.x - plot.w), north: Math.abs(q.z - plot.y) };
+    const dist = { west: Math.abs(q.x - plot.x), east: Math.abs(q.x - plot.x - plot.w), north: Math.abs(q.z - plot.y), south: Math.abs(q.z - plot.y - plot.h) };
     const side = drag?.side || LAND_SIDES.reduce((a, b) => (dist[a] <= dist[b] ? a : b));
-    if (!drag) return { rect: { ...plot }, ok: true, info: `Drag the ${side} fence` };
+    if (!drag) return { rect: { ...plot }, ok: true, info: `Drag the ${side} edge` };
     let { x, y, w, h: hh } = plot;
     if (side === 'west') { x = Math.round(q.x); w = plot.x + plot.w - x; }
     else if (side === 'east') w = Math.round(q.x) - plot.x;
-    else { y = Math.round(q.z); hh = plot.y + plot.h - y; }
+    else if (side === 'north') { y = Math.round(q.z); hh = plot.y + plot.h - y; }
+    else hh = Math.round(q.z) - plot.y;
     const rect = { x, y, w, h: hh };
     const ix = Math.max(0, Math.min(x + w, plot.x + plot.w) - Math.max(x, plot.x)), iy = Math.max(0, Math.min(y + hh, plot.y + plot.h) - Math.max(y, plot.y));
     const cost = landCost(w * hh - ix * iy);
-    const err = landError(S.plots, plot.id, rect) || (contentFits(plot, rect) ? null : 'your house wouldn’t fit');
+    const err = landError(S.plots, plot.id, rect, world) || (contentFits(plot, rect) ? null : 'your house wouldn’t fit');
     return { rect, ok: !err && afford(cost), info: `${w}×${hh} · 🪙${cost}${err ? ' · ' + err : ''}`, msg: { type: 'resizePlot', plotId: plot.id, ...rect } };
   }
   if (t.kind === 'merge') {
@@ -1013,7 +1042,7 @@ function landPlan(h) {
     if (!o) return { rect: { ...plot }, ok: true, info: 'Point at the plot next door' };
     const rect = mergedRect(plot, o);
     const rest = Object.fromEntries(Object.entries(S.plots).filter(([k]) => +k !== o.id));
-    const err = o.owner ? 'that plot is owned' : hasContent(o) ? 'that plot isn’t empty' : !rect ? 'not side by side' : landError(rest, plot.id, rect);
+    const err = o.owner ? 'that plot is owned' : hasContent(o) ? 'that plot isn’t empty' : !rect ? 'plots must line up' : landError(rest, plot.id, rect, world);
     const cost = landCost(o.w * o.h);
     return { rect: rect || o, ok: !err && afford(cost), info: `${rect ? `${rect.w}×${rect.h}` : ''} · 🪙${cost}${err ? ' · ' + err : ''}`, msg: { type: 'mergePlot', plotId: plot.id, other: o.id } };
   }
@@ -1084,7 +1113,7 @@ function commit(h) {
     const r = canRotate(t.id) ? S.rot : 0;
     const [w, hh] = footprint(t.id, r);
     const lx = Math.round(q.fx - w / 2), ly = Math.round(q.fz - hh / 2);
-    const err = placementError(plot, lx, ly, t.id, r, S.level);
+    const err = placementError(plot, lx, ly, t.id, r, S.level, world);
     if (err) { if (err !== 'Already there') toast(err); return; }
     if (!S.freeBuild && (d.shop ? !S.inv[t.id] : d.price > S.coins)) return toast(d.shop ? `None left — buy more from ${NPCS[d.shop].name}` : 'Not enough coins — sell some crops!');
     send({ type: 'place', ...base, lx, ly, item: t.id, r });
@@ -1093,6 +1122,11 @@ function commit(h) {
     if (!target) return;
     if (target.edge) send({ type: 'remove', ...base, edge: target.edge, featureOnly: target.featureOnly });
     else send({ type: 'remove', ...base, lx: target.lx, ly: target.ly, roof: !!target.roof });
+  } else if (t.kind === 'pave' || t.kind === 'dig') {
+    const plan = roadPlan(h);
+    if (!plan) return;
+    if (plan.err) return toast(plan.err);
+    send({ type: 'road', plotId: S.myPlot, tiles: plan.tiles, on: plan.on });
   } else if (t.kind === 'resize' || t.kind === 'merge' || t.kind === 'split') {
     const plan = landPlan(h);
     if (plan?.msg && plan.ok) send(plan.msg);
@@ -1241,10 +1275,10 @@ cv.addEventListener('pointerdown', (e) => {
   hover = { cx: e.clientX, cy: e.clientY };
   if (S.mode === 'build') {
     const q = pickLocal(e.clientX, e.clientY);
-    if (q && ['wall', 'floor', 'roof'].includes(S.tool.kind)) drag = { start: S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q), cur: S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q) };
+    if (q && ['wall', 'floor', 'roof', 'pave', 'dig'].includes(S.tool.kind)) drag = { start: S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q), cur: S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q) };
     else if (['resize', 'merge', 'split'].includes(S.tool.kind)) {
       const plot = myDef(), w = pickWorld(e.clientX, e.clientY);
-      const dist = w ? { west: Math.abs(w.x - plot.x), east: Math.abs(w.x - plot.x - plot.w), north: Math.abs(w.z - plot.y) } : null;
+      const dist = w ? { west: Math.abs(w.x - plot.x), east: Math.abs(w.x - plot.x - plot.w), north: Math.abs(w.z - plot.y), south: Math.abs(w.z - plot.y - plot.h) } : null;
       drag = { side: dist ? LAND_SIDES.reduce((a, b) => (dist[a] <= dist[b] ? a : b)) : 'east' };
     }
     refreshPreview();
@@ -1373,7 +1407,8 @@ function syncPlots(force) {
   const sNow = serverNow();
   for (const st of Object.values(S.plots)) {
     const crops = Object.values(st.obj).filter((o) => ITEMS[o.t]?.crop).map((o) => cropStage(o, sNow)).join('');
-    view.setPlot(st, { ...plotOpts(st.id), crops });
+    const e = st.owner ? null : plotEntrance(world, st);
+    view.setPlot(st, { ...plotOpts(st.id), crops, entrance: e && { x: e.x / TILE, z: e.y / TILE } });
   }
 }
 

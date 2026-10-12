@@ -38,7 +38,7 @@ function legs(c, L, dir, frame) {
       }
       r(c, x0, -2 - u, 3, 2, SHOE[1]); r(c, x0, -2 - u, 3, 1, SHOE[2]); px(c, side < 0 ? x0 : x0 + 2, -1 - u, SHOE[0]);
     }
-    if (!dress) { r(c, -4, -10, 8, 4, P[2]); r(c, -4, -10, 1, 4, P[3]); r(c, 3, -10, 1, 4, P[1]); r(c, -1, -7, 2, 1, P[1]); }
+    if (!dress) { r(c, -4, -9, 8, 3, P[2]); r(c, -4, -9, 1, 3, P[3]); r(c, 3, -9, 1, 3, P[1]); r(c, -1, -7, 2, 1, P[1]); }
     return;
   }
   // side view (facing right; left is mirrored): back leg, then front leg
@@ -49,7 +49,7 @@ function legs(c, L, dir, frame) {
     else r(c, x0, -7, 3, 5, P[col]);
     r(c, x0, -2, 4, 2, SHOE[col]); r(c, x0, -2, 4, 1, SHOE[col + (col < 2 ? 1 : 0)]);
   }
-  if (!dress) { r(c, -3, -10, 6, 4, P[2]); r(c, -3, -10, 6, 1, P[3]); }
+  if (!dress) { r(c, -3, -9, 6, 3, P[2]); r(c, -3, -9, 6, 1, P[3]); }
 }
 
 // ---------- torso & arms ----------
@@ -188,43 +188,74 @@ function torsoSide(c, L, y0, frame) {
 }
 
 // ---------- head ----------
-const HEAD_TOP = -29; // first face row (hair sits above and on it)
+// A big round chibi head, 12 px wide (x -6..5), wider than the body. Face rows run from
+// y-28 (forehead) to y-18 (chin); hair sits on top and frames it.
+const LASH = '#2a1a12';
+const BLUSH = '#f4a0a0';
+
+function headShape(c, L, y, side) {
+  const { K } = L;
+  r(c, -5, y - 28, 10, 1, K[2]);
+  r(c, -6, y - 27, 12, 8, K[2]);
+  r(c, -5, y - 19, 10, 1, K[2]);
+  r(c, -4, y - 18, 8, 1, K[1]);
+  if (!side) {
+    r(c, -6, y - 27, 1, 7, K[3]);              // lit left cheek
+    r(c, 5, y - 26, 1, 7, K[1]);               // shaded right cheek
+    r(c, -5, y - 19, 1, 1, K[1]); r(c, 4, y - 19, 1, 1, K[1]);
+  } else {
+    r(c, -6, y - 27, 1, 8, K[1]);
+  }
+}
 
 function headFront(c, L, y, back) {
-  const { K } = L;
-  // face block: rows y-29 .. y-20, rounded chin
-  r(c, -5, y - 29, 10, 9, K[2]); r(c, -4, y - 20, 8, 1, K[2]);
-  r(c, -5, y - 28, 1, 7, K[3]); r(c, 4, y - 28, 1, 8, K[1]); r(c, -4, y - 20, 8, 1, K[1]);
-  r(c, -6, y - 25, 1, 2, back ? K[2] : K[3]); r(c, 5, y - 25, 1, 2, K[1]); // ears
-  r(c, -1, y - 19, 2, 1, K[1]); // neck
+  const { K, E } = L;
+  headShape(c, L, y, false);
+  r(c, -7, y - 23, 1, 2, back ? K[1] : K[3]); r(c, 6, y - 23, 1, 2, K[1]); // ears
+  r(c, -1, y - 17, 2, 1, K[1]);                                          // neck
   if (back) return;
-  const E = L.E;
-  for (const side of [-1, 1]) {
-    const outer = side < 0 ? -3 : 2, inner = side < 0 ? -2 : 1;
-    px(c, outer, y - 25, EYE_W); px(c, inner, y - 25, E[2]); px(c, inner, y - 24, E[0]); px(c, outer, y - 24, mix(E[2], K[2], 0.45));
-    if (L.body === 1) px(c, side < 0 ? -4 : 3, y - 26, '#2a1a12');
+  // Big round eyes: dark top, coloured iris, a white sparkle in the upper corner.
+  for (const x0 of [-4, 2]) {
+    px(c, x0, y - 24, E[0]); px(c, x0 + 1, y - 24, E[0]);
+    px(c, x0, y - 23, E[2]); px(c, x0 + 1, y - 23, E[1]);
+    px(c, x0, y - 22, E[1]); px(c, x0 + 1, y - 22, E[0]);
+    px(c, x0 === -4 ? x0 : x0 + 1, y - 24, EYE_W);
+    if (L.body === 1) px(c, x0 === -4 ? -5 : 4, y - 25, LASH);
   }
-  px(c, 0, y - 23, K[1]);
-  r(c, -1, y - 21, 2, 1, L.body === 1 ? '#c0605a' : '#a0523c');
+  r(c, -5, y - 21, 2, 1, mix(K[2], BLUSH, 0.55)); r(c, 3, y - 21, 2, 1, mix(K[2], BLUSH, 0.55));
+  px(c, -1, y - 20, '#b5574a'); px(c, 0, y - 20, '#c76a5a');             // tiny smile
 }
 
 function headSide(c, L, y) {
   const { K, E } = L;
-  r(c, -5, y - 29, 10, 9, K[2]); r(c, -4, y - 20, 8, 1, K[1]); r(c, -5, y - 28, 1, 7, K[1]);
-  px(c, 5, y - 24, K[2]); px(c, 5, y - 23, K[1]); // nose
-  r(c, -1, y - 25, 2, 2, K[1]); px(c, -1, y - 25, K[0]); // ear
-  r(c, 0, y - 19, 2, 1, K[1]);
-  px(c, 3, y - 25, E[2]); px(c, 3, y - 24, E[0]); px(c, 4, y - 25, EYE_W);
-  if (L.body === 1) px(c, 4, y - 26, '#2a1a12');
-  px(c, 3, y - 21, L.body === 1 ? '#c0605a' : '#a0523c');
+  headShape(c, L, y, true);
+  px(c, 6, y - 22, K[2]);                                               // little nose
+  r(c, -2, y - 23, 2, 2, K[1]); px(c, -2, y - 23, K[0]);                // ear
+  r(c, 0, y - 17, 2, 1, K[1]);
+  px(c, 3, y - 24, EYE_W); px(c, 4, y - 24, E[0]);
+  px(c, 3, y - 23, E[2]); px(c, 4, y - 23, E[1]);
+  px(c, 3, y - 22, E[1]); px(c, 4, y - 22, E[0]);
+  if (L.body === 1) px(c, 5, y - 25, LASH);
+  r(c, 2, y - 21, 2, 1, mix(K[2], BLUSH, 0.55));
+  px(c, 4, y - 20, '#b5574a');
 }
 
-// Brows sit on the face, just below the fringe.
 function brows(c, L, y, dir) {
   const col = L.H[0];
-  if (L.hair.fringe === 'bald' && dir !== 1) { /* still has brows */ }
-  if (dir === 0) { r(c, -3, y - 27, 2, 1, col); r(c, 1, y - 27, 2, 1, col); }
-  else if (dir === 3) r(c, 2, y - 27, 3, 1, col);
+  if (dir === 0) { r(c, -4, y - 26, 2, 1, col); r(c, 2, y - 26, 2, 1, col); }
+  else if (dir === 3) r(c, 3, y - 26, 2, 1, col);
+}
+
+const hairBottom = (y, len) => [y - 23, y - 19, y - 15, y - 11][len];
+
+// Hair cap over the skull: a rounded dome from `top` down to the forehead.
+function cap(c, H, y, top, wide) {
+  r(c, -4, top, 8, 1, H[2]);
+  r(c, -5, top + 1, 10, 1, H[2]);
+  r(c, -6, top + 2, 12, y - 26 - (top + 2), H[2]);
+  if (wide) r(c, -7, top + 3, 14, y - 25 - (top + 3), H[2]);
+  r(c, -3, top + 1, 3, 1, H[3]); r(c, -4, top + 2, 2, 1, H[3]); px(c, -5, top + 3, H[3]);   // shine
+  r(c, 4, top + 2, 2, y - 26 - (top + 2), H[1]);
 }
 
 function hairFront(c, L, y, back) {
@@ -232,46 +263,38 @@ function hairFront(c, L, y, back) {
   const top = y - 31 - hair.vol;
   const f = hair.fringe;
   if (f === 'bald') {
-    r(c, -4, y - 31, 8, 2, L.K[2]); r(c, -4, y - 31, 3, 1, L.K[3]); r(c, 3, y - 30, 1, 1, L.K[1]);
-    r(c, -6, y - 27, 1, 3, H[1]); r(c, 5, y - 27, 1, 3, H[0]);
+    r(c, -5, y - 30, 10, 2, L.K[2]); r(c, -4, y - 31, 8, 1, L.K[2]); r(c, -4, y - 30, 3, 1, L.K[3]);
+    r(c, -7, y - 26, 1, 3, H[1]); r(c, 6, y - 26, 1, 3, H[0]);
     return;
   }
   const buzz = f === 'none' && hair.extra !== 'mohawk';
-  const Hc = buzz ? [H[0], dk(H[2], 0.12), H[1], H[2]] : H;
-  // cap
-  r(c, -4, top, 8, 1, Hc[2]);
-  r(c, -5, top + 1, 10, y - 28 - (top + 1), Hc[2]);
-  if (hair.vol > 0) r(c, -6, top + 2, 12, y - 27 - (top + 2), Hc[2]);
-  r(c, -3, top + 1, 3, 1, Hc[3]); px(c, -4, top + 2, Hc[3]); r(c, 3, top + 2, 2, y - 28 - (top + 2), Hc[1]);
+  const Hc = buzz ? [H[0], dk(H[2], 0.12), dk(H[2], 0.05), H[2]] : H;
   if (hair.extra === 'mohawk') {
-    r(c, -5, top + 1, 10, y - 28 - top, L.K[2]); r(c, -6, y - 29, 12, 2, H[0]);
-    r(c, -1, top - 2, 2, y - 28 - top + 2, H[2]); px(c, -1, top - 2, H[3]); r(c, 0, top - 1, 1, y - 28 - top + 1, H[1]);
-  }
+    r(c, -5, y - 30, 10, 3, L.K[2]); r(c, -6, y - 27, 12, 1, H[0]);
+    r(c, -1, top - 2, 2, y - 26 - top + 2, H[2]); px(c, -1, top - 2, H[3]); r(c, 0, top - 1, 1, y - 26 - top + 1, H[1]);
+  } else cap(c, Hc, y, buzz ? y - 30 : top, hair.vol > 0);
   // sides by length
-  const bottom = [y - 26, y - 21, y - 17, y - 12][hair.len];
-  if (hair.len === 0) { r(c, -6, y - 29, 1, 3, H[2]); r(c, 5, y - 29, 1, 3, H[1]); }
+  const bottom = hairBottom(y, hair.len);
+  if (hair.len === 0) { r(c, -7, y - 26, 1, 3, H[2]); r(c, 6, y - 26, 1, 3, H[1]); }
   else {
-    const flare = hair.len >= 2 ? 1 : 0;
-    r(c, -6, y - 29, 2, bottom - (y - 29), H[2]); r(c, 4, y - 29, 2, bottom - (y - 29), H[1]);
-    if (back) r(c, -6, y - 29, 12, bottom - (y - 29), H[2]);
-    if (flare) { r(c, -7, y - 23, 1, bottom - (y - 23), H[1]); r(c, 6, y - 23, 1, bottom - (y - 23), H[0]); }
-    r(c, -6, bottom - 1, 2, 1, H[1]); r(c, 4, bottom - 1, 2, 1, H[0]);
+    r(c, -7, y - 26, 2, bottom - (y - 26), H[2]); r(c, 5, y - 26, 2, bottom - (y - 26), H[1]);
+    px(c, -7, y - 26, H[3]);
+    if (hair.len >= 2) { r(c, -8, y - 22, 1, bottom - (y - 22), H[1]); r(c, 7, y - 22, 1, bottom - (y - 22), H[0]); }
+    r(c, -7, bottom - 1, 2, 1, H[1]); r(c, 5, bottom - 1, 2, 1, H[0]);
   }
   if (back) {
-    // the whole back of the head is hair
-    const nape = hair.len === 0 ? y - 22 : bottom;
-    r(c, -5, y - 29, 10, nape - (y - 29), H[2]);
-    r(c, -5, y - 29, 2, nape - (y - 29), H[3]); r(c, 3, y - 29, 2, nape - (y - 29), H[1]); r(c, -5, nape - 1, 10, 1, H[1]);
-    if (buzz) r(c, -5, y - 29, 10, 5, Hc[2]);
+    const nape = hair.len === 0 ? y - 20 : bottom;
+    r(c, -6, y - 27, 12, nape - (y - 27), Hc[2]);
+    r(c, -6, y - 27, 2, nape - (y - 27), Hc[3]); r(c, 4, y - 27, 2, nape - (y - 27), Hc[1]); r(c, -6, nape - 1, 12, 1, Hc[1]);
+    if (hair.len >= 1) r(c, -7, y - 26, 14, bottom - (y - 26), H[2]), r(c, -7, bottom - 1, 14, 1, H[1]);
   } else if (!buzz && hair.extra !== 'mohawk') {
-    // fringe
-    const row = (yy, xs) => { for (const [a, b] of xs) r(c, a, yy, b - a + 1, 1, H[2]); };
-    if (f === 'side') { row(y - 29, [[-5, 4]]); row(y - 28, [[-5, 1]]); r(c, -5, y - 27, 2, 1, H[1]); px(c, 2, y - 28, H[1]); }
-    else if (f === 'part') { row(y - 29, [[-5, -2], [0, 4]]); px(c, -1, y - 29, H[0]); row(y - 28, [[-5, -3], [2, 4]]); }
-    else if (f === 'full') { row(y - 29, [[-5, 4]]); row(y - 28, [[-5, -3], [-1, 0], [2, 4]]); px(c, -4, y - 27, H[1]); px(c, 3, y - 27, H[1]); }
-    else if (f === 'spiky') { row(y - 29, [[-5, 4]]); for (const x of [-5, -3, -1, 1, 3]) px(c, x, y - 28, H[2]); }
-    else if (f === 'swoop') { row(y - 29, [[-5, 4]]); row(y - 28, [[-2, 4]]); row(y - 27, [[1, 4]]); r(c, 3, y - 28, 2, 2, H[1]); px(c, -1, y - 29, H[3]); }
-    r(c, -5, y - 29, 1, 2, H[3]);
+    // fringe over the forehead (rows y-27 .. y-25)
+    const row = (yy, xs, col = H[2]) => { for (const [a, b] of xs) r(c, a, yy, b - a + 1, 1, col); };
+    if (f === 'side') { row(y - 27, [[-6, 5]]); row(y - 26, [[-6, 2]]); row(y - 25, [[-6, -3]], H[1]); px(c, 3, y - 26, H[1]); }
+    else if (f === 'part') { row(y - 27, [[-6, -2], [0, 5]]); px(c, -1, y - 27, L.K[1]); row(y - 26, [[-6, -3], [2, 5]]); row(y - 25, [[-6, -5], [4, 5]], H[1]); }
+    else if (f === 'full') { row(y - 27, [[-6, 5]]); row(y - 26, [[-6, -3], [-1, 0], [2, 5]]); row(y - 25, [[-6, -5], [4, 5]], H[1]); px(c, -1, y - 25, H[1]); }
+    else if (f === 'spiky') { row(y - 27, [[-6, 5]]); for (const x of [-6, -4, -2, 0, 2, 4]) px(c, x, y - 26, H[2]); }
+    else if (f === 'swoop') { row(y - 27, [[-6, 5]]); row(y - 26, [[-3, 5]]); row(y - 25, [[1, 5]], H[1]); px(c, -2, y - 27, H[3]); }
   }
   extras(c, L, y, back ? 1 : 0, top);
 }
@@ -279,21 +302,21 @@ function hairFront(c, L, y, back) {
 function hairSide(c, L, y) {
   const { H, hair } = L;
   const top = y - 31 - hair.vol;
-  if (hair.fringe === 'bald') { r(c, -4, y - 31, 8, 2, L.K[2]); r(c, -6, y - 27, 2, 3, H[1]); return; }
+  if (hair.fringe === 'bald') { r(c, -5, y - 30, 10, 2, L.K[2]); r(c, -4, y - 31, 8, 1, L.K[2]); r(c, -7, y - 26, 3, 3, H[1]); return; }
   const buzz = hair.fringe === 'none' && hair.extra !== 'mohawk';
-  r(c, -4, top, 8, 1, H[2]);
-  r(c, -5, top + 1, 10, y - 28 - (top + 1), H[2]);
-  r(c, -2, top + 1, 4, 1, H[3]);
-  if (hair.extra === 'mohawk') { r(c, -5, top + 1, 10, y - 28 - top, L.K[2]); r(c, -5, y - 29, 9, 2, H[0]); r(c, -3, top - 2, 5, 3, H[2]); r(c, -4, top - 1, 7, y - 28 - top, H[2]); }
-  const bottom = [y - 23, y - 21, y - 17, y - 12][hair.len];
-  r(c, -6, top + 2, 5, bottom - (top + 2), buzz ? dk(H[2], 0.12) : H[2]);
-  r(c, -6, top + 2, 1, bottom - (top + 2), H[1]); r(c, -6, bottom - 1, 5, 1, H[1]);
-  if (hair.len >= 2) r(c, -7, y - 24, 2, bottom - (y - 24), H[1]);
+  if (hair.extra === 'mohawk') {
+    r(c, -5, y - 30, 10, 3, L.K[2]); r(c, -6, y - 27, 10, 1, H[0]);
+    r(c, -3, top - 2, 5, 3, H[2]); r(c, -4, top - 1, 7, y - 27 - top, H[2]);
+  } else cap(c, buzz ? [H[0], dk(H[2], 0.12), dk(H[2], 0.05), H[2]] : H, y, buzz ? y - 30 : top, false);
+  const bottom = hair.len === 0 ? y - 21 : hairBottom(y, hair.len);
+  r(c, -7, y - 27, 6, bottom - (y - 27), buzz ? dk(H[2], 0.12) : H[2]);
+  r(c, -7, y - 27, 1, bottom - (y - 27), H[1]); r(c, -7, bottom - 1, 6, 1, H[1]); px(c, -5, y - 27, H[3]);
+  if (hair.len >= 2) r(c, -8, y - 22, 2, bottom - (y - 22), H[1]);
   if (!buzz && hair.extra !== 'mohawk') {
-    r(c, -5, y - 29, 10, 1, H[2]);
-    if (hair.fringe === 'full' || hair.fringe === 'swoop') r(c, 1, y - 28, 4, 1, H[2]);
-    else if (hair.fringe === 'side') r(c, 2, y - 28, 3, 1, H[2]);
-    else if (hair.fringe === 'spiky') { px(c, 2, y - 28, H[2]); px(c, 4, y - 28, H[2]); }
+    r(c, -6, y - 27, 12, 1, H[2]);
+    if (hair.fringe === 'full' || hair.fringe === 'swoop') r(c, 1, y - 26, 5, 1, H[2]), px(c, 5, y - 25, H[1]);
+    else if (hair.fringe === 'side' || hair.fringe === 'part') r(c, 2, y - 26, 4, 1, H[2]);
+    else if (hair.fringe === 'spiky') { px(c, 2, y - 26, H[2]); px(c, 4, y - 26, H[2]); }
   }
   extras(c, L, y, 3, top);
 }
@@ -302,22 +325,23 @@ function extras(c, L, y, dir, top) {
   const { H, hair } = L;
   const e = hair.extra;
   if (e === 'bun') {
-    const x = dir === 3 ? -4 : -2;
-    r(c, x, top - 3, 4, 3, H[2]); r(c, x + 1, top - 4, 2, 1, H[2]); px(c, x + 1, top - 3, H[3]); r(c, x + 3, top - 2, 1, 2, H[1]);
+    const x = dir === 3 ? -6 : -3;
+    r(c, x + 1, top - 4, 4, 1, H[2]); r(c, x, top - 3, 6, 3, H[2]); r(c, x + 1, top, 4, 1, H[1]);
+    r(c, x + 1, top - 3, 2, 1, H[3]); r(c, x + 5, top - 2, 1, 2, H[1]);
   } else if (e === 'pony') {
-    if (dir === 1) { r(c, -1, y - 26, 2, 9, H[2]); px(c, -1, y - 26, H[3]); r(c, -1, y - 27, 2, 1, '#c0392b'); r(c, -1, y - 18, 2, 1, H[1]); }
-    else if (dir === 3) { r(c, -8, y - 28, 2, 8, H[2]); r(c, -8, y - 21, 2, 1, H[1]); px(c, -6, y - 28, '#c0392b'); }
-    else { r(c, 5, y - 26, 1, 4, H[1]); }
+    if (dir === 1) { r(c, -1, y - 24, 2, 9, H[2]); px(c, -1, y - 24, H[3]); r(c, -1, y - 25, 2, 1, '#e0457b'); r(c, -1, y - 16, 2, 1, H[1]); }
+    else if (dir === 3) { r(c, -9, y - 26, 2, 8, H[2]); r(c, -9, y - 19, 2, 1, H[1]); px(c, -7, y - 26, '#e0457b'); }
+    else { r(c, 6, y - 24, 1, 4, H[1]); }
   } else if (e === 'pigtails') {
-    const tail = (x) => { r(c, x, y - 26, 2, 6, H[2]); px(c, x, y - 26, H[3]); r(c, x, y - 21, 2, 1, H[1]); r(c, x, y - 27, 2, 1, '#e0457b'); };
-    if (dir === 3) tail(-8); else { tail(-8); tail(6); }
+    const tail = (x) => { r(c, x, y - 24, 2, 6, H[2]); px(c, x, y - 24, H[3]); r(c, x, y - 19, 2, 1, H[1]); r(c, x, y - 25, 2, 1, '#e0457b'); };
+    if (dir === 3) tail(-9); else { tail(-9); tail(7); }
   } else if (e === 'curly') {
-    for (const x of [-3, -1, 1]) px(c, x, top - 1, H[2]);
-    const bottom = [y - 25, y - 21, y - 17, y - 12][hair.len];
-    for (let yy = top + 3; yy < bottom; yy += 2) { px(c, -7, yy, H[1]); if (dir !== 3) px(c, 6, yy, H[0]); }
-  } else if (e === 'spiky') {
     for (const x of [-4, -2, 0, 2]) px(c, x, top - 1, H[2]);
-    for (const x of [-3, 1]) px(c, x, top - 2, H[3]);
+    const bottom = hair.len === 0 ? y - 22 : hairBottom(y, hair.len);
+    for (let yy = top + 3; yy < bottom; yy += 2) { px(c, -8, yy, H[1]); if (dir !== 3) px(c, 7, yy, H[0]); }
+  } else if (e === 'spiky') {
+    for (const x of [-5, -3, -1, 1, 3]) px(c, x, top - 1, H[2]);
+    for (const x of [-4, 0, 2]) px(c, x, top - 2, H[3]);
   }
 }
 
@@ -325,7 +349,7 @@ function extras(c, L, y, dir, top) {
 function faceAcc(c, L, y, dir) {
   const a = L.acc;
   if (!a.kind || dir === 1) {
-    if (dir === 1 && a.kind === 'bandana') r(c, -3, y - 19, 6, 2, ramp(a.color)[1]);
+    if (dir === 1 && a.kind === 'bandana') r(c, -3, y - 17, 6, 2, ramp(a.color)[1]);
     return;
   }
   const front = dir === 0;
@@ -333,44 +357,46 @@ function faceAcc(c, L, y, dir) {
   switch (a.kind) {
     case 'glasses': case 'round':
       if (front) {
-        r(c, -4, y - 26, 4, 1, col); r(c, 0, y - 26, 4, 1, col); px(c, -4, y - 25, col); px(c, 3, y - 25, col); r(c, -1, y - 25, 2, 1, col);
-        if (a.kind === 'round') { px(c, -4, y - 24, col); px(c, -1, y - 24, col); px(c, 0, y - 24, col); px(c, 3, y - 24, col); }
-        px(c, -2, y - 25, mix(L.E[2], '#ffffff', 0.25));
-      } else { r(c, 1, y - 26, 4, 1, col); px(c, 5, y - 25, col); r(c, -1, y - 26, 2, 1, col); }
+        for (const x0 of [-5, 1]) {
+          r(c, x0, y - 25, 4, 1, col); px(c, x0, y - 24, col); px(c, x0 + 3, y - 24, col); px(c, x0, y - 23, col); px(c, x0 + 3, y - 23, col);
+          if (a.kind === 'round') r(c, x0 + 1, y - 21, 2, 1, col); else r(c, x0, y - 22, 4, 1, col);
+        }
+        r(c, -1, y - 24, 2, 1, col);
+      } else { r(c, 2, y - 25, 4, 1, col); px(c, 2, y - 23, col); px(c, 5, y - 23, col); r(c, 2, y - 22, 4, 1, col); r(c, -1, y - 24, 3, 1, col); }
       break;
     case 'shades':
-      if (front) { r(c, -4, y - 26, 8, 1, col); r(c, -4, y - 25, 3, 2, col); r(c, 1, y - 25, 3, 2, col); px(c, -3, y - 25, '#5a6a7a'); px(c, 2, y - 25, '#5a6a7a'); }
-      else { r(c, 2, y - 26, 3, 3, col); r(c, -1, y - 26, 3, 1, col); }
+      if (front) { r(c, -5, y - 24, 10, 1, col); r(c, -5, y - 23, 4, 2, col); r(c, 1, y - 23, 4, 2, col); px(c, -4, y - 23, '#6a7a8a'); px(c, 2, y - 23, '#6a7a8a'); }
+      else { r(c, 2, y - 24, 4, 3, col); r(c, -1, y - 24, 3, 1, col); px(c, 3, y - 23, '#6a7a8a'); }
       break;
     case 'beard': {
       const H = L.H;
-      if (front) { r(c, -5, y - 23, 1, 2, H[2]); r(c, 4, y - 23, 1, 2, H[1]); r(c, -5, y - 22, 10, 3, H[2]); r(c, -4, y - 19, 8, 1, H[1]); r(c, -2, y - 22, 4, 1, H[3]); px(c, -1, y - 21, '#5a2a1a'); px(c, 0, y - 21, '#5a2a1a'); }
-      else { r(c, -2, y - 23, 6, 4, H[2]); r(c, -1, y - 19, 4, 1, H[1]); r(c, 4, y - 22, 1, 2, H[1]); }
+      if (front) { r(c, -6, y - 22, 1, 3, H[2]); r(c, 5, y - 22, 1, 3, H[1]); r(c, -6, y - 20, 12, 2, H[2]); r(c, -5, y - 18, 10, 2, H[2]); r(c, -4, y - 16, 8, 1, H[1]); r(c, -2, y - 20, 4, 1, H[3]); r(c, -1, y - 19, 2, 1, '#7a3a2a'); }
+      else { r(c, -1, y - 21, 7, 4, H[2]); r(c, 0, y - 17, 5, 1, H[1]); r(c, 5, y - 20, 1, 2, H[1]); }
       break;
     }
     case 'moustache':
-      if (front) { r(c, -2, y - 22, 4, 1, L.H[2]); px(c, -2, y - 21, L.H[1]); px(c, 1, y - 21, L.H[1]); }
-      else r(c, 3, y - 22, 3, 1, L.H[2]);
+      if (front) { r(c, -3, y - 21, 6, 1, L.H[2]); px(c, -3, y - 20, L.H[1]); px(c, 2, y - 20, L.H[1]); }
+      else r(c, 3, y - 21, 3, 1, L.H[2]);
       break;
     case 'stubble':
-      for (const [x, yy] of front ? [[-4, 21], [-2, 20], [0, 20], [2, 21], [-3, 22], [3, 22], [1, 21], [-1, 22]] : [[1, 21], [3, 20], [2, 22], [-1, 21]]) px(c, x, y - yy, mix(L.K[2], L.H[1], 0.45));
+      for (const [x, yy] of front ? [[-5, 20], [-3, 19], [2, 19], [4, 20], [-4, 18], [3, 18], [-2, 18], [1, 18]] : [[1, 19], [3, 18], [2, 20], [4, 19]]) px(c, x, y - yy, mix(L.K[2], L.H[1], 0.4));
       break;
     case 'freckles':
-      for (const [x, yy] of front ? [[-4, 23], [-3, 22], [2, 23], [3, 22]] : [[2, 23], [3, 22]]) px(c, x, y - yy, L.K[0]);
+      for (const [x, yy] of front ? [[-5, 22], [-4, 21], [3, 22], [4, 21]] : [[2, 22], [3, 21]]) px(c, x, y - yy, L.K[0]);
       break;
     case 'blush':
-      if (front) { r(c, -4, y - 23, 2, 1, '#f08a8a'); r(c, 2, y - 23, 2, 1, '#f08a8a'); } else r(c, 2, y - 23, 2, 1, '#f08a8a');
+      if (front) { r(c, -5, y - 21, 2, 2, '#f08a8a'); r(c, 3, y - 21, 2, 2, '#f08a8a'); } else r(c, 2, y - 21, 2, 2, '#f08a8a');
       break;
     case 'earrings':
-      if (front) { px(c, -6, y - 23, col); px(c, 5, y - 23, col); } else px(c, -1, y - 23, col);
+      if (front) { px(c, -7, y - 21, col); px(c, 6, y - 21, col); } else px(c, -2, y - 21, col);
       break;
     case 'patch':
-      if (front) { r(c, -4, y - 26, 3, 3, col); for (let i = 0; i < 6; i++) px(c, -1 + i, y - 27 - (i >> 1), col); }
-      else r(c, -5, y - 28, 10, 1, col);
+      if (front) { r(c, -5, y - 25, 4, 4, col); for (let i = 0; i < 7; i++) px(c, -1 + i, y - 26 - (i >> 1), col); }
+      else r(c, -6, y - 26, 12, 1, col);
       break;
     case 'bandana': {
       const B = ramp(col);
-      r(c, -3, y - 19, 6, 2, B[2]); r(c, -2, y - 17, 4, 1, B[2]); px(c, -1, y - 16, B[1]); px(c, -2, y - 18, B[3]);
+      r(c, -3, y - 17, 6, 2, B[2]); r(c, -2, y - 15, 4, 1, B[2]); px(c, -1, y - 14, B[1]); px(c, -2, y - 16, B[3]);
       break;
     }
   }
@@ -383,44 +409,44 @@ function hatAcc(c, L, y, dir) {
   switch (a.kind) {
     case 'bow': {
       const B = ramp(a.color);
-      const x = side ? -4 : dir === 1 ? -2 : 2;
-      r(c, x, top + 1, 4, 3, B[2]); px(c, x + 1, top + 2, B[0]); px(c, x + 2, top + 2, B[0]); r(c, x, top + 1, 1, 1, B[3]);
+      const x = side ? -5 : dir === 1 ? -2 : 2;
+      r(c, x, top + 1, 5, 3, B[2]); px(c, x + 2, top + 2, B[0]); r(c, x, top + 1, 1, 1, B[3]); px(c, x + 2, top + 1, B[1]);
       break;
     }
     case 'flower':
       if (dir === 1) return;
-      { const x = side ? 2 : 3; r(c, x, y - 31, 3, 3, a.color); px(c, x + 1, y - 30, '#f1c40f'); px(c, x, y - 31, '#ffffff'); }
+      { const x = side ? 2 : 3; r(c, x, y - 30, 3, 3, a.color); px(c, x + 1, y - 29, '#f1c40f'); px(c, x, y - 30, '#ffffff'); }
       break;
     case 'cap': {
       const C = ramp(a.color);
-      r(c, -5, top - 1, 10, y - 28 - top, C[2]); r(c, -4, top - 2, 8, 1, C[2]); r(c, -4, top - 1, 3, 1, C[3]); r(c, 3, top, 2, y - 29 - top, C[1]);
-      px(c, -1, top - 3, C[1]);
-      if (dir === 0) { r(c, -6, y - 29, 12, 1, C[1]); r(c, -5, y - 28, 10, 1, C[0]); r(c, -1, top + 1, 2, 2, '#f2efe6'); }
-      else if (side) { r(c, -5, y - 29, 12, 1, C[1]); r(c, 3, y - 28, 4, 1, C[0]); }
-      else r(c, -5, y - 29, 10, 1, C[1]);
+      r(c, -6, top, 12, y - 26 - top, C[2]); r(c, -5, top - 1, 10, 1, C[2]); r(c, -4, top - 1, 3, 1, C[3]); r(c, 4, top + 1, 2, y - 27 - top, C[1]);
+      px(c, -1, top - 2, C[1]);
+      if (dir === 0) { r(c, -7, y - 27, 14, 1, C[1]); r(c, -6, y - 26, 12, 1, C[0]); r(c, -1, top + 1, 2, 2, '#f2efe6'); }
+      else if (side) { r(c, -6, y - 27, 14, 1, C[1]); r(c, 4, y - 26, 4, 1, C[0]); }
+      else r(c, -6, y - 27, 12, 1, C[1]);
       break;
     }
     case 'sunhat': {
       const C = ramp(a.color);
-      const bw = side ? 16 : 18;
-      r(c, -bw / 2, y - 30, bw, 2, C[2]); r(c, -bw / 2, y - 30, bw, 1, C[3]); r(c, -bw / 2, y - 29, bw, 1, C[1]);
-      r(c, -5, y - 35, 10, 5, C[2]); r(c, -4, y - 36, 8, 1, C[2]); r(c, -5, y - 35, 2, 5, C[3]); r(c, 3, y - 35, 2, 5, C[1]);
-      r(c, -5, y - 31, 10, 1, '#c0392b');
-      for (let x = -4; x < 4; x += 2) px(c, x, y - 34, C[1]);
+      const bw = side ? 18 : 20;
+      r(c, -bw / 2, y - 28, bw, 2, C[2]); r(c, -bw / 2, y - 28, bw, 1, C[3]); r(c, -bw / 2, y - 27, bw, 1, C[1]);
+      r(c, -5, y - 33, 10, 5, C[2]); r(c, -4, y - 34, 8, 1, C[2]); r(c, -5, y - 33, 2, 5, C[3]); r(c, 3, y - 33, 2, 5, C[1]);
+      r(c, -5, y - 29, 10, 1, '#c0392b');
+      for (let x = -4; x < 4; x += 2) px(c, x, y - 32, C[1]);
       break;
     }
     case 'beanie': {
       const C = ramp(a.color);
-      r(c, -6, top, 12, y - 28 - top, C[2]); r(c, -5, top - 1, 10, 1, C[2]); r(c, -5, top, 3, 2, C[3]);
-      r(c, -6, y - 30, 12, 2, C[1]); for (let x = -6; x < 6; x += 2) px(c, x, y - 30, C[0]);
+      r(c, -7, top, 14, y - 26 - top, C[2]); r(c, -6, top - 1, 12, 1, C[2]); r(c, -6, top, 3, 2, C[3]);
+      r(c, -7, y - 28, 14, 2, C[1]); for (let x = -7; x < 7; x += 2) px(c, x, y - 28, C[0]);
       r(c, -1, top - 3, 2, 2, '#f2efe6');
       break;
     }
     case 'headband':
-      r(c, side ? -6 : -6, y - 30, side ? 11 : 12, 1, a.color); if (side) px(c, -6, y - 29, a.color);
+      r(c, -7, y - 28, side ? 13 : 14, 1, a.color); if (side) px(c, -7, y - 27, a.color);
       break;
     case 'patch':
-      if (dir === 1) r(c, -5, y - 28, 10, 1, a.color);
+      if (dir === 1) r(c, -6, y - 26, 12, 1, a.color);
       break;
   }
 }
@@ -430,7 +456,7 @@ function paint(c, L, dir, frame) {
   const side = dir === 2 || dir === 3;
   if (dir === 2) { c.scale(-1, 1); dir = 3; }
   const bob = frame % 2 ? -1 : 0;
-  const y0 = -18 + bob; // torso top
+  const y0 = -17 + bob; // torso top
   legs(c, L, dir, frame);
   if (side) {
     skirt(c, L, y0, true);

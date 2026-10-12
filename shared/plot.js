@@ -1,9 +1,10 @@
-// Plot rules shared by server and client: land, fences, footprints, rotation, walls,
+// Plot rules shared by server and client: land, roads, footprints, rotation, walls,
 // levels, placement and collision.
 //
-// A plot is a rectangle of residential land: { id, x, y, w, h } in world tiles, plus
-// its owner and contents. Its south edge always lies on a road and has a 2-tile gate;
-// the other edges are fenced. Contents use plot-local tile coordinates (0..w-1, 0..h-1):
+// A plot is a rectangle of land: { id, x, y, w, h } in world tiles, plus its owner and
+// contents. Plots have no fences. They must touch a road and may cover roads, but road
+// tiles stay public: nothing can be built on them (see roads below).
+// Contents use plot-local tile coordinates (0..w-1, 0..h-1):
 //   floor / obj     level 0 (ground) floor tiles and objects, keyed "x,y"
 //   l1.floor/l1.obj level 1 (upstairs)
 //   walls           wall segments on tile *edges*, keyed "level:d:x:y" -> { m, f }
@@ -11,17 +12,17 @@
 //   roofs           [{ x, y, w, h, l, m }] gable roofs over a rectangle at level l
 // Objects are stored once at their anchor (top-left) tile: obj["x,y"] = { t, r }.
 import { ITEMS } from './catalog.js';
-import { TILE, MAP_W, MAP_H, SOLID_TILES, ZONES } from './world.js';
+import { TILE, MAP_W, MAP_H, SOLID_TILES, LAND, PUBLIC_AREAS, isRoad } from './world.js';
 
 export const LEVELS = 2;
 export const LEVEL_H = 2.65; // floor-to-floor height in tiles (the 3D view uses the same)
 export const LAND_PRICE = 2; // coins per tile when growing a plot
 export const MIN_SIDE = 8;
 export const MAX_W = 60;
+export const MAX_H = 48;
 export const key = (lx, ly) => `${lx},${ly}`;
 
 export const inInterior = (plot, lx, ly) => Number.isInteger(lx) && Number.isInteger(ly) && lx >= 0 && ly >= 0 && lx < plot.w && ly < plot.h;
-export const gateTiles = (plot) => { const g = Math.floor(plot.w / 2) - 1; return [g, g + 1]; };
 export const plotList = (plots) => (Array.isArray(plots) ? plots.filter(Boolean) : Object.values(plots));
 
 // Fill world.plotAt (tile -> plot id) from the live plots.
@@ -86,12 +87,97 @@ export function parseEdge(k) {
   return { l: +l, d, x: +x, y: +y };
 }
 
-// Walls go on edges strictly inside the plot (its border is the fence).
+// Walls go on any edge of the plot's tiles, including its outline.
 export function edgeValid(plot, d, x, y) {
   if (!Number.isInteger(x) || !Number.isInteger(y)) return false;
-  if (d === 'h') return x >= 0 && x < plot.w && y >= 1 && y < plot.h;
-  if (d === 'v') return x >= 1 && x < plot.w && y >= 0 && y < plot.h;
+  if (d === 'h') return x >= 0 && x < plot.w && y >= 0 && y <= plot.h;
+  if (d === 'v') return x >= 0 && x <= plot.w && y >= 0 && y < plot.h;
   return false;
+}
+
+// ---------- roads ----------
+// Is local tile (lx, ly) of this plot a public road?
+export const roadIn = (world, plot, lx, ly) => !!world && isRoad(world, plot.x + lx, plot.y + ly);
+const roadMsg = 'That’s a public road';
+
+// Road tiles inside the plot that connect to road outside it ("ends" of the road).
+export function roadEnds(world, plot) {
+  const out = [];
+  for (let ly = 0; ly < plot.h; ly++) for (let lx = 0; lx < plot.w; lx++) {
+    if (!roadIn(world, plot, lx, ly)) continue;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = lx + dx, ny = ly + dy;
+      if (!inInterior(plot, nx, ny) && isRoad(world, plot.x + nx, plot.y + ny)) { out.push([lx, ly]); break; }
+    }
+  }
+  return out;
+}
+
+// Group the plot's road ends by which ones are joined by road inside the plot.
+// isRoadLocal lets callers test a hypothetical layout.
+function endGroups(plot, ends, isRoadLocal) {
+  const comp = new Map();
+  let next = 0;
+  for (const [sx, sy] of ends) {
+    if (comp.has(key(sx, sy))) continue;
+    const id = next++;
+    const stack = [[sx, sy]];
+    comp.set(key(sx, sy), id);
+    while (stack.length) {
+      const [x, y] = stack.pop();
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy, k = key(nx, ny);
+        if (comp.has(k) || !inInterior(plot, nx, ny) || !isRoadLocal(nx, ny)) continue;
+        comp.set(k, id);
+        stack.push([nx, ny]);
+      }
+    }
+  }
+  return ends.map(([x, y]) => comp.get(key(x, y)));
+}
+
+// Can the owner change these local tiles to road (on = true) or dig them up (on = false)?
+// Roads stay public: every end of a road crossing the plot must stay, and ends that were
+// joined must stay joined, so a road can be moved but never cut.
+export function roadEditError(world, plot, tiles, on) {
+  if (!tiles.length) return 'Nothing to change';
+  const set = new Set();
+  for (const [lx, ly] of tiles) {
+    if (!inInterior(plot, lx, ly)) return 'Roads can only be moved inside your plot';
+    if (roadIn(world, plot, lx, ly) === on) continue;
+    if (on) {
+      const k = key(lx, ly);
+      if (plot.floor[k] || objAt(plot, lx, ly) || plot.l1?.floor[k] || objAt(plot.l1 || { obj: {} }, lx, ly)) return 'Clear the land first';
+      for (const [d, x, y] of [['h', lx, ly], ['h', lx, ly + 1], ['v', lx, ly], ['v', lx + 1, ly]]) {
+        for (let l = 0; l < LEVELS; l++) if (wallAt(plot, l, d, x, y)) return 'A wall is in the way';
+      }
+    }
+    set.add(key(lx, ly));
+  }
+  if (!set.size) return on ? 'Already road' : 'There’s no road there';
+  if (on) return null;
+  const ends = roadEnds(world, plot);
+  for (const [x, y] of ends) if (set.has(key(x, y))) return 'That’s where the road enters your land. Ask City Hall to close it';
+  const before = endGroups(plot, ends, (x, y) => roadIn(world, plot, x, y));
+  const after = endGroups(plot, ends, (x, y) => roadIn(world, plot, x, y) && !set.has(key(x, y)));
+  for (let i = 0; i < ends.length; i++) for (let j = i + 1; j < ends.length; j++) {
+    if (before[i] === before[j] && after[i] !== after[j]) return 'Every end of the road must stay connected';
+  }
+  return null;
+}
+
+// Where to stand when "going home": the road tile nearest the plot's middle (inside it
+// or just outside), else its middle. World pixels.
+export function plotEntrance(world, plot) {
+  const cx = plot.x + plot.w / 2, cy = plot.y + plot.h / 2;
+  let best = null, bd = Infinity;
+  for (let ty = plot.y - 1; ty <= plot.y + plot.h; ty++) for (let tx = plot.x - 1; tx <= plot.x + plot.w; tx++) {
+    if (!isRoad(world, tx, ty) || world.block?.[ty * MAP_W + tx]) continue;
+    const d = (tx + 0.5 - cx) ** 2 + (ty + 0.5 - cy) ** 2;
+    if (d < bd) { bd = d; best = [tx, ty]; }
+  }
+  const [tx, ty] = best || [Math.floor(cx), Math.floor(cy)];
+  return { x: (tx + 0.5) * TILE, y: (ty + 0.5) * TILE + 4 };
 }
 
 export const wallAt = (plot, level, d, x, y) => plot.walls?.[edgeKey(level, d, x, y)] || null;
@@ -128,12 +214,13 @@ const passable = (w) => !!(w && w.f && ITEMS[w.f]?.passable);
 
 // ---------- placement ----------
 // Returns null when OK, or a short reason string.
-export function placementError(plot, lx, ly, itemId, r = 0, level = 0) {
+export function placementError(plot, lx, ly, itemId, r = 0, level = 0, world = null) {
   const item = ITEMS[itemId];
-  if (!item) return 'Unknown item';
+  if (!item || item.cat === 'public') return 'Unknown item';
   const view = levelView(plot, level);
   if (item.layer === 'floor') {
     if (!inInterior(plot, lx, ly)) return 'Outside your plot';
+    if (roadIn(world, plot, lx, ly)) return roadMsg;
     if (level && itemId === 'soil') return 'Soil only works outdoors';
     if (level && isStairTile(plot, lx, ly)) return 'That’s the stairwell';
     const k = key(lx, ly);
@@ -149,6 +236,7 @@ export function placementError(plot, lx, ly, itemId, r = 0, level = 0) {
   const tiles = tilesOf(itemId, r, lx, ly);
   for (const [tx, ty] of tiles) {
     if (!inInterior(plot, tx, ty)) return 'Doesn’t fit there';
+    if (roadIn(world, plot, tx, ty)) return roadMsg;
     if (objAt(view, tx, ty)) return 'Tile is occupied';
     if (level && !view.floor[key(tx, ty)]) return 'Needs a floor underneath';
     if (level && isStairTile(plot, tx, ty)) return 'That’s the stairwell';
@@ -162,19 +250,21 @@ export function placementError(plot, lx, ly, itemId, r = 0, level = 0) {
   return null;
 }
 
-export function wallError(plot, level, d, x, y) {
-  if (!edgeValid(plot, d, x, y)) return 'Walls must stay inside your fence';
+export function wallError(plot, level, d, x, y, world = null) {
+  if (!edgeValid(plot, d, x, y)) return 'Walls must stay on your plot';
   if (level < 0 || level >= LEVELS) return 'Unknown level';
   const view = levelView(plot, level);
   const [ax, ay, bx, by] = d === 'h' ? [x, y - 1, x, y] : [x - 1, y, x, y];
+  for (const [tx, ty] of [[ax, ay], [bx, by]]) if (inInterior(plot, tx, ty) && roadIn(world, plot, tx, ty)) return roadMsg;
   const a = objAt(view, ax, ay), b = objAt(view, bx, by);
   if (a && b && a.key === b.key) return 'Something is in the way';
   return null;
 }
 
-export function roofError(plot, x, y, w, h, level) {
+export function roofError(plot, x, y, w, h, level, world = null) {
   if (![x, y, w, h].every(Number.isInteger) || w < 1 || h < 1) return 'Bad roof size';
-  if (!inInterior(plot, x, y) || !inInterior(plot, x + w - 1, y + h - 1)) return 'Roofs must stay inside your fence';
+  if (!inInterior(plot, x, y) || !inInterior(plot, x + w - 1, y + h - 1)) return 'Roofs must stay on your plot';
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) if (roadIn(world, plot, x + i, y + j)) return roadMsg;
   if (level < 0 || level >= LEVELS) return 'Unknown level';
   for (const rf of plot.roofs || []) {
     if (rf.l === level && x < rf.x + rf.w && rf.x < x + w && y < rf.y + rf.h && rf.y < y + h) return 'Overlaps another roof';
@@ -187,19 +277,27 @@ export function roofAt(plot, lx, ly, level) {
 }
 
 // ---------- land: resize, merge, split ----------
-export const zoneOf = (r) => ZONES.find((z) => r.x >= z.x && r.y >= z.y && r.x + r.w <= z.x + z.w && r.y + r.h <= z.y + z.h) || null;
 const overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
 // Is `rect` a valid plot shape for plot `id` (null for a brand-new plot)?
-export function landError(plots, id, rect) {
+// Plots sit on open land inside the forest, off the public areas, touching a road.
+export function landError(plots, id, rect, world) {
   const { x, y, w, h } = rect;
   if (![x, y, w, h].every(Number.isInteger)) return 'Bad plot shape';
   if (w < MIN_SIDE || h < MIN_SIDE) return `Plots must be at least ${MIN_SIDE}×${MIN_SIDE}`;
-  if (w > MAX_W) return `Plots can be at most ${MAX_W} wide`;
-  const z = zoneOf(rect);
-  if (!z) return 'Plots must stay on residential land';
-  if (y + h !== z.y + z.h) return 'Plots must reach the road';
+  if (w > MAX_W || h > MAX_H) return `Plots can be at most ${MAX_W}×${MAX_H}`;
+  if (x < LAND.x || y < LAND.y || x + w > LAND.x + LAND.w || y + h > LAND.y + LAND.h) return 'That’s the forest';
+  const pub = PUBLIC_AREAS.find((a) => overlaps(a, rect));
+  if (pub) return `${pub.name} is public land`;
   for (const p of plotList(plots)) if (p.id !== id && overlaps(p, rect)) return 'Overlaps another plot';
+  if (world) {
+    let touches = false;
+    for (let ty = y - 1; ty <= y + h && !touches; ty++) for (let tx = x - 1; tx <= x + w; tx++) {
+      const corner = (tx === x - 1 || tx === x + w) && (ty === y - 1 || ty === y + h);
+      if (!corner && isRoad(world, tx, ty)) { touches = true; break; }
+    }
+    if (!touches) return 'Plots must touch a road';
+  }
   return null;
 }
 
@@ -246,10 +344,10 @@ export function shiftContent(plot, dx, dy) {
   occChanged(plot);
 }
 
-// Two plots side by side with the same depth merge into one rectangle.
+// Two plots side by side (same depth) or stacked (same width) merge into one rectangle.
 export function mergedRect(a, b) {
-  if (a.y !== b.y || a.h !== b.h) return null;
-  if (a.x + a.w === b.x || b.x + b.w === a.x) return { x: Math.min(a.x, b.x), y: a.y, w: a.w + b.w, h: a.h };
+  if (a.y === b.y && a.h === b.h && (a.x + a.w === b.x || b.x + b.w === a.x)) return { x: Math.min(a.x, b.x), y: a.y, w: a.w + b.w, h: a.h };
+  if (a.x === b.x && a.w === b.w && (a.y + a.h === b.y || b.y + b.h === a.y)) return { x: a.x, y: Math.min(a.y, b.y), w: a.w, h: a.h + b.h };
   return null;
 }
 
@@ -320,7 +418,7 @@ const plotById = (plots, id) => (Array.isArray(plots) ? plots.find((p) => p && p
 
 export function tileSolid(world, plots, tx, ty) {
   if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) return true;
-  if (SOLID_TILES.has(world.tiles[ty * MAP_W + tx])) return true;
+  if (SOLID_TILES.has(world.tiles[ty * MAP_W + tx]) || world.block?.[ty * MAP_W + tx]) return true;
   const pid = plotAtTile(world, tx, ty);
   if (pid >= 0) {
     const p = plotById(plots, pid);
@@ -346,37 +444,27 @@ function pointOK(world, plots, px, py, level) {
 function hClosed(world, plots, tx, ty, level) {
   const st = stairEdge(world, plots, tx, ty - 1, tx, ty, level);
   if (st !== null) return st;
-  const a = plotAtTile(world, tx, ty - 1), b = plotAtTile(world, tx, ty);
-  if (a === b) {
-    if (a < 0) return false;
-    const p = plotById(plots, a);
-    const w = p?.walls?.[edgeKey(level, 'h', tx - p.x, ty - p.y)];
-    return !!w && !passable(w);
+  return edgeClosed(plots, 'h', tx, ty, level, plotAtTile(world, tx, ty - 1), plotAtTile(world, tx, ty));
+}
+
+// A world edge is closed by a (non-door) wall of either plot it borders. No fences.
+function edgeClosed(plots, d, tx, ty, level, a, b) {
+  for (const id of a === b ? [a] : [a, b]) {
+    if (id < 0) continue;
+    const p = plotById(plots, id);
+    const w = p?.walls?.[edgeKey(level, d, tx - p.x, ty - p.y)];
+    if (w && !passable(w)) return true;
   }
-  if (level) return false; // upstairs, floors already keep you inside
-  // Plot boundary: fenced, except the gate on a plot's south edge.
-  if (a >= 0) {
-    const p = plotById(plots, a);
-    if (p && ty === p.y + p.h && gateTiles(p).includes(tx - p.x) && b < 0) return false;
-  }
-  return a >= 0 || b >= 0;
+  return false;
 }
 
 function vClosed(world, plots, tx, ty, level) {
   const st = stairEdge(world, plots, tx - 1, ty, tx, ty, level);
   if (st !== null) return st;
-  const a = plotAtTile(world, tx - 1, ty), b = plotAtTile(world, tx, ty);
-  if (a === b) {
-    if (a < 0) return false;
-    const p = plotById(plots, a);
-    const w = p?.walls?.[edgeKey(level, 'v', tx - p.x, ty - p.y)];
-    return !!w && !passable(w);
-  }
-  if (level) return false;
-  return a >= 0 || b >= 0;
+  return edgeClosed(plots, 'v', tx, ty, level, plotAtTile(world, tx - 1, ty), plotAtTile(world, tx, ty));
 }
 
-const WALL_HALF = 1.5; // wall/fence thickness / 2 in world px
+const WALL_HALF = 1.5; // wall thickness / 2 in world px
 
 function hitsEdges(world, plots, x0, y0, x1, y1, level) {
   const tx0 = Math.floor(x0 / TILE) - 1, tx1 = Math.floor(x1 / TILE) + 1;

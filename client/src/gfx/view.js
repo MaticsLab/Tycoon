@@ -7,7 +7,7 @@ import { MAP_W, MAP_H, SHOPS, FOUNTAIN } from '@shared/world.js';
 import { personSprite } from '../people.js';
 import { sanitizeLook } from '@shared/look.js';
 import { BillboardSet, texOf, blobMesh } from './billboards.js';
-import { buildTerrain, buildRocks, treeCards, buildFountain, fountainSpray, buildPlazaLamps, PLAZA_LAMPS, buildShop } from './scenery.js';
+import { buildTerrain, buildRocks, treeCards, buildFountain, fountainSpray, buildPlazaLamps, PLAZA_LAMPS, buildShop, buildDecor, buildCityHall } from './scenery.js';
 import { buildPlot, glassMat, LEVEL_H } from './houses.js';
 import { TEXEL } from './textures.js';
 
@@ -47,21 +47,25 @@ export class View {
     this.sun.shadow.bias = -0.0008;
     this.sun.shadow.normalBias = 0.03;
     this.scene.add(this.hemi, this.sun, this.sun.target);
-    this.pool = Array.from({ length: 8 }, () => {
+    this.pool = Array.from({ length: 12 }, () => {
       const l = new THREE.PointLight('#ffc878', 0, 7, 1.4);
       this.scene.add(l);
       return l;
     });
 
     // Static scenery
-    this.scene.add(buildTerrain(world), buildRocks(world), buildFountain(), buildPlazaLamps());
+    this.terrain = buildTerrain(world);
+    this.terrainRoads = world.roadsVersion;
+    this.scene.add(this.terrain, buildRocks(world), buildFountain(), buildPlazaLamps(), buildCityHall());
     for (const shop of SHOPS) this.scene.add(buildShop(shop));
     this.spray = fountainSpray();
     this.scene.add(this.spray);
     this.trees = new BillboardSet();
     treeCards(world, this.trees);
-    this.scene.add(this.trees.group);
+    const decor = buildDecor(world, this.trees);
+    this.scene.add(this.trees.group, decor.group);
     this.staticLights = [
+      ...decor.lights,
       ...PLAZA_LAMPS.map(([x, z]) => ({ x, y: 2.2, z, kind: 'post' })),
       ...SHOPS.flatMap((s) => [{ x: s.x + 0.95, y: 1.4, z: s.y + s.h - 0.3, kind: 'window' }, { x: s.x + s.w - 0.95, y: 1.4, z: s.y + s.h - 0.3, kind: 'window' }]),
     ];
@@ -172,16 +176,26 @@ export class View {
     return { x: rect.left + ((v.x + 1) / 2) * rect.width, y: rect.top + ((1 - v.y) / 2) * rect.height };
   }
 
+  // Repaint the ground after the road layout changed.
+  refreshTerrain() {
+    if (this.terrainRoads === this.world.roadsVersion) return;
+    this.terrainRoads = this.world.roadsVersion;
+    this.scene.remove(this.terrain);
+    this.terrain.traverse((o) => { o.geometry?.dispose(); o.material?.map?.dispose(); o.material?.dispose(); });
+    this.terrain = buildTerrain(this.world);
+    this.scene.add(this.terrain);
+  }
+
   // ---------- plots ----------
   // state: a live plot (with its own x, y, w, h). opts: { cut: 'up'|'cut'|'down', maxLevel, roofs, now }
   setPlot(state, opts) {
     const g = this.ground();
-    const sig = JSON.stringify([state, opts.cut, opts.maxLevel, opts.roofs, opts.crops, this.quadrant]);
+    const sig = JSON.stringify([state, opts.cut, opts.maxLevel, opts.roofs, opts.crops, this.quadrant, opts.entrance]);
     let p = this.plots.get(state.id);
     if (p && p.sig === sig) return;
     this.removePlot(state.id);
     const cards = new BillboardSet();
-    const built = buildPlot(state, { cut: { mode: opts.cut, fx: g.fx, fz: g.fz }, maxLevel: opts.maxLevel, roofs: opts.roofs, cards, now: opts.now });
+    const built = buildPlot(state, { cut: { mode: opts.cut, fx: g.fx, fz: g.fz }, maxLevel: opts.maxLevel, roofs: opts.roofs, cards, now: opts.now, entrance: opts.entrance });
     cards.build(this.basis());
     p = { group: built.group, cards, lights: built.lights, sig };
     this.plots.set(state.id, p);
@@ -262,9 +276,9 @@ export class View {
       const s = all[i];
       if (!s || night < 0.05) { l.intensity = 0; return; }
       l.position.set(s.x, s.y, s.z);
-      l.intensity = night * (s.kind === 'post' ? 9 : s.kind === 'fire' ? 7 : s.kind === 'window' ? 4 : 6);
-      l.color.set(s.kind === 'fire' ? '#ff9a4a' : '#ffd08a');
-      l.distance = s.kind === 'post' ? 8 : 6;
+      l.intensity = night * (s.kind === 'post' ? 9 : s.kind === 'fire' ? 7 : s.kind === 'window' ? 4 : s.kind === 'pumpkin' ? 4 : 6);
+      l.color.set(s.kind === 'fire' || s.kind === 'pumpkin' ? '#ff9a4a' : s.kind === 'cauldron' ? '#8aff6a' : '#ffd08a');
+      l.distance = s.kind === 'post' ? 8 : s.kind === 'pumpkin' ? 4 : 6;
     });
     this.spray.update(now);
     this.renderer.render(this.scene, this.camera);

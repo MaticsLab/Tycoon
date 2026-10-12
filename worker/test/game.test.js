@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Game } from '../src/game.js';
 import { generateWorld, TILE, T, MAP_W, STARTER_PLOTS, WORLD_VERSION } from '../../shared/world.js';
-import { canStand, objAt, rectEdges, edgeKey, levelView, gateTiles, LAND_PRICE, heightAt, LEVEL_H } from '../../shared/plot.js';
+import { canStand, objAt, rectEdges, edgeKey, levelView, landError, LAND_PRICE, heightAt, LEVEL_H, plotEntrance } from '../../shared/plot.js';
 import { START_COINS, ITEMS } from '../../shared/catalog.js';
 import { NPCS } from '../../shared/npcs.js';
 
@@ -31,15 +31,19 @@ function standBy(game, a, npc) {
   s.x = n.x; s.y = n.y + 12;
 }
 
-test('a new world has 14 roadside plots, two shops and a walkable spawn', () => {
+test('a new world has 16 roadside plots, two shops and a walkable spawn', () => {
   const game = new Game({});
   const w = game.world;
   assert.equal(Object.keys(game.plots).length, STARTER_PLOTS.length);
   assert.equal(w.shops.length, 2);
   assert.ok(canStand(w, game.plots, w.spawn.x, w.spawn.y));
   for (const n of Object.values(NPCS)) assert.ok(canStand(w, game.plots, n.home.x, n.home.y), n.name);
-  // Every plot's gate opens onto a road.
-  for (const p of Object.values(game.plots)) for (const gx of gateTiles(p)) assert.equal(w.tiles[(p.y + p.h) * MAP_W + p.x + gx], T.PATH);
+  // Every plot is valid land that touches a road, and its entrance is walkable.
+  for (const p of Object.values(game.plots)) {
+    assert.equal(landError(game.plots, p.id, p, w), null, `plot ${p.id}`);
+    const e = plotEntrance(w, p);
+    assert.ok(canStand(w, game.plots, e.x, e.y), `entrance of plot ${p.id}`);
+  }
 });
 
 test('guests can claim a plot, build and get refunds', async () => {
@@ -318,11 +322,13 @@ test('Sims-style rooms: walls on edges, doors let you through, windows do not', 
   assert.ok(canStand(game.world, game.plots, inside.x, (p.y + 5) * TILE + 2), 'door lets you through');
   assert.ok(canStand(game.world, game.plots, outside.x, outside.y));
 
-  // Doors need a wall; walls must stay inside the fence.
+  // Doors need a wall; walls must stay on the plot (its outline is fine).
   a.send({ type: 'feature', plotId: 0, d: 'h', x: 9, y: 9, f: 'door' });
   assert.match(a.last('error').msg, /into a wall/);
+  a.send({ type: 'walls', plotId: 0, m: 'wall_brick', segs: [['h', 3, p.h + 1]] });
+  assert.match(a.last('error').msg, /on your plot/);
   a.send({ type: 'walls', plotId: 0, m: 'wall_brick', segs: [['h', 3, 0]] });
-  assert.match(a.last('error').msg, /inside your fence/);
+  assert.ok(plot.walls[edgeKey(0, 'h', 3, 0)], 'property-line wall');
 
   // Big furniture can't straddle a wall.
   a.send({ type: 'place', plotId: 0, lx: 5, ly: 3, item: 'sofa' });
@@ -382,17 +388,18 @@ test('saves from the old fixed-plot map start fresh land and free their owners',
   assert.ok(out['profile:u1']);
 });
 
-test('fences block the plot border except at the gate', async () => {
-  const game = new Game({});
+test('plots have no fences: walk across the border, but property-line walls block', async () => {
+  const { game, join } = setup();
   const p = game.plots[4];
-  const [g0] = gateTiles(p);
-  const southY = (p.y + p.h) * TILE;
-  // Crossing the south fence away from the gate is blocked...
-  assert.ok(!canStand(game.world, game.plots, (p.x + 2.5) * TILE, southY + 2));
-  // ...but the gate is open.
-  assert.ok(canStand(game.world, game.plots, (p.x + g0 + 1) * TILE, southY + 2));
-  // Side fences block too.
-  assert.ok(!canStand(game.world, game.plots, p.x * TILE + 2, (p.y + 5) * TILE));
+  const midY = (p.y + 5.5) * TILE;
+  // Walk straight across the west border.
+  assert.ok(canStand(game.world, game.plots, p.x * TILE + 1, midY));
+  assert.ok(canStand(game.world, game.plots, p.x * TILE - 2, midY));
+  const a = await join({ name: 'Ana' });
+  a.send({ type: 'claim', plotId: 4 });
+  a.send({ type: 'walls', plotId: 4, m: 'wall_stone', segs: [['v', 0, 5]] });
+  assert.ok(!canStand(game.world, game.plots, p.x * TILE + 1, midY), 'wall on the outline blocks');
+  assert.ok(!canStand(game.world, game.plots, p.x * TILE - 2, midY), 'from both sides');
 });
 
 test('land: grow into open land, shrink, merge with the empty plot next door, split', async () => {
@@ -403,26 +410,31 @@ test('land: grow into open land, shrink, merge with the empty plot next door, sp
   stand(game, a, 1, 2, 2); // stand on the neighbouring plot, out of the way
   a.send({ type: 'place', plotId: 0, lx: 2, ly: 3, item: 'lamp' });
   const coins0 = a.last('coins').coins;
-  // Plot 0 is x 5..28; open land runs to x 33. Grow 3 tiles east.
-  a.send({ type: 'resizePlot', plotId: 0, x: plot.x, y: plot.y, w: plot.w + 3, h: plot.h });
-  assert.equal(plot.w, 27);
-  assert.equal(a.last('coins').coins, coins0 - 3 * plot.h * LAND_PRICE);
-  // Can't overlap the next plot (x 34+).
-  a.send({ type: 'resizePlot', plotId: 0, x: plot.x, y: plot.y, w: 31, h: plot.h });
+  // Plot 0 is x 7..30; open land runs to x 32. Grow 2 tiles east.
+  a.send({ type: 'resizePlot', plotId: 0, x: plot.x, y: plot.y, w: plot.w + 2, h: plot.h });
+  assert.equal(plot.w, 26);
+  assert.equal(a.last('coins').coins, coins0 - 2 * plot.h * LAND_PRICE);
+  // Can't overlap the next plot (x 33+).
+  a.send({ type: 'resizePlot', plotId: 0, x: plot.x, y: plot.y, w: 28, h: plot.h });
   assert.match(a.last('error').msg, /Overlaps/);
-  // Must stay on the road.
-  a.send({ type: 'resizePlot', plotId: 0, x: plot.x, y: plot.y, w: plot.w, h: plot.h - 2 });
-  assert.match(a.last('error').msg, /road/);
+  // Must keep touching a road (west road at x 3..6, south road from y 21).
+  a.send({ type: 'resizePlot', plotId: 0, x: plot.x + 2, y: plot.y, w: plot.w - 2, h: plot.h - 2 });
+  assert.match(a.last('error').msg, /touch a road/);
+  // Public land and the forest are off limits.
+  assert.match(landError(game.plots, null, { x: 120, y: 30, w: 10, h: 10 }, game.world), /public/);
+  assert.match(landError(game.plots, null, { x: 0, y: 4, w: 10, h: 10 }, game.world), /forest/);
+  // Plots may cover a road (it stays public).
+  assert.equal(landError(game.plots, null, { x: 31, y: 41, w: 12, h: 10 }, game.world), null);
   // Shrinking from the north keeps furniture where it stands in the world.
   a.send({ type: 'resizePlot', plotId: 0, x: plot.x, y: plot.y + 2, w: plot.w, h: plot.h - 2 });
-  assert.equal(plot.h, 16);
+  assert.equal(plot.h, 15);
   assert.equal(plot.obj['2,1'].t, 'lamp', 'lamp shifted to the new local coordinates');
   // Can't shrink over the house.
   a.send({ type: 'resizePlot', plotId: 0, x: plot.x + 3, y: plot.y, w: plot.w - 3, h: plot.h });
   assert.match(a.last('error').msg, /fit/);
 
   // Merge with plot 1 (empty, for sale) after making the depths match again.
-  a.send({ type: 'resizePlot', plotId: 0, x: plot.x, y: plot.y - 2, w: 29, h: 18 });
+  a.send({ type: 'resizePlot', plotId: 0, x: plot.x, y: plot.y - 2, w: 26, h: 17 });
   assert.equal(plot.x + plot.w, game.plots[1].x);
   assert.equal(plot.obj['2,3'].t, 'lamp', 'growing north shifts it back');
   const s = a.session(); s.x = game.world.spawn.x; s.y = game.world.spawn.y;
@@ -430,13 +442,13 @@ test('land: grow into open land, shrink, merge with the empty plot next door, sp
   a.send({ type: 'cheat', cmd: 'motherlode' });
   a.send({ type: 'mergePlot', plotId: 0, other: 1 });
   assert.equal(game.plots[1], undefined);
-  assert.equal(plot.w, 29 + 24);
+  assert.equal(plot.w, 26 + 24);
   assert.ok(a.inbox.some((m) => m.type === 'plotRemoved' && m.id === 1));
   assert.equal(game.world.plotAt[(plot.y + 1) * MAP_W + plot.x + 40], 0, 'merged land belongs to the plot');
 
   // Split off the empty east side: it becomes a new plot for sale.
   a.send({ type: 'splitPlot', plotId: 0, at: plot.x + 20 });
-  const fresh = Object.values(game.plots).find((p) => p.id >= 14);
+  const fresh = Object.values(game.plots).find((p) => p.id >= STARTER_PLOTS.length);
   assert.equal(plot.w, 20);
   assert.equal(fresh.x, plot.x + 20);
   assert.equal(fresh.owner, null);
@@ -473,8 +485,8 @@ test('cheat console: testingcheats gate, money, motherlode, free build, free rea
   assert.equal(Object.keys(game.plots[2].walls).length, 24);
   assert.equal(a.session().profile.coins, 100, 'free build costs nothing');
   a.send({ type: 'cheat', cmd: 'freerealestate on' });
-  a.send({ type: 'resizePlot', plotId: 2, x: game.plots[2].x, y: game.plots[2].y, w: 28, h: 18 });
-  assert.equal(game.plots[2].w, 28);
+  a.send({ type: 'resizePlot', plotId: 2, x: game.plots[2].x, y: game.plots[2].y, w: 26, h: 17 });
+  assert.equal(game.plots[2].w, 26);
   assert.equal(a.session().profile.coins, 100, 'free real estate');
   a.send({ type: 'cheat', cmd: 'nope' });
   assert.match(a.last('console').text, /Unknown/);
@@ -570,4 +582,68 @@ test('character looks are validated, saved and shared; logging in elsewhere keep
   const again = await join({}, user);
   assert.equal(again.welcome.you.look.shirt, 5);
   assert.equal(again.welcome.you.name, 'Dwight');
+});
+
+test('roads across a plot stay public: they can be moved but not cut', async () => {
+  const { game, join } = setup();
+  const a = await join({ name: 'Ana' });
+  a.send({ type: 'cheat', cmd: 'testingcheats true' });
+  a.send({ type: 'cheat', cmd: 'motherlode' });
+  a.send({ type: 'claim', plotId: 0 });
+  const plot = game.plots[0];
+  stand(game, a, 1, 2, 2);
+  // Grow south over the 4-wide road (world rows 21..24 = local rows 17..20).
+  a.send({ type: 'resizePlot', plotId: 0, x: plot.x, y: plot.y, w: plot.w, h: 21 });
+  assert.equal(plot.h, 21);
+  a.send({ type: 'place', plotId: 0, lx: 5, ly: 18, item: 'lamp' });
+  assert.match(a.last('error').msg, /public road/);
+  a.send({ type: 'floorRect', plotId: 0, x: 4, y: 15, w: 3, h: 4, item: 'floor_wood' });
+  assert.equal(plot.floor['5,18'], undefined, 'no floor on the road');
+  assert.ok(plot.floor['5,15']);
+  // Cutting straight through the road is refused...
+  const cut = [17, 18, 19, 20].map((y) => [10, y]);
+  a.send({ type: 'road', plotId: 0, tiles: cut, on: false });
+  assert.match(a.last('error').msg, /connected/);
+  // ...and so is digging up where the road enters the plot.
+  a.send({ type: 'road', plotId: 0, tiles: [[0, 18]], on: false });
+  assert.match(a.last('error').msg, /City Hall/);
+  // Pave a detour along row 16, then the cut is fine.
+  a.send({ type: 'road', plotId: 0, tiles: [[5, 16]], on: true });
+  assert.match(a.last('error').msg, /Clear/, 'can’t pave over a floor');
+  const detour = [];
+  for (let x = 0; x < plot.w; x++) if (!plot.floor[`${x},16`]) detour.push([x, 16]);
+  a.send({ type: 'road', plotId: 0, tiles: [[4, 15], [5, 15], [6, 15], ...detour], on: true });
+  assert.match(a.last('error').msg, /Clear/);
+  a.send({ type: 'remove', plotId: 0, lx: 4, ly: 16 });
+  for (const x of [4, 5, 6]) a.send({ type: 'remove', plotId: 0, lx: x, ly: 16 });
+  a.send({ type: 'road', plotId: 0, tiles: [...Array(plot.w).keys()].map((x) => [x, 16]), on: true });
+  assert.ok(a.last('roads'), 'road change broadcast');
+  a.send({ type: 'road', plotId: 0, tiles: cut, on: false });
+  assert.equal(game.world.tiles[(plot.y + 18) * MAP_W + plot.x + 10], T.GRASS);
+  a.send({ type: 'place', plotId: 0, lx: 10, ly: 18, item: 'lamp' });
+  assert.equal(plot.obj['10,18'].t, 'lamp');
+  // Saved, and a reloaded world has the same roads.
+  const out = game.takeDirty();
+  assert.ok(out.roads.del.length >= 3 && out.roads.add.length >= 20);
+  const again = new Game(Game.fromEntries(Object.entries({ ...out, meta: { ...out.meta } })));
+  assert.equal(again.world.tiles[(plot.y + 18) * MAP_W + plot.x + 10], T.GRASS);
+  assert.equal(again.world.tiles[(plot.y + 16) * MAP_W + plot.x + 3], T.PATH);
+});
+
+test('v3 saves keep their plots; anything left on the new roads is refunded', () => {
+  const saved = {
+    meta: { version: 3, epoch: 1, nextPlotId: 1 },
+    plots: { 0: { id: 0, x: 7, y: 4, w: 24, h: 18, owner: 'p1', ownerName: 'Ana', floor: { '3,17': 'floor_wood', '3,2': 'floor_wood' }, obj: { '5,17': { t: 'lamp' }, '5,5': { t: 'lamp' } }, l1: { floor: {}, obj: {} }, walls: {}, roofs: [] } },
+    profiles: { u1: { id: 'p1', uid: 'u1', name: 'Ana', coins: 100, plotId: 0, inv: {} } },
+  };
+  const game = new Game(saved);
+  const p = game.plots[0];
+  assert.deepEqual([p.x, p.y, p.w, p.h], [7, 4, 24, 18]);
+  assert.equal(p.obj['5,17'], undefined);
+  assert.ok(p.obj['5,5']);
+  assert.equal(p.floor['3,17'], undefined);
+  assert.equal(game.profiles.u1.coins, 100 + ITEMS.lamp.price + ITEMS.floor_wood.price);
+  const out = game.takeDirty();
+  assert.equal(out.meta.version, WORLD_VERSION);
+  assert.ok(out['plot:0'] && out['profile:u1']);
 });
