@@ -13,6 +13,7 @@ import { NPCS } from '@shared/npcs.js';
 import { itemIcon } from './sprites.js';
 import { View, LEVEL_H } from './gfx/view.js';
 import { Ghost, Outline } from './gfx/ghost.js';
+import { Minimap } from './minimap.js';
 import { openCreator, closeCreator } from './creator.js';
 import { renderCity } from './cityui.js';
 import { drawLook } from './people.js';
@@ -30,6 +31,7 @@ const world = generateWorld(undefined, { date: new Date() });
 const view = new View($('game'), world);
 const ghost = new Ghost(view.scene);
 const outline = new Outline(view.scene);
+const minimap = new Minimap($('minimap'), $('bigmap-canvas'));
 const U = (px) => px / TILE; // world pixels -> 3D units
 
 const S = {
@@ -145,6 +147,7 @@ function onMessage(m) {
       view.setTarget(U(S.me.x), U(S.me.y), true);
       view.zoomBy(1);
       updateHud();
+      requestAnimationFrame(placeMinimap);
       if (first) {
         sysMsg(`Welcome, ${S.me.name}!`);
         if (S.myPlot == null) sysMsg('Find a plot with a FOR SALE sign to claim it. Rosa, Otto and Juniper are in the town square.');
@@ -1329,6 +1332,7 @@ function showSettings() {
       <span>Move camera</span><span>right-drag · two-finger drag</span>
       <span>Zoom</span><span>mouse wheel · pinch</span>
       <span>Talk</span><span>Enter, or click a villager</span>
+      <span>Village map</span><span>M, or tap the minimap</span>
       <span>Build mode</span><span>B · R or right-click rotate · V walls · PgUp/PgDn floors · Ctrl/Cmd+Z undo · Alt+click eyedropper · Delete sledgehammer</span>
     </div>`);
   consoleLog.scrollTop = consoleLog.scrollHeight;
@@ -1384,11 +1388,12 @@ addEventListener('keydown', (e) => {
     return;
   }
   const k = e.key.toLowerCase();
-  if (k === 'escape') { if (drag) { drag = null; refreshPreview(); } else { setMode('walk'); closeTalk(); closeModal(); } }
+  if (k === 'escape') { if (drag) { drag = null; refreshPreview(); } else { setMode('walk'); closeTalk(); closeModal(); toggleMap(false); } }
   if (k === 'b') $('btn-build').click();
   if (k === 'q') turnCamera(-1);
   if (k === 'e') turnCamera(1);
   if (k === 'i') $('btn-bag').click();
+  if (k === 'm') toggleMap();
   if (S.mode === 'build') {
     if (k === 'z' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); undo(); return; }
     if (k === 'delete' || k === 'backspace' || k === 'x') { S.tool = S.tool.kind === 'remove' ? { kind: 'none' } : { kind: 'remove' }; renderTabs(); renderItems(); refreshPreview(); }
@@ -1815,6 +1820,34 @@ function nearMyPet() {
   return p && Math.hypot(p.x - S.me.x, p.y - S.me.y) < TILE * 1.8 ? p : null;
 }
 
+// ---------- Village map ----------
+let lastMap = 0;
+function updateMap(now) {
+  if (now - lastMap < 150) return;
+  lastMap = now;
+  minimap.update(world, S.plots, S.myPlot);
+  const people = [{ x: S.me.x, y: S.me.y, dir: S.me.dir, kind: 'me', name: S.me.name }];
+  for (const p of S.players.values()) people.push({ x: p.x, y: p.y, kind: 'player', name: p.name });
+  for (const n of S.npcs.values()) people.push({ x: n.x, y: n.y, kind: 'npc', name: NPCS[n.id].name });
+  for (const p of pets.values()) people.push({ x: p.x, y: p.y, kind: 'pet' });
+  const labels = Object.values(S.plots).filter((p) => p.owner).map((p) => ({
+    text: p.farm ? `${p.farm} Farm` : `${p.ownerName}'s`, x: p.x + p.w / 2, y: p.y + 1.6, mine: p.id === S.myPlot,
+  }));
+  minimap.draw(people, labels);
+}
+function placeMinimap() {
+  const tb = $('topbar').getBoundingClientRect();
+  document.documentElement.style.setProperty('--mm-top', `${Math.round(tb.bottom + 6)}px`);
+}
+function toggleMap(open = $('bigmap').hidden) {
+  $('bigmap').hidden = !open;
+  if (open) { lastMap = 0; updateMap(performance.now()); }
+}
+$('minimap').onclick = () => toggleMap(true);
+$('bigmap-close').onclick = () => toggleMap(false);
+$('bigmap').onclick = (e) => { if (e.target === $('bigmap')) toggleMap(false); };
+addEventListener('resize', placeMinimap);
+
 // Build mode shows where your land ends, the plots around it and the public roads on it.
 function updateOutline() {
   const plot = S.mode === 'build' ? S.plots[S.myPlot] : null;
@@ -1845,6 +1878,7 @@ function render(now) {
   }
   view.pruneActors();
   updateOutline();
+  updateMap(now);
   view.render(now, darkness(worldClock(sNow, S.epoch).hours), S.mode !== 'build');
   drawOverlay(now);
 }

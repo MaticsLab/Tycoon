@@ -175,6 +175,22 @@
       </div>
     </form>
 
+    <canvas id="minimap" title="Village map (M)"></canvas>
+    <div id="bigmap" hidden>
+      <div class="bigmap-card">
+        <div class="sheet-head">
+          <div id="bigmap-title">🗺️ Tycoon Village</div>
+          <button id="bigmap-close" class="x" aria-label="Close">✕</button>
+        </div>
+        <div class="bigmap-scroll"><canvas id="bigmap-canvas"></canvas></div>
+        <div class="bigmap-legend">
+          <span><i style="background:#ffe36e"></i>You</span><span><i style="background:#fff"></i>Villagers</span>
+          <span><i style="background:#7dff8a"></i>Townsfolk</span><span><i style="background:#ffb26b"></i>Pets</span>
+          <span><i class="sq" style="border-color:#ffe36e"></i>Your plot</span><span><i class="sq dash" style="border-color:#ffaa50"></i>For sale</span>
+          <span><i class="sq" style="background:#c99559;border:0"></i>Public road</span>
+        </div>
+      </div>
+    </div>
     <div id="cursortip" hidden></div>
     <div id="toast"></div>
   </div>

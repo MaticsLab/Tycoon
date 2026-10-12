@@ -34,6 +34,8 @@ You can also befriend villagers whose personalities change based on how you trea
     AI caretakers vote as a bloc on advice from Workers AI, which weighs the city data. A player mayor signs or vetoes; unsigned bills become law after a day.
   - **City data**: road traffic, visits to public places, the economy and the treasury (land payments go to the city). Mabel sees all of it and answers questions about it.
   - Only villagers with an account can run, vote or bring proposals.
+- **Village map.** A minimap in the corner shows the whole village: roads, public places, every plot (yours in gold, land for sale dashed), houses, and live dots for you, other players, townsfolk and pets.
+  Tap it or press **M** for the full map with labels and a legend.
 - **Village clock:** a day runs from 5:00 AM to 5:00 AM. The clock moves in 10-minute steps, about 6 real seconds each, and there are 112 days in a year.
 - **Sims-style build mode** on your own plot:
   - **Walls** sit on the grid lines between tiles. Drag to draw a wall, or use the **Room** tool to drag out four walls plus a floor at once. There are six wall materials.
@@ -129,6 +131,7 @@ Players can also change the server under **Server** on the join screen.
 | Camera          | middle-drag to orbit, right-drag to pan, Q / E to turn, wheel to zoom | two-finger drag to pan, twist to rotate, pinch to zoom, ⟲ ⟳ + − buttons |
 | Talk / interact | Enter, or click an NPC                        | tap the action button or the NPC   |
 | Build mode      | B · R or right-click rotate · V walls · PgUp/PgDn floors · Ctrl/Cmd+Z undo · Alt+click eyedropper · Delete sledgehammer · WASD or right-drag to pan | two-finger drag to pan, ↶ Undo button |
+| Village map     | M, or click the minimap                       | tap the minimap                    |
 | Cheat console   | ⚙️ Settings → Cheats                           | ⚙️ Settings → Cheats               |
 
 ## Ideas for next steps

@@ -265,3 +265,19 @@ body.building #topbar { left: calc(186px + var(--sal)); }
 #cursortip b { display: block; color: #ff9a8a; font-weight: bold; }
 #cursortip.bad { background: rgba(70, 20, 16, .9); }
 #btn-undo:disabled { opacity: .45; }
+
+/* Minimap (top-left, under the top bar) and the full village map */
+#minimap { position: fixed; left: calc(8px + var(--sal)); top: var(--mm-top, 56px); width: 210px; aspect-ratio: 168 / 88; image-rendering: pixelated;
+  border: 3px solid var(--wood); border-radius: 10px; box-shadow: 0 3px 0 rgba(0,0,0,.3); background: #2c6029; cursor: pointer; z-index: 3; }
+body.building #minimap { display: none; }
+@media (max-width: 620px) { #minimap { width: 150px; } }
+#bigmap { position: fixed; inset: 0; z-index: 30; background: rgba(20, 14, 8, .6); display: flex; align-items: center; justify-content: center; padding: calc(10px + var(--sat)) 10px calc(10px + var(--sab)); }
+#bigmap[hidden] { display: none; }
+.bigmap-card { background: var(--cream); border: 4px solid var(--wood); border-radius: 14px; padding: 10px 12px; width: min(1040px, 100%); max-height: 100%; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 6px 0 #3e2a17; }
+#bigmap-title { font-size: 20px; font-weight: bold; color: var(--wood); }
+.bigmap-scroll { overflow: auto; border-radius: 8px; border: 3px solid var(--wood-light); background: #2c6029; }
+#bigmap-canvas { display: block; width: 100%; min-width: 640px; image-rendering: pixelated; }
+.bigmap-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
+.bigmap-legend i { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; border: 1px solid #3a2716; }
+.bigmap-legend i.sq { border-radius: 2px; border: 2px solid; background: none; }
+.bigmap-legend i.dash { border-style: dashed; }
