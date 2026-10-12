@@ -549,3 +549,25 @@ test('stairs: climb to the upper floor, walk around up there, come back down', a
   a.send({ type: 'place', plotId: 0, lx: 9, ly: 2, item: 'stairs', level: 1 });
   assert.match(a.last('error').msg, /ground floor/);
 });
+
+test('character looks are validated, saved and shared; logging in elsewhere keeps them', async () => {
+  const { game, join } = setup();
+  const user = { userId: 'u-look', name: 'x' };
+  const a = await join({ name: 'Dwight', farm: 'Schrute', fav: 'Beets', look: { body: 1, skin: 3, hair: 999, shirt: 2, acc: 4, eyes: [10, 20, 30], hairColor: 'red', pants: [1, 2, 3] } }, user);
+  const you = a.welcome.you;
+  assert.equal(you.farm, 'Schrute');
+  assert.equal(you.look.hair, 0, 'out-of-range style falls back');
+  assert.deepEqual(you.look.eyes, [10, 20, 30]);
+  assert.ok(Array.isArray(you.look.hairColor));
+  const b = await join({ name: 'Pam' });
+  assert.deepEqual(b.welcome.players[0].look, you.look);
+  a.send({ type: 'claim', plotId: 2 });
+  assert.equal(game.plots[2].farm, 'Schrute');
+  a.send({ type: 'setLook', name: 'Dwight', farm: 'Beet', look: { ...you.look, shirt: 5 } });
+  assert.equal(b.last('look').look.shirt, 5);
+  assert.equal(b.last('plot').plot.farm, 'Beet');
+  // A new connection without creator data keeps the saved look.
+  const again = await join({}, user);
+  assert.equal(again.welcome.you.look.shirt, 5);
+  assert.equal(again.welcome.you.name, 'Dwight');
+});

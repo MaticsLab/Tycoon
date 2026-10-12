@@ -13,6 +13,8 @@ import { NPCS } from '@shared/npcs.js';
 import { itemIcon } from './sprites.js';
 import { View, LEVEL_H } from './gfx/view.js';
 import { Ghost } from './gfx/ghost.js';
+import { openCreator, closeCreator } from './creator.js';
+import { drawLook } from './people.js';
 import { httpBase, signInGuest, signIn, signUp, getSession, signOut } from './auth.js';
 
 const $ = (id) => document.getElementById(id);
@@ -55,9 +57,12 @@ const afford = (cost) => S.freeBuild || cost <= S.coins;
 const serverNow = () => Date.now() + S.timeOffset;
 
 // ---------- Networking ----------
-const COLORS = ['#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#1abc9c', '#3498db', '#9b59b6', '#ec6fa4'];
 let ws = null;
-const look = { name: store.get('name') || '', color: store.get('color') || COLORS[Math.floor(Math.random() * COLORS.length)] };
+// The last character made in the creator on this device, and the one to send with the
+// next hello (only straight after the creator, so other devices' edits aren't undone).
+const look = (() => { try { return JSON.parse(store.get('creator')) || {}; } catch { return {}; } })();
+look.name ||= store.get('name') || '';
+let pendingLook = null;
 let reconnectTimer = null;
 let failures = 0;
 
@@ -84,7 +89,7 @@ function connect() {
   if (ws) { ws.onclose = null; ws.close(); }
   ws = sock;
   let opened = false;
-  sock.onopen = () => { opened = true; failures = 0; send({ type: 'hello', name: look.name, color: look.color }); };
+  sock.onopen = () => { opened = true; failures = 0; send({ type: 'hello', ...(pendingLook || {}) }); };
   sock.onmessage = (ev) => { try { onMessage(JSON.parse(ev.data)); } catch (e) { console.error(e); } };
   sock.onclose = async () => {
     if (ws !== sock) return;
@@ -118,6 +123,7 @@ function onMessage(m) {
       store.set('guest', S.guest ? '1' : '0');
       store.set('name', m.you.name);
       look.name = m.you.name;
+      pendingLook = null;
       S.players.clear();
       for (const p of m.players) S.players.set(p.id, { ...p, tx: p.x, ty: p.y });
       S.npcs.clear();
@@ -140,6 +146,17 @@ function onMessage(m) {
       }
       break;
     }
+    case 'look': {
+      const p = m.id === S.me?.id ? S.me : S.players.get(m.id);
+      if (p) Object.assign(p, { name: m.name, color: m.color, look: m.look });
+      break;
+    }
+    case 'profile':
+      Object.assign(S.me, { name: m.name, look: m.look, farm: m.farm, fav: m.fav });
+      store.set('name', m.name);
+      if (modalKind === 'me') showMe();
+      updateHud();
+      break;
     case 'join':
       S.players.set(m.player.id, { ...m.player, tx: m.player.x, ty: m.player.y });
       sysMsg(`${m.player.name} arrived in the village`);
@@ -229,14 +246,6 @@ function onMessage(m) {
 
 // ---------- Join screen & accounts ----------
 let joinMode = 'guest';
-for (const c of COLORS) {
-  const b = document.createElement('button');
-  b.style.background = c;
-  b.className = c === look.color ? 'sel' : '';
-  b.onclick = () => { look.color = c; for (const o of $('colors').children) o.classList.toggle('sel', o === b); };
-  $('colors').appendChild(b);
-}
-$('name').value = look.name;
 $('server').value = serverUrl;
 
 const HINTS = {
@@ -249,7 +258,6 @@ function setJoinMode(mode) {
   for (const b of $('modes').children) b.classList.toggle('sel', b.dataset.mode === mode);
   $('cred').hidden = mode === 'guest';
   for (const l of $('cred').querySelectorAll('[data-for]')) l.hidden = l.dataset.for !== mode;
-  $('look').hidden = mode === 'login';
   $('password').autocomplete = mode === 'register' ? 'new-password' : 'current-password';
   let hint = HINTS[mode];
   if (mode === 'login' && store.get('token') && store.get('guest') === '1') hint += ' The guest village on this device will be released.';
@@ -282,37 +290,49 @@ function readServerField() {
   if (v && v !== serverUrl) { serverUrl = v; store.set('server', v); }
 }
 
-$('enter').onclick = async () => {
+// Guests and new accounts make their character first; logging in keeps the saved one.
+$('enter').onclick = () => {
   readServerField();
+  if (joinMode === 'login') return join(null);
+  joinError('');
+  openCreator({
+    ...look, mode: 'new',
+    onDone: (c) => {
+      Object.assign(look, c);
+      store.set('creator', JSON.stringify(look));
+      join(c);
+    },
+  });
+};
+
+async function join(created) {
   const btn = $('enter');
   if (btn.disabled) return;
   btn.disabled = true;
   joinError(joinMode === 'guest' ? 'Connecting…' : 'Checking…');
   try {
-    look.name = $('name').value.trim() || look.name || 'Villager';
-    store.set('color', look.color);
     const guestToken = store.get('guest') === '1' ? store.get('token') : null;
     let res;
     if (joinMode === 'guest') {
       res = guestToken ? { token: guestToken } : await signInGuest(api());
     } else if (joinMode === 'login') {
       res = await signIn(api(), $('login').value.trim(), $('password').value, guestToken);
-      look.name = '';
     } else {
-      res = await signUp(api(), { email: $('email').value.trim(), username: $('username').value.trim(), password: $('password').value, name: look.name }, guestToken);
+      res = await signUp(api(), { email: $('email').value.trim(), username: $('username').value.trim(), password: $('password').value, name: created.name }, guestToken);
     }
     if (!res.token) throw new Error('The server did not return a session');
     store.set('token', res.token);
     store.set('guest', joinMode === 'guest' ? '1' : '0');
     $('password').value = '';
+    pendingLook = created;
     connect();
   } catch (e) {
     joinError(e.message);
   } finally {
     btn.disabled = false;
   }
-};
-for (const id of ['name', 'login', 'password', 'email', 'username']) $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') $('enter').click(); });
+}
+for (const id of ['login', 'password', 'email', 'username']) $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') $('enter').click(); });
 
 // ---------- HUD ----------
 let toastTimer;
@@ -367,7 +387,7 @@ function updateContext() {
   $('online').textContent = `👥 ${S.players.size + 1}`;
   const here = plotIdAtPixel(world, S.me.x, S.me.y);
   const plot = here >= 0 ? S.plots[here] : null;
-  $('where').textContent = plot ? (plot.owner ? `${plot.ownerName}'s home` : `Plot ${here + 1} · For sale`) : 'Village';
+  $('where').textContent = plot ? (plot.owner ? (plot.farm ? `${plot.farm} Farm` : `${plot.ownerName}'s home`) : `Plot ${here + 1} · For sale`) : 'Village';
   let action = '';
   const npc = nearestNpc();
   if (S.mode !== 'walk' || S.talk) action = '';
@@ -432,6 +452,7 @@ function openTalk(v) {
     S.talk = { npc: v.npc, view: v, extra: null, waiting: false, lines: [] };
     $('npc-name').textContent = `${def.icon} ${def.name}`;
     $('npc-role').textContent = def.role;
+    drawLook($('npc-portrait'), def.look, { crop: 'bust' });
   }
   S.talk.view = v;
   if (v.say) S.talk.lines.push({ who: 'them', text: v.say });
@@ -626,6 +647,26 @@ function showBag() {
 
 function showMe() {
   const body = openModal('me', '👤 ' + (S.me?.name || 'You'));
+  const card = document.createElement('div');
+  card.className = 'me-card';
+  const pic = document.createElement('canvas');
+  pic.className = 'portrait'; pic.width = 64; pic.height = 64;
+  drawLook(pic, S.me.look, { crop: 'bust' });
+  const info = document.createElement('div');
+  info.className = 'grow';
+  info.innerHTML = `<b>${esc(S.me.name)}</b>${S.me.farm ? `<div class="muted">${esc(S.me.farm)} Farm</div>` : ''}${S.me.fav ? `<div class="muted">Favorite thing: ${esc(S.me.fav)}</div>` : ''}`;
+  const edit = document.createElement('button');
+  edit.className = 'chip';
+  edit.textContent = '✂️ Change look';
+  edit.onclick = () => {
+    closeModal();
+    openCreator({
+      name: S.me.name, look: S.me.look, farm: S.me.farm, fav: S.me.fav, mode: 'edit',
+      onDone: (c) => { Object.assign(look, c); store.set('creator', JSON.stringify(look)); send({ type: 'setLook', ...c }); },
+    });
+  };
+  card.append(pic, info, edit);
+  body.appendChild(card);
   if (!S.guest) {
     body.insertAdjacentHTML('beforeend', `<p>Signed in as <b>@${esc(S.username || '')}</b>. Your plot, bag and friendships are saved to your account. Log in on any device to pick up where you left off.</p>`);
     const out = document.createElement('button');
@@ -1386,12 +1427,12 @@ function render(now) {
   const myH = hOf(S.me);
   if (S.mode !== 'build' || !S.me) view.setTarget(U(S.me.x), U(S.me.y), false, myH);
   const sNow = serverNow();
-  for (const p of S.players.values()) view.actor(p.id, U(p.x), U(p.y), p.dir, p.moving, p.color, null, now, true, hOf(p));
+  for (const p of S.players.values()) view.actor(p.id, U(p.x), U(p.y), p.dir, p.moving, p.look, now, true, hOf(p));
   for (const n of S.npcs.values()) {
     const d = NPCS[n.id];
-    view.actor(`npc:${n.id}`, U(n.x), U(n.y), n.dir, n.moving, d.look.shirt, d.look, now);
+    view.actor(`npc:${n.id}`, U(n.x), U(n.y), n.dir, n.moving, d.look, now);
   }
-  view.actor(S.me.id, U(S.me.x), U(S.me.y), S.me.dir, S.me.moving, S.me.color, null, now, true, myH);
+  view.actor(S.me.id, U(S.me.x), U(S.me.y), S.me.dir, S.me.moving, S.me.look, now, true, myH);
   view.pruneActors();
   view.render(now, darkness(worldClock(sNow, S.epoch).hours), S.mode !== 'build');
   drawOverlay(now);
@@ -1408,7 +1449,7 @@ function drawOverlay(now) {
   for (const st of Object.values(S.plots)) {
     if (!st.owner) continue;
     const p = view.toScreen(st.x + st.w / 2, 0.9, st.y + 0.5);
-    if (onScreen(p)) tag(`🏡 ${st.ownerName}`, p.x, p.y, 11, st.owner === S.me.id ? '#ffe08a' : '#fff');
+    if (onScreen(p)) tag(`🏡 ${st.farm ? st.farm + ' Farm' : st.ownerName}`, p.x, p.y, 11, st.owner === S.me.id ? '#ffe08a' : '#fff');
   }
   const heads = [];
   for (const p of [...S.players.values(), S.me]) heads.push([p, p.name, p === S.me ? '#ffe08a' : '#fff']);

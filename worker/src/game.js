@@ -6,9 +6,9 @@ import {
   landError, contentFits, shiftContent, mergedRect, splitRects, hasContent, LAND_PRICE, stepLevel,
 } from '../../shared/plot.js';
 import { NPCS } from '../../shared/npcs.js';
+import { sanitizeLook, randomLook, shirtColor } from '../../shared/look.js';
 import { Npc, parseAiReply, REPLY_SCHEMA } from './npc.js';
 
-const COLORS = ['#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#1abc9c', '#3498db', '#9b59b6', '#ec6fa4'];
 const randomHex = (n) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, '0')).join('');
 const clean = (s, max) => String(s ?? '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, max);
 const TALK_RANGE = TILE * 3.5;
@@ -96,7 +96,7 @@ export class Game {
 
   publicPlayer(s) {
     const p = s.profile;
-    return { id: p.id, name: p.name, color: p.color, x: s.x, y: s.y, dir: s.dir, moving: s.moving, level: s.level };
+    return { id: p.id, name: p.name, color: p.color, look: p.look, x: s.x, y: s.y, dir: s.dir, moving: s.moving, level: s.level };
   }
 
   // identity: { userId, name, username, isAnonymous } — verified by the host.
@@ -134,6 +134,7 @@ export class Game {
       case 'mergePlot': return this.mergePlot(s, msg);
       case 'splitPlot': return this.splitPlot(s, msg);
       case 'cheat': return this.cheat(s, msg);
+      case 'setLook': return this.setLook(s, msg);
       case 'harvest': return this.harvest(s, msg);
       case 'home': return this.home(s);
       case 'npcOpen': return this.npcOpen(s, msg);
@@ -146,8 +147,8 @@ export class Game {
   }
 
   // ---------- players ----------
-  newProfile(uid, name, color) {
-    const profile = { id: randomHex(6), uid, name, color, coins: START_COINS, plotId: null, x: null, y: null, inv: {}, created: this.now() };
+  newProfile(uid, name, look) {
+    const profile = { id: randomHex(6), uid, name, look, color: shirtColor(look), farm: '', fav: '', coins: START_COINS, plotId: null, x: null, y: null, inv: {}, created: this.now() };
     this.profiles[uid] = profile;
     this.markProfile(profile);
     return profile;
@@ -155,27 +156,47 @@ export class Game {
 
   markProfile(profile) { this.mark(`profile:${profile.uid}`); }
 
-  // hello: { name?, color? }. The account itself was verified before connecting.
+  // hello: { name?, look?, farm?, fav? }. The account itself was verified before connecting.
+  // An existing profile keeps its name and appearance unless the client sends new ones
+  // (it only does so straight after the character creator).
   hello(s, msg) {
     if (s.profile) return;
     const id = s.identity;
     if (!id?.userId) return s.send({ type: 'error', msg: 'Not signed in' });
-    // An existing profile keeps its name unless the client explicitly sends a new one.
-    const asked = clean(msg.name, 16);
-    const color = COLORS.includes(msg.color) ? msg.color : null;
     let profile = this.profiles[id.userId];
-    if (!profile) profile = this.newProfile(id.userId, asked || clean(id.name, 16) || 'Villager', color || COLORS[Math.floor(Math.random() * COLORS.length)]);
-    const name = asked || profile.name;
-    if (name !== profile.name) {
-      profile.name = name;
-      const own = this.plots[profile.plotId];
-      if (own) { own.ownerName = name; this.mark(`plot:${own.id}`); }
-    }
-    if (color) profile.color = color;
+    if (!profile) profile = this.newProfile(id.userId, clean(msg.name, 16) || clean(id.name, 16) || 'Villager', msg.look ? sanitizeLook(msg.look) : randomLook());
+    profile.look = profile.look ? sanitizeLook(profile.look) : randomLook();
     profile.inv ||= {};
+    this.applyLook(profile, msg);
     if (profile.plotId != null && this.plots[profile.plotId]?.owner !== profile.id) profile.plotId = null;
     this.markProfile(profile);
     this.enter(s, profile);
+  }
+
+  // Name, appearance, farm name and favourite thing from the character creator.
+  applyLook(profile, msg) {
+    const name = clean(msg.name, 16);
+    if (name) profile.name = name;
+    if (msg.look) profile.look = sanitizeLook(msg.look);
+    profile.color = shirtColor(profile.look);
+    if (typeof msg.farm === 'string') profile.farm = clean(msg.farm, 16);
+    if (typeof msg.fav === 'string') profile.fav = clean(msg.fav, 20);
+    const own = this.plots[profile.plotId];
+    if (own && own.owner === profile.id && (own.ownerName !== profile.name || own.farm !== profile.farm)) {
+      own.ownerName = profile.name; own.farm = profile.farm || '';
+      this.mark(`plot:${own.id}`);
+      return own;
+    }
+    return null;
+  }
+
+  setLook(s, msg) {
+    const plot = this.applyLook(s.profile, msg);
+    this.markProfile(s.profile);
+    const p = s.profile;
+    this.broadcast({ type: 'look', id: p.id, name: p.name, color: p.color, look: p.look });
+    s.send({ type: 'profile', name: p.name, look: p.look, farm: p.farm, fav: p.fav });
+    if (plot) this.broadcast({ type: 'plot', plot });
   }
 
   // A guest signed up or logged in (Better Auth anonymous plugin's onLinkAccount).
@@ -221,7 +242,7 @@ export class Game {
 
     s.send({
       type: 'welcome', worldVersion: WORLD_VERSION, serverTime: this.now(), epoch: this.epoch,
-      you: { id: profile.id, name: profile.name, color: profile.color, coins: profile.coins, plotId: profile.plotId, x: s.x, y: s.y, level: s.level, inv: profile.inv, username: s.identity.username || null, guest: !!s.identity.isAnonymous },
+      you: { id: profile.id, name: profile.name, color: profile.color, look: profile.look, farm: profile.farm || '', fav: profile.fav || '', coins: profile.coins, plotId: profile.plotId, x: s.x, y: s.y, level: s.level, inv: profile.inv, username: s.identity.username || null, guest: !!s.identity.isAnonymous },
       players: [...this.sessions.values()].filter((o) => o !== s).map((o) => this.publicPlayer(o)),
       npcs: Object.values(this.npcs).map((n) => ({ id: n.id, x: n.x, y: n.y, dir: n.dir })),
       plots: Object.values(this.plots),
@@ -302,6 +323,7 @@ export class Game {
     if (plot.owner) return s.send({ type: 'error', msg: 'That plot is taken' });
     plot.owner = s.profile.id;
     plot.ownerName = s.profile.name;
+    plot.farm = s.profile.farm || '';
     s.profile.plotId = plot.id;
     this.markProfile(s.profile);
     s.send({ type: 'claimed', plotId: plot.id });
@@ -785,7 +807,7 @@ export class Game {
 }
 
 function blankPlot(id, r) {
-  return { id, x: r.x, y: r.y, w: r.w, h: r.h, owner: null, ownerName: null, floor: {}, obj: {}, l1: { floor: {}, obj: {} }, walls: {}, roofs: [] };
+  return { id, x: r.x, y: r.y, w: r.w, h: r.h, owner: null, ownerName: null, farm: null, floor: {}, obj: {}, l1: { floor: {}, obj: {} }, walls: {}, roofs: [] };
 }
 
 function normalizePlot(p) {

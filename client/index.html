@@ -6,6 +6,9 @@
   <meta name="theme-color" content="#2d5a3d" />
   <meta name="description" content="A cozy multiplayer village: claim a plot, build your home, grow crops and befriend the villagers." />
   <title>Tycoon Village</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&display=swap" />
   <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
@@ -34,11 +37,6 @@
           <label data-for="register">Username <input id="username" maxlength="16" autocomplete="username" autocapitalize="off" spellcheck="false" /></label>
           <label>Password <input id="password" type="password" maxlength="128" autocomplete="current-password" /></label>
         </div>
-        <div id="look">
-          <label>Your name <input id="name" maxlength="16" autocomplete="off" placeholder="Villager" /></label>
-          <div class="label">Shirt colour</div>
-          <div id="colors"></div>
-        </div>
         <p id="modehint" class="hint">Jump straight in. You can save your progress to an account any time from the 👤 menu.</p>
         <button id="enter" class="primary">Enter the world</button>
       </div>
@@ -47,6 +45,44 @@
         <input id="server" autocomplete="off" spellcheck="false" />
       </details>
       <div id="joinerr"></div>
+    </div>
+  </div>
+
+  <div id="creator" hidden>
+    <div class="sv-panel">
+      <div class="sv-left">
+        <button id="cr-dice" class="sv-dice" title="Randomize" aria-label="Randomize"><canvas width="14" height="14"></canvas></button>
+        <div class="sv-previewrow">
+          <button class="sv-arrow" data-rot="-1" aria-label="Turn left"></button>
+          <div class="sv-preview"><canvas id="cr-preview" width="96" height="160"></canvas></div>
+          <button class="sv-arrow r" data-rot="1" aria-label="Turn right"></button>
+        </div>
+        <div class="sv-body">
+          <button data-body="0" title="Broader build" aria-label="Broader build">♂</button>
+          <button data-body="1" title="Slimmer build" aria-label="Slimmer build">♀</button>
+        </div>
+        <div class="sv-pickers">
+          <div class="sv-pick" data-key="skin"><button class="sv-arrow" data-d="-1" aria-label="Previous skin"></button><div><b>Skin</b><span></span></div><button class="sv-arrow r" data-d="1" aria-label="Next skin"></button></div>
+          <div class="sv-pick" data-key="hair"><button class="sv-arrow" data-d="-1" aria-label="Previous hair"></button><div><b>Hair</b><span></span></div><button class="sv-arrow r" data-d="1" aria-label="Next hair"></button></div>
+          <div class="sv-pick" data-key="shirt"><button class="sv-arrow" data-d="-1" aria-label="Previous shirt"></button><div><b>Shirt</b><span></span></div><button class="sv-arrow r" data-d="1" aria-label="Next shirt"></button></div>
+          <div class="sv-pick" data-key="acc"><button class="sv-arrow" data-d="-1" aria-label="Previous accessory"></button><div><b>Acc.</b><span></span></div><button class="sv-arrow r" data-d="1" aria-label="Next accessory"></button></div>
+        </div>
+      </div>
+      <div class="sv-right">
+        <label class="sv-field"><span>Name</span><input id="cr-name" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Villager" /></label>
+        <label class="sv-field"><span>Farm Name</span><input id="cr-farm" maxlength="16" autocomplete="off" spellcheck="false" /><em>Farm</em></label>
+        <label class="sv-field"><span>Favorite Thing</span><input id="cr-fav" maxlength="20" autocomplete="off" spellcheck="false" /></label>
+        <div class="sv-colors">
+          <div class="sv-color" data-key="eyes"><span>Eye Color:</span><div class="sv-sliders"></div></div>
+          <div class="sv-color" data-key="hairColor"><span>Hair Color:</span><div class="sv-sliders"></div></div>
+          <div class="sv-color" data-key="pants"><span>Pants Color:</span><div class="sv-sliders"></div></div>
+        </div>
+        <div class="sv-foot">
+          <div id="cr-err"></div>
+          <button id="cr-cancel" class="sv-cancel">Back</button>
+          <button id="cr-ok" class="sv-ok">OK</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -93,7 +129,8 @@
 
     <div id="npcpanel" class="sheet" hidden>
       <div class="sheet-head">
-        <div>
+        <canvas id="npc-portrait" class="portrait" width="64" height="64"></canvas>
+        <div class="grow">
           <div id="npc-name"></div>
           <div id="npc-role" class="muted"></div>
         </div>

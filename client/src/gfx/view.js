@@ -4,7 +4,8 @@
 // shadows; at night lamps, fireplaces and windows light up.
 import * as THREE from 'three';
 import { MAP_W, MAP_H, SHOPS, FOUNTAIN } from '@shared/world.js';
-import { personSprite } from '../sprites.js';
+import { personSprite } from '../people.js';
+import { sanitizeLook } from '@shared/look.js';
 import { BillboardSet, texOf, blobMesh } from './billboards.js';
 import { buildTerrain, buildRocks, treeCards, buildFountain, fountainSpray, buildPlazaLamps, PLAZA_LAMPS, buildShop } from './scenery.js';
 import { buildPlot, glassMat, LEVEL_H } from './houses.js';
@@ -196,10 +197,10 @@ export class View {
   }
 
   // ---------- actors (players and NPCs as pixel sprites) ----------
-  actor(id, x, z, dirWorld, moving, shirt, look, now, vis = true, y = 0) {
+  actor(id, x, z, dirWorld, moving, look, now, vis = true, y = 0) {
     let a = this.actors.get(id);
     if (!a) {
-      a = { sprite: new THREE.Sprite(), blob: null, vec: [0, 1], lx: x, lz: z };
+      a = { sprite: new THREE.Sprite(), blob: null, vec: [0, 1], lx: x, lz: z, lookRef: null, look: null };
       a.sprite.renderOrder = 1;
       a.blob = blobMesh([[0, 0, 0, 0.36]]);
       this.scene.add(a.sprite);
@@ -218,7 +219,8 @@ export class View {
     const along = a.vec[0] * g.rx + a.vec[1] * g.rz, away = a.vec[0] * g.fx + a.vec[1] * g.fz;
     const dir = Math.abs(along) > Math.abs(away) * 1.05 ? (along > 0 ? 3 : 2) : away > 0 ? 1 : 0;
     const frame = moving ? Math.floor(now / 130) % 4 : 0;
-    const spr = personSprite(shirt, look || {}, dir, frame);
+    if (a.lookRef !== look) { a.lookRef = look; a.look = sanitizeLook(look); }
+    const spr = personSprite(a.look, dir, frame);
     const tex = texOf(spr.cv);
     if (a.sprite.material.map !== tex) {
       a.sprite.material = spriteMat(tex);

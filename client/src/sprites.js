@@ -822,72 +822,7 @@ export function drawObject(c, o, x, y, now, opts = {}) {
   blit(c, objectSprite(o.t, rot, now), x, y);
 }
 
-// ---------- characters ----------
-// Chibi villager. Local (0, 0) = feet centre. dir: 0 down, 1 up, 2 left, 3 right.
-// look: { hair, skin, apron, beard, hat } (NPCs); shirt is the shirt colour.
-function paintPerson(c, shirt, look, dir, frame) {
-  const skin = look.skin || '#f2c79a', hair = look.hair || '#6b3f1f';
-  const S = ramp(shirt), K = ramp(skin), Hh = ramp(hair);
-  const pants = ['#26304f', '#323e66', '#3f4d7e'];
-  const walk = [0, 1, 0, -1][frame];
-  const bob = frame % 2 ? -1 : 0;
-  const side = dir === 2 || dir === 3;
-  if (side) {
-    r(c, -3 + walk, -7, 3, 6, pants[1]); r(c, 0 - walk, -7, 3, 6, pants[2]);
-    r(c, -4 + walk, -2, 4, 2, '#3a2414'); r(c, -1 - walk, -2, 4, 2, '#4a2e1a');
-  } else {
-    const lA = walk > 0 ? 1 : 0, lB = walk < 0 ? 1 : 0;
-    r(c, -4, -7 - lA, 3, 6 + lA, pants[1]); r(c, 1, -7 - lB, 3, 6 + lB, pants[2]);
-    r(c, -4, -2, 3, 2, '#3a2414'); r(c, 1, -2, 3, 2, '#4a2e1a'); px(c, -4, -2, '#6b4a2b'); px(c, 1, -2, '#6b4a2b');
-  }
-  const y0 = -16 + bob;
-  r(c, -5, y0, 10, 9, S[2]); r(c, -5, y0, 2, 9, S[3]); r(c, 3, y0, 2, 9, S[1]); r(c, -5, y0 + 8, 10, 1, S[0]);
-  if (dir === 0) r(c, -1, y0 + 1, 2, 2, S[3]);
-  if (look.apron && dir !== 1) { r(c, -3, y0 + 2, 6, 7, look.apron); r(c, -3, y0 + 2, 6, 1, '#ffffff'); r(c, -2, y0 + 5, 4, 1, '#e8dcc0'); }
-  if (side) {
-    const ax = dir === 2 ? 1 : -2;
-    r(c, ax, y0 + 1 + walk, 2, 7, S[1]); r(c, ax, y0 + 8 + walk, 2, 2, K[2]);
-  } else {
-    r(c, -7, y0 + 1 + walk, 2, 7, S[1]); r(c, 5, y0 + 1 - walk, 2, 7, S[1]);
-    r(c, -7, y0 + 1 + walk, 1, 7, S[2]);
-    r(c, -7, y0 + 8 + walk, 2, 2, K[2]); r(c, 5, y0 + 8 - walk, 2, 2, K[1]);
-  }
-  const hy = y0 - 12;
-  r(c, -6, hy + 1, 12, 11, K[2]); r(c, -5, hy, 10, 1, K[2]); r(c, -6, hy + 1, 2, 10, K[3]); r(c, 4, hy + 2, 2, 9, K[1]); r(c, -5, hy + 11, 10, 1, K[1]);
-  r(c, -6, hy - 1, 12, 5, Hh[2]); r(c, -5, hy - 2, 10, 1, Hh[2]); r(c, -4, hy - 1, 5, 1, Hh[3]); r(c, -6, hy + 3, 12, 1, Hh[1]);
-  if (dir === 1) { r(c, -6, hy - 1, 12, 11, Hh[2]); r(c, -4, hy, 4, 2, Hh[3]); r(c, -6, hy + 9, 12, 2, Hh[1]); }
-  else if (dir === 2) { r(c, 1, hy, 5, 8, Hh[2]); r(c, 4, hy + 2, 2, 7, Hh[1]); }
-  else if (dir === 3) { r(c, -6, hy, 5, 8, Hh[2]); r(c, -6, hy + 2, 2, 7, Hh[1]); }
-  else { r(c, -6, hy, 2, 7, Hh[2]); r(c, 4, hy, 2, 7, Hh[1]); r(c, -2, hy + 3, 3, 1, Hh[2]); }
-  const eye = '#2a1a12';
-  if (dir === 0) {
-    r(c, -4, hy + 6, 2, 3, eye); r(c, 2, hy + 6, 2, 3, eye); px(c, -4, hy + 6, '#ffffff'); px(c, 2, hy + 6, '#ffffff');
-    r(c, -5, hy + 9, 2, 1, '#f09a8a'); r(c, 3, hy + 9, 2, 1, '#f09a8a'); r(c, -1, hy + 10, 2, 1, '#b5694f');
-  } else if (dir === 2) { r(c, -5, hy + 6, 2, 3, eye); px(c, -5, hy + 6, '#ffffff'); px(c, -6, hy + 9, '#f09a8a'); }
-  else if (dir === 3) { r(c, 3, hy + 6, 2, 3, eye); px(c, 3, hy + 6, '#ffffff'); px(c, 5, hy + 9, '#f09a8a'); }
-  if (look.beard && dir !== 1) {
-    const bx = dir === 2 ? -6 : dir === 3 ? -2 : -5;
-    r(c, bx, hy + 9, dir === 0 ? 10 : 8, 4, look.beard); r(c, bx + 1, hy + 13, dir === 0 ? 8 : 6, 1, dk(look.beard, 0.2));
-    if (dir === 0) r(c, -2, hy + 9, 4, 1, lt(look.beard, 0.3));
-  }
-  if (look.hat) {
-    const Ht = ramp(look.hat);
-    r(c, -9, hy + 1, 18, 2, Ht[2]); r(c, -9, hy + 1, 18, 1, Ht[3]); r(c, -9, hy + 3, 18, 1, Ht[0]);
-    r(c, -5, hy - 4, 10, 5, Ht[2]); r(c, -5, hy - 4, 3, 5, Ht[3]); r(c, 3, hy - 4, 2, 5, Ht[1]); r(c, -5, hy, 10, 1, '#c0392b');
-  }
-}
-
-export function personSprite(shirt, look, dir, frame) {
-  const id = `pc|${shirt}|${look.hair || ''}|${look.skin || ''}|${look.apron || ''}|${look.beard || ''}|${look.hat || ''}|${dir}|${frame}`;
-  return bake(id, 11, 34, 22, 36, (cc) => paintPerson(cc, shirt, look, dir, frame));
-}
-
-export function drawPlayer(c, p, now, look = {}) {
-  const frame = p.moving ? Math.floor(now / 130) % 4 : 0;
-  const x = Math.round(p.x), y = Math.round(p.y);
-  shadow(c, x, y - 1, 6, 2);
-  blit(c, personSprite(p.color, look, p.dir || 0, frame), x, y);
-}
+// Characters live in people.js.
 
 // ---------- shops ----------
 function paintShop(c, shop) {
