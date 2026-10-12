@@ -119,13 +119,36 @@ export function plotIdAtPixel(world, x, y) {
 }
 
 // One in-game day lasts 24 real minutes (1 game hour per real minute).
-export const DAY_MS = 24 * 60 * 1000;
-// epoch = when the world was founded; day 1 starts at 6:00 AM.
+// The village day runs from 5:00 AM to 5:00 AM. The clock moves in 10-minute steps, and
+// each step takes 6 real seconds, so a whole day lasts 14.4 real minutes.
+export const STEP_MS = 6000;
+export const DAY_STEPS = 144;              // 24 h / 10 min
+export const DAY_MS = STEP_MS * DAY_STEPS;
+export const DAYS_PER_YEAR = 112;          // used for terms of office
+export const START_HOUR = 6;               // a new world opens at 6:00 AM on day 1
+
+// epoch = when the world was founded.
+//   day, year, dayOfYear  calendar (1-based)
+//   hours                 continuous 0..24 for lighting
+//   shownHours, minutes   the clock face: whole hour + 0/10/20/30/40/50
 export function worldClock(ms, epoch = 0) {
-  const d = (ms - epoch + DAY_MS / 4) / DAY_MS;
-  const day = Math.floor(d) + 1;
-  const hours = (d - Math.floor(d)) * 24;
-  return { day, hours };
+  const t = Math.max(0, ms - epoch) + (START_HOUR - 5) * 6 * STEP_MS;
+  const dayIdx = Math.floor(t / DAY_MS);
+  const into = t - dayIdx * DAY_MS;
+  const sinceFive = (into / DAY_MS) * 24;                // 0..24 hours after 5:00 AM
+  const steps = Math.floor(into / STEP_MS);
+  const hours = (5 + sinceFive) % 24;
+  const shown = (5 + Math.floor(steps / 6)) % 24;
+  return {
+    day: dayIdx + 1, year: Math.floor(dayIdx / DAYS_PER_YEAR) + 1, dayOfYear: (dayIdx % DAYS_PER_YEAR) + 1,
+    hours, shownHours: shown, minutes: (steps % 6) * 10, step: steps,
+  };
+}
+
+// Real milliseconds from `ms` until the start of world day `day` (5:00 AM).
+export function msUntilDay(ms, epoch, day) {
+  const startOfDay1 = epoch - (START_HOUR - 5) * 6 * STEP_MS;
+  return startOfDay1 + (day - 1) * DAY_MS - ms;
 }
 
 // 0 = full daylight, ~0.65 = darkest night.

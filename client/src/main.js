@@ -365,10 +365,9 @@ function updateHud() {
 }
 
 function fmtClock() {
-  const { day, hours } = worldClock(serverNow(), S.epoch);
-  const h = Math.floor(hours), mi = Math.floor((hours - h) * 6) * 10;
+  const { dayOfYear: day, year, shownHours: h, minutes: mi } = worldClock(serverNow(), S.epoch);
   const h12 = ((h + 11) % 12) + 1;
-  return `Day ${day} · ${h12}:${String(mi).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+  return `Y${year} Day ${day} · ${h12}:${String(mi).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
 function nearestNpc(range = TILE * 2.6) {
