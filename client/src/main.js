@@ -1489,14 +1489,58 @@ function petOf(owner) {
   const idx = sanitizeLook(owner.look).pet;
   return idx >= 0 ? idx : null;
 }
+// Where a pet sleeps at home: its pet bed, else the coziest indoor floor tile
+// (the one with the most floor around it), else the middle of the plot. World px.
+const spotCache = new WeakMap();
+function petSpot(plot) {
+  let spot = spotCache.get(plot);
+  if (spot) return spot;
+  let best = null, score = -1;
+  for (const [k, o] of Object.entries(plot.obj)) if (o.t === 'petbed') { const [x, y] = k.split(',').map(Number); best = [x, y]; score = 99; break; }
+  if (!best) {
+    const indoor = (x, y) => { const f = plot.floor[key(x, y)]; return f && f !== 'soil' && f !== 'floor_stone'; };
+    for (const k of Object.keys(plot.floor)) {
+      const [x, y] = k.split(',').map(Number);
+      if (!indoor(x, y) || objAt(plot, x, y) || roadIn(world, plot, x, y)) continue;
+      let n = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (indoor(x + dx, y + dy)) n++;
+      if (n > score) { score = n; best = [x, y]; }
+    }
+  }
+  const [lx, ly] = best || [Math.floor(plot.w / 2), Math.floor(plot.h / 2)];
+  spot = { x: (plot.x + lx + 0.5) * TILE, y: (plot.y + ly + 0.6) * TILE };
+  spotCache.set(plot, spot);
+  return spot;
+}
+const isPetBedtime = () => { const h = worldClock(serverNow(), S.epoch).hours; return h >= 22 || h < 6; };
+
 function updatePets(dt) {
   const seen = new Set();
+  const night = isPetBedtime();
+  const homes = new Map();
+  if (night) for (const pl of Object.values(S.plots)) if (pl.owner) homes.set(pl.owner, pl);
   for (const o of [S.me, ...S.players.values()]) {
     if (!o || petOf(o) == null) continue;
     seen.add(o.id);
     const lvl = o.level || 0;
     let p = pets.get(o.id);
     if (!p) { p = { x: o.x, y: o.y + 4, level: lvl, dir: 0, moving: false, idle: 0, path: [], heartUntil: 0 }; pets.set(o.id, p); }
+    // Bedtime: the pet heads home and curls up. If you're home it trots over to bed;
+    // otherwise it's already asleep there when you get back.
+    const home = night ? homes.get(o.id) : null;
+    if (home) {
+      const spot = petSpot(home);
+      const d = Math.hypot(spot.x - p.x, spot.y - p.y);
+      p.path = []; p.level = 0;
+      if (!p.sleeping && plotIdAtPixel(world, o.x, o.y) === home.id && d > 2) {
+        const sp = Math.min(d, PET_SPEED * 0.8 * dt);
+        p.dir = Math.abs(spot.x - p.x) > Math.abs(spot.y - p.y) ? (spot.x < p.x ? 2 : 3) : (spot.y < p.y ? 1 : 0);
+        p.x += ((spot.x - p.x) / d) * sp; p.y += ((spot.y - p.y) / d) * sp;
+        p.moving = true; p.idle = 0;
+      } else { p.x = spot.x; p.y = spot.y; p.moving = false; p.sleeping = true; }
+      continue;
+    }
+    if (p.sleeping) { Object.assign(p, { sleeping: false, x: o.x, y: o.y + 4, level: lvl, path: [], idle: 0 }); }
     // Record the owner's trail; a big jump (home, teleport) means start over beside them.
     const last = p.path[p.path.length - 1] || p;
     const jump = Math.hypot(o.x - last.x, o.y - last.y);
@@ -1540,8 +1584,8 @@ function render(now) {
   for (const [id, p] of pets) {
     const owner = id === S.me.id ? S.me : S.players.get(id);
     if (!owner) continue;
-    const sit = !p.moving && (p.idle > 1.2 || p.heartUntil > now);
-    view.actor(`pet:${id}`, U(p.x), U(p.y), p.dir, p.moving, null, now, true, heightAt(world, S.plots, p.x, p.y, p.level), { idx: petOf(owner), sit });
+    const pose = p.sleeping ? 'sleep' : !p.moving && (p.idle > 1.2 || p.heartUntil > now) ? 'sit' : false;
+    view.actor(`pet:${id}`, U(p.x), U(p.y), p.dir, p.moving, null, now, true, heightAt(world, S.plots, p.x, p.y, p.level), { idx: petOf(owner), sit: pose });
   }
   view.pruneActors();
   view.render(now, darkness(worldClock(sNow, S.epoch).hours), S.mode !== 'build');
@@ -1569,6 +1613,21 @@ function drawOverlay(now) {
     if (!onScreen(s)) continue;
     tag(label, s.x, s.y, 11, col);
     if (p.bubble && performance.now() < p.bubbleUntil) bubble(p.bubble, s.x, s.y - 20, 13);
+  }
+  // Zzz over sleeping pets.
+  octx.font = 'bold 11px sans-serif';
+  octx.fillStyle = '#e8f0ff';
+  for (const p of pets.values()) {
+    if (!p.sleeping) continue;
+    const s = view.toScreen(U(p.x), 0.7, U(p.y));
+    if (!onScreen(s)) continue;
+    for (let i = 0; i < 3; i++) {
+      const t = ((now / 1600) + i / 3) % 1;
+      octx.globalAlpha = Math.sin(t * Math.PI) * 0.9;
+      octx.font = `bold ${11 + i * 3}px sans-serif`;
+      octx.fillText('z', s.x + 6 + t * 10, s.y - t * 18);
+    }
+    octx.globalAlpha = 1;
   }
   // Hearts over a pet that was just petted.
   for (const p of pets.values()) {
@@ -1663,7 +1722,7 @@ requestAnimationFrame(frame);
 // Test hook: ?debug exposes state and helpers for automated playtests.
 if (new URLSearchParams(location.search).has('debug')) {
   window.__tycoon = {
-    S, view, world, pets,
+    S, view, world, pets, clock: (ms) => worldClock(ms, S.epoch),
     // Screen position of a plot-local point (at floor height + h).
     plotToClient: (lx, ly, h = 0, plotId = S.myPlot) => { const d = S.plots[plotId]; return view.toScreen(d.x + lx, S.level * LEVEL_H + h, d.y + ly); },
     worldToClient: (x, z, h = 0) => view.toScreen(x, h, z),

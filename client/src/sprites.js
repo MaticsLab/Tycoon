@@ -683,6 +683,9 @@ const OBJ = {
     for (let i = 0; i < 9; i++) { r(c, 2 + i, 5 - i, 4, 3, '#c9a24c'); px(c, 2 + i, 5 - i, '#f0d68a'); }
     r(c, 10, -6, 5, 5, '#9a7a2c'); r(c, 11, -5, 3, 3, '#4a6a8a'); px(c, 11, -5, '#bfe4ff'); r(c, 0, 5, 3, 3, '#7a5f22');
   },
+  petbed(c) {
+    disc(c, 8, 10, 7, 5, '#7a4a2a'); disc(c, 8, 9, 7, 5, '#a8703f'); disc(c, 8, 10, 5, 3, '#d9534f'); disc(c, 7, 9, 3, 2, '#f08a7a');
+  },
   pumpkin_deco(c) { pumpkinArt(c, false); },
   jackolantern(c) { pumpkinArt(c, true); },
   cornstalks(c) {

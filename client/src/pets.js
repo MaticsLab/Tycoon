@@ -28,13 +28,13 @@ function catSide(c, P, frame) {
 function catFront(c, P, frame, sit) {
   const A = ramp(P.a), B = P.b;
   const step = sit ? 0 : [0, 1, 0, -1][frame];
-  // tail to the side
-  r(c, 4, -4, 1, 3, A[1]); r(c, 5, -6, 1, 3, A[2]); px(c, 5, -7, A[3]);
-  // body / haunches
-  if (sit) { r(c, -4, -7, 8, 7, A[2]); r(c, -4, -7, 1, 7, A[3]); r(c, 3, -7, 1, 7, A[1]); }
-  else { r(c, -3, -7, 6, 5, A[2]); r(c, -3, -7, 1, 5, A[3]); r(c, 2, -7, 1, 5, A[1]); }
-  r(c, -2, -6, 4, 4, B);
-  r(c, -3, -2 - (step > 0 ? 1 : 0), 2, 2, B); r(c, 1, -2 - (step < 0 ? 1 : 0), 2, 2, B);   // paws
+  // tail curling round to the side
+  r(c, 2, -3, 2, 1, A[1]); r(c, 3, -6, 1, 3, A[2]); px(c, 3, -7, A[3]);
+  // slim body: 4 px wide under an 8 px head
+  r(c, -2, -7, 4, 6, A[2]); px(c, -2, -7, A[3]); r(c, 1, -7, 1, 6, A[1]);
+  r(c, -1, -6, 2, 3, B);
+  if (sit) { px(c, -3, -2, A[1]); px(c, 2, -2, A[1]); }                        // haunches peeking out
+  r(c, -2, -1 - (step > 0 ? 1 : 0), 2, 1, B); r(c, 0, -1 - (step < 0 ? 1 : 0), 2, 1, B);   // paws
   // head
   r(c, -4, -13, 8, 6, A[2]); r(c, -3, -14, 6, 1, A[2]); r(c, -4, -13, 1, 5, A[3]); r(c, 3, -13, 1, 6, A[1]);
   r(c, -4, -16, 2, 2, A[2]); px(c, -3, -15, NOSE); r(c, 2, -16, 2, 2, A[2]); px(c, 2, -15, NOSE);
@@ -47,11 +47,11 @@ function catFront(c, P, frame, sit) {
 function catBack(c, P, frame) {
   const A = ramp(P.a);
   const step = [0, 1, 0, -1][frame];
-  r(c, -3, -2 - (step > 0 ? 1 : 0), 2, 2, A[1]); r(c, 1, -2 - (step < 0 ? 1 : 0), 2, 2, A[1]);
-  r(c, -3, -7, 6, 5, A[2]); r(c, -3, -7, 1, 5, A[3]);
+  r(c, -2, -1 - (step > 0 ? 1 : 0), 2, 1, A[1]); r(c, 0, -1 - (step < 0 ? 1 : 0), 2, 1, A[1]);
+  r(c, -2, -7, 4, 6, A[2]); px(c, -2, -7, A[3]);
   r(c, -4, -13, 8, 6, A[2]); r(c, -3, -14, 6, 1, A[2]); r(c, -4, -13, 1, 5, A[3]); r(c, 3, -13, 1, 6, A[1]);
   r(c, -4, -16, 2, 2, A[2]); r(c, 2, -16, 2, 2, A[2]);
-  r(c, -1, -9, 1, 6, A[1]); r(c, 0, -12, 1, 4, A[2]); px(c, 0, -12, A[3]);   // tail up
+  r(c, 0, -9, 1, 6, A[1]); r(c, 1, -12, 1, 4, A[2]); px(c, 1, -12, A[3]);   // tail up
   pattern(c, P, 'back');
 }
 
@@ -75,36 +75,56 @@ function dogSide(c, P, frame) {
 function dogFront(c, P, frame, sit) {
   const A = ramp(P.a), B = P.b;
   const step = sit ? 0 : [0, 1, 0, -1][frame];
-  r(c, 4, -8 + (frame % 2), 1, 3, A[2]);                                       // tail
-  if (sit) { r(c, -4, -8, 8, 8, A[2]); r(c, -4, -8, 1, 8, A[3]); r(c, 3, -8, 1, 8, A[1]); }
-  else { r(c, -3, -8, 6, 6, A[2]); r(c, -3, -8, 1, 6, A[3]); r(c, 2, -8, 1, 6, A[1]); }
-  r(c, -2, -7, 4, 4, B);
-  r(c, -3, -3 - (step > 0 ? 1 : 0), 2, 3, A[2]); r(c, 1, -3 - (step < 0 ? 1 : 0), 2, 3, A[2]);
+  r(c, 3, -7 + (frame % 2), 1, 3, A[2]);                                       // tail
+  // body 6 px wide under an 8 px head (plus floppy ears)
+  r(c, -3, -7, 6, 6, A[2]); r(c, -3, -7, 1, 6, A[3]); r(c, 2, -7, 1, 6, A[1]);
+  r(c, -1, -6, 2, 4, B);
+  r(c, -3, -2 - (step > 0 ? 1 : 0), 2, 2, A[2]); r(c, 1, -2 - (step < 0 ? 1 : 0), 2, 2, A[2]);
   r(c, -3, -1, 2, 1, B); r(c, 1, -1, 2, 1, B);
-  r(c, -4, -15, 8, 7, A[2]); r(c, -3, -16, 6, 1, A[2]); r(c, -4, -15, 1, 6, A[3]); r(c, 3, -15, 1, 7, A[1]);
-  r(c, -6, -14, 2, 5, A[0]); r(c, 4, -14, 2, 5, A[0]); px(c, -6, -14, A[1]); px(c, 5, -14, A[1]);   // floppy ears
-  r(c, -2, -11, 4, 3, B);
-  px(c, -2, -13, EYE); px(c, 1, -13, EYE); px(c, -2, -14, lt(P.a, 0.4)); px(c, 1, -14, lt(P.a, 0.4));
-  r(c, -1, -11, 2, 1, EYE);
-  if (!sit || frame % 2) { r(c, -1, -8, 2, 2, NOSE); px(c, -1, -7, dk(NOSE, 0.2)); }
+  r(c, -4, -14, 8, 7, A[2]); r(c, -3, -15, 6, 1, A[2]); r(c, -4, -14, 1, 6, A[3]); r(c, 3, -14, 1, 7, A[1]);
+  r(c, -6, -13, 2, 5, A[0]); r(c, 4, -13, 2, 5, A[0]); px(c, -6, -13, A[1]); px(c, 5, -13, A[1]);   // floppy ears
+  r(c, -2, -10, 4, 3, B);
+  px(c, -2, -12, EYE); px(c, 1, -12, EYE); px(c, -2, -13, lt(P.a, 0.4)); px(c, 1, -13, lt(P.a, 0.4));
+  r(c, -1, -10, 2, 1, EYE);
+  if (!sit || frame % 2) { px(c, -1, -8, NOSE); px(c, 0, -8, NOSE); }
   pattern(c, P, 'front', true);
 }
 
 function dogBack(c, P, frame) {
   const A = ramp(P.a);
   const step = [0, 1, 0, -1][frame];
-  r(c, -3, -3 - (step > 0 ? 1 : 0), 2, 3, A[1]); r(c, 1, -3 - (step < 0 ? 1 : 0), 2, 3, A[1]);
-  r(c, -3, -8, 6, 6, A[2]); r(c, -3, -8, 1, 6, A[3]);
-  r(c, -4, -15, 8, 7, A[2]); r(c, -3, -16, 6, 1, A[2]); r(c, -4, -15, 1, 6, A[3]); r(c, 3, -15, 1, 7, A[1]);
-  r(c, -6, -14, 2, 5, A[0]); r(c, 4, -14, 2, 5, A[0]);
+  r(c, -3, -2 - (step > 0 ? 1 : 0), 2, 2, A[1]); r(c, 1, -2 - (step < 0 ? 1 : 0), 2, 2, A[1]);
+  r(c, -3, -7, 6, 6, A[2]); r(c, -3, -7, 1, 6, A[3]);
+  r(c, -4, -14, 8, 7, A[2]); r(c, -3, -15, 6, 1, A[2]); r(c, -4, -14, 1, 6, A[3]); r(c, 3, -14, 1, 7, A[1]);
+  r(c, -6, -13, 2, 5, A[0]); r(c, 4, -13, 2, 5, A[0]);
   const wag = frame % 2 ? 1 : -1;
-  r(c, 0 + wag, -12, 1, 4, A[2]); px(c, wag, -12, A[3]);
+  r(c, wag, -11, 1, 4, A[2]); px(c, wag, -11, A[3]);
   pattern(c, P, 'back', true);
+}
+
+// Curled up asleep: a round body, head tucked on the paws, eyes shut.
+function sleeping(c, P) {
+  const A = ramp(P.a), B = P.b;
+  const dog = P.kind === 'dog';
+  r(c, -5, -6, 10, 5, A[2]); r(c, -4, -7, 8, 1, A[2]); r(c, -4, -1, 8, 1, A[1]); r(c, -5, -6, 1, 4, A[3]); r(c, -3, -7, 4, 1, A[3]);
+  r(c, -6, -3, 3, 2, A[1]); px(c, -6, -4, A[2]);                               // tail wrapped round
+  r(c, 0, -5, 5, 4, A[2]); r(c, 1, -4, 3, 2, B);                                // head on the paws
+  if (dog) { r(c, 0, -6, 2, 3, A[0]); } else { px(c, 1, -6, A[2]); px(c, 4, -6, A[2]); }
+  r(c, 2, -4, 2, 1, EYE);                                                      // closed eye
+  px(c, 4, -3, dog ? EYE : NOSE);
+  r(c, -1, -2, 3, 1, B);
+  pattern(c, P, 'sleep', dog);
 }
 
 // Markings drawn over the base coat.
 function pattern(c, P, view, dog = false) {
   const A = ramp(P.a), B = P.b;
+  if (view === 'sleep') {
+    if (P.pattern === 'tabby') for (const x of [-3, -1]) r(c, x, -6, 1, 3, A[0]);
+    else if (P.pattern === 'spots') { r(c, -3, -5, 2, 2, B); px(c, 1, -6, B); }
+    else if (P.pattern === 'mask') r(c, 1, -4, 3, 1, B);
+    return;
+  }
   if (P.pattern === 'tabby') {
     const s = A[0];
     if (view === 'side') { for (const x of [-4, -2, 0]) r(c, x, -8, 1, 3, s); px(c, 4, -12, s); px(c, 5, -13, s); }
@@ -124,11 +144,13 @@ function pattern(c, P, view, dog = false) {
   }
 }
 
-// Sprite for pet type `idx` (index into PETS).
-export function petSprite(idx, dir, frame, sit) {
+// Sprite for pet type `idx` (index into PETS). pose: false/'walk', true/'sit' or 'sleep'.
+export function petSprite(idx, dir, frame, pose) {
   const P = PETS[idx] || PETS[0];
-  const key = `pet|${idx}|${dir}|${sit ? 's' : frame}`;
+  const sit = pose === true || pose === 'sit';
+  const key = `pet|${idx}|${dir}|${pose === 'sleep' ? 'z' : sit ? 's' : frame}`;
   return bake(key, 10, 18, 20, 20, (c) => {
+    if (pose === 'sleep') return sleeping(c, P);
     if (dir === 2) { c.scale(-1, 1); dir = 3; }
     const dog = P.kind === 'dog';
     if (sit || dir === 0) (dog ? dogFront : catFront)(c, P, frame, sit);

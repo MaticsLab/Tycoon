@@ -65,6 +65,7 @@ export const ITEMS = {
   dresser:       { name: 'Dresser',      cat: 'furniture', layer: 'obj', price: 35, solid: true },
   bathtub:       { name: 'Bathtub',      cat: 'furniture', layer: 'obj', price: 60, solid: true, size: [2, 1], rot: 'turn' },
   toilet:        { name: 'Toilet',       cat: 'furniture', layer: 'obj', price: 30, solid: true, rot: 'face' },
+  petbed:        { name: 'Pet Bed',      cat: 'furniture', layer: 'obj', price: 25 },
   houseplant:    { name: 'House Plant',  cat: 'furniture', layer: 'obj', price: 12, solid: true },
 
   flowerbed:     { name: 'Flower Bed',   cat: 'garden', layer: 'obj', price: 8, flat: true },

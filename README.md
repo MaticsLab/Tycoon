@@ -60,7 +60,7 @@ You can also befriend villagers whose personalities change based on how you trea
   The server setting `CHEATS` in `worker/wrangler.jsonc` controls who can use cheats: `all`, `admins` (only the usernames listed in `ADMINS`) or `off`.
 - **Character creator** in the Stardew style: roll the dice, turn the preview, pick a build, then skin, hair (22 styles, from swept spikes and emo fringes to curls and long waves), shirt (20 designs) and accessory (glasses, beards, hats and more) with the arrows.
   Sliders set eye, hair and pants colour, and you name yourself, your farm and your favourite thing. Change your look later from **👤 Me → Change look**.
-  Choose a cat or a dog under **Animal Preference** (tap it again for another breed). Your pet follows you everywhere, sits when you stop, and loves being petted.
+  Choose a cat or a dog under **Animal Preference** (tap it again for another breed). Your pet follows you everywhere (indoors and upstairs too), sits when you stop, and loves being petted. From 10 PM to 6 AM it sleeps at home, on its **Pet Bed** if you've bought one, and rejoins you in the morning.
   Villagers and players are Stardew-style pixel sprites with four walking directions, and NPCs show a portrait when you talk to them.
 - **Accounts.** Sign up with email and password, and log in with either your username or email. Your plot follows you to any device.
   "Play now" starts you as a guest; signing up later keeps the guest's plot, coins and friendships.
