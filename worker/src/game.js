@@ -1,6 +1,9 @@
 import { generateWorld, TILE, PLAYER_SPEED, WORLD_VERSION } from '../../shared/world.js';
 import { ITEMS, GOODS, CROPS, START_COINS, cropStage, itemName } from '../../shared/catalog.js';
-import { key, inInterior, tilesOf, objAt, occChanged, placementError, canStand } from '../../shared/plot.js';
+import {
+  key, inInterior, tilesOf, objAt, occChanged, placementError, canStand, levelView,
+  edgeKey, wallError, wallTouchesFeet, roofError, roofAt,
+} from '../../shared/plot.js';
 import { NPCS } from '../../shared/npcs.js';
 import { Npc, parseAiReply, REPLY_SCHEMA } from './npc.js';
 
@@ -28,7 +31,13 @@ export class Game {
     this.gossip = saved.gossip || [];
     this.plots = this.world.plots.map((p) => {
       const s = saved.plots?.[p.id];
-      return { id: p.id, owner: s?.owner ?? null, ownerName: s?.ownerName ?? null, floor: s?.floor || {}, obj: s?.obj || {} };
+      const obj = {};
+      // Walls used to be tile objects; they now live on edges, so drop any old ones.
+      for (const [k, o] of Object.entries(s?.obj || {})) if (ITEMS[o.t]?.layer === 'obj') obj[k] = o;
+      return {
+        id: p.id, owner: s?.owner ?? null, ownerName: s?.ownerName ?? null,
+        floor: s?.floor || {}, obj, l1: s?.l1 || { floor: {}, obj: {} }, walls: s?.walls || {}, roofs: s?.roofs || [],
+      };
     });
     this.npcs = {};
     for (const id of Object.keys(NPCS)) this.npcs[id] = new Npc(id, saved.npcs?.[id]);
@@ -106,6 +115,10 @@ export class Game {
       case 'claim': return this.claim(s, msg);
       case 'place': return this.place(s, msg);
       case 'remove': return this.remove(s, msg);
+      case 'floorRect': return this.floorRect(s, msg);
+      case 'walls': return this.walls(s, msg);
+      case 'feature': return this.feature(s, msg);
+      case 'roof': return this.roof(s, msg);
       case 'harvest': return this.harvest(s, msg);
       case 'home': return this.home(s);
       case 'npcOpen': return this.npcOpen(s, msg);
@@ -164,7 +177,7 @@ export class Game {
     } else {
       if (guest.plotId != null) {
         const plot = this.plots[guest.plotId];
-        Object.assign(plot, { owner: null, ownerName: null, floor: {}, obj: {} });
+        Object.assign(plot, { owner: null, ownerName: null, floor: {}, obj: {}, l1: { floor: {}, obj: {} }, walls: {}, roofs: [] });
         this.plotChanged(plot);
       }
       delete this.profiles[fromUid];
@@ -273,30 +286,117 @@ export class Game {
     this.addGossip('the village', `${s.profile.name} just moved into plot ${plot.id + 1}`);
   }
 
-  place(s, { plotId, lx, ly, item, r = 0 }) {
+  // ----- building (Sims-style) -----
+  // All building messages take an optional `level` (0 = ground, 1 = upstairs).
+  lvl(level) { return level === 1 ? 1 : 0; }
+
+  place(s, { plotId, lx, ly, item, r = 0, level = 0 }) {
     const plot = this.ownPlot(s, plotId);
     if (!plot || !Number.isInteger(lx) || !Number.isInteger(ly) || !inInterior(lx, ly)) return;
     if (![0, 1, 2, 3].includes(r)) r = 0;
+    level = this.lvl(level);
     const def = ITEMS[item];
-    const err = placementError(plot, lx, ly, item, r);
+    const err = placementError(plot, lx, ly, item, r, level);
     if (err) return s.send({ type: 'error', msg: err });
+    const view = levelView(plot, level);
     const k = key(lx, ly);
     if (def.shop) {
       if (!s.profile.inv[item]) return s.send({ type: 'error', msg: `Buy a ${def.name} from ${NPCS[def.shop].name} first` });
     } else {
-      const refund = def.layer === 'floor' && plot.floor[k] ? ITEMS[plot.floor[k]].price : 0;
+      const refund = def.layer === 'floor' && view.floor[k] ? ITEMS[view.floor[k]].price : 0;
       if (s.profile.coins + refund < def.price) return s.send({ type: 'error', msg: 'Not enough coins' });
     }
-    if (def.solid && this.someoneOn(plot, tilesOf(item, r, lx, ly))) return s.send({ type: 'error', msg: 'Someone is standing there' });
+    if (def.solid && !level && this.someoneOn(plot, tilesOf(item, r, lx, ly))) return s.send({ type: 'error', msg: 'Someone is standing there' });
     if (def.layer === 'floor') {
-      const refund = plot.floor[k] ? ITEMS[plot.floor[k]].price : 0;
-      plot.floor[k] = item;
+      const refund = view.floor[k] ? ITEMS[view.floor[k]].price : 0;
+      view.floor[k] = item;
       this.coins(s, refund - def.price);
     } else {
-      plot.obj[k] = def.crop ? { t: item, p: this.now() } : r ? { t: item, r } : { t: item };
+      view.obj[k] = def.crop ? { t: item, p: this.now() } : r ? { t: item, r } : { t: item };
       if (def.shop) this.bag(s, item, -1);
       else this.coins(s, -def.price);
     }
+    this.plotChanged(plot);
+  }
+
+  // Fill a rectangle with a floor (the Sims floor drag tool).
+  floorRect(s, { plotId, x, y, w, h, item, level = 0 }) {
+    const plot = this.ownPlot(s, plotId);
+    const def = ITEMS[item];
+    if (!plot || def?.layer !== 'floor' || ![x, y, w, h].every(Number.isInteger) || w < 1 || h < 1 || w * h > 160) return;
+    level = this.lvl(level);
+    const view = levelView(plot, level);
+    const tiles = [];
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) if (!placementError(plot, x + i, y + j, item, 0, level)) tiles.push(key(x + i, y + j));
+    if (!tiles.length) return;
+    const cost = tiles.reduce((sum, k) => sum + def.price - (view.floor[k] ? ITEMS[view.floor[k]].price : 0), 0);
+    if (cost > s.profile.coins) return s.send({ type: 'error', msg: `Not enough coins (needs 🪙${cost})` });
+    for (const k of tiles) view.floor[k] = item;
+    this.coins(s, -cost);
+    this.plotChanged(plot);
+  }
+
+  // Build a run of wall segments: segs = [[d, x, y], ...] (the wall and room tools).
+  walls(s, { plotId, segs, m, level = 0 }) {
+    const plot = this.ownPlot(s, plotId);
+    const def = ITEMS[m];
+    if (!plot || def?.layer !== 'wall' || !Array.isArray(segs) || !segs.length || segs.length > 80) return;
+    level = this.lvl(level);
+    plot.walls ||= {};
+    const todo = [];
+    const seen = new Set();
+    for (const seg of segs) {
+      if (!Array.isArray(seg)) return;
+      const [d, x, y] = seg;
+      const k = edgeKey(level, d, x, y);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      const err = wallError(plot, level, d, x, y);
+      if (err) return s.send({ type: 'error', msg: err });
+      const old = plot.walls[k];
+      if (old?.m === m) continue;
+      if (!level) for (const o of this.sessions.values()) {
+        if (wallTouchesFeet(this.world, plot.id, d, x, y, o.x, o.y)) return s.send({ type: 'error', msg: 'Someone is standing there' });
+      }
+      todo.push([k, old]);
+    }
+    if (!todo.length) return;
+    const cost = todo.reduce((sum, [, old]) => sum + def.price - (old ? ITEMS[old.m].price : 0), 0);
+    if (cost > s.profile.coins) return s.send({ type: 'error', msg: `Not enough coins (needs 🪙${cost})` });
+    for (const [k, old] of todo) plot.walls[k] = old?.f ? { m, f: old.f } : { m };
+    this.coins(s, -cost);
+    this.plotChanged(plot);
+  }
+
+  // Put a door or window into an existing wall segment.
+  feature(s, { plotId, d, x, y, f, level = 0 }) {
+    const plot = this.ownPlot(s, plotId);
+    const def = ITEMS[f];
+    if (!plot || def?.layer !== 'feature') return;
+    level = this.lvl(level);
+    const k = edgeKey(level, d, x, y);
+    const wall = plot.walls?.[k];
+    if (!wall) return s.send({ type: 'error', msg: 'Doors and windows go into a wall' });
+    if (wall.f === f) return;
+    const cost = def.price - (wall.f ? ITEMS[wall.f].price : 0);
+    if (cost > s.profile.coins) return s.send({ type: 'error', msg: 'Not enough coins' });
+    wall.f = f;
+    this.coins(s, -cost);
+    this.plotChanged(plot);
+  }
+
+  roof(s, { plotId, x, y, w, h, m, level = 0 }) {
+    const plot = this.ownPlot(s, plotId);
+    const def = ITEMS[m];
+    if (!plot || def?.layer !== 'roof') return;
+    level = this.lvl(level);
+    plot.roofs ||= [];
+    const err = roofError(plot, x, y, w, h, level) || (plot.roofs.length >= 12 ? 'Too many roofs' : null);
+    if (err) return s.send({ type: 'error', msg: err });
+    const cost = def.price * w * h;
+    if (cost > s.profile.coins) return s.send({ type: 'error', msg: `Not enough coins (needs 🪙${cost})` });
+    plot.roofs.push({ x, y, w, h, l: level, m });
+    this.coins(s, -cost);
     this.plotChanged(plot);
   }
 
@@ -311,21 +411,43 @@ export class Game {
     return false;
   }
 
-  remove(s, { plotId, lx, ly }) {
+  // The sledgehammer. Targets, in order: { edge: [d,x,y] } a wall (or just its door/window
+  // with featureOnly), { roof: true } the roof over a tile, else the object then floor on a tile.
+  remove(s, { plotId, lx, ly, level = 0, edge, featureOnly, roof }) {
     const plot = this.ownPlot(s, plotId);
-    if (!plot || !Number.isInteger(lx) || !Number.isInteger(ly)) return;
-    const hit = objAt(plot, lx, ly);
+    if (!plot) return;
+    level = this.lvl(level);
+    if (Array.isArray(edge)) {
+      const k = edgeKey(level, edge[0], edge[1], edge[2]);
+      const wall = plot.walls?.[k];
+      if (!wall) return;
+      let refund = wall.f ? ITEMS[wall.f].price : 0;
+      if (featureOnly && wall.f) delete wall.f;
+      else { refund += ITEMS[wall.m].price; delete plot.walls[k]; }
+      this.coins(s, refund);
+      return this.plotChanged(plot);
+    }
+    if (!Number.isInteger(lx) || !Number.isInteger(ly)) return;
+    if (roof) {
+      const i = roofAt(plot, lx, ly, level);
+      if (i < 0) return;
+      const [rf] = plot.roofs.splice(i, 1);
+      this.coins(s, ITEMS[rf.m].price * rf.w * rf.h);
+      return this.plotChanged(plot);
+    }
+    const view = levelView(plot, level);
+    const hit = objAt(view, lx, ly);
     if (hit) {
-      delete plot.obj[hit.key];
+      delete view.obj[hit.key];
       const def = ITEMS[hit.obj.t];
       // Shop items go back in the bag, crops are lost, everything else is refunded.
       if (def.shop) this.bag(s, hit.obj.t, 1);
       else if (!def.crop) this.coins(s, def.price);
     } else {
       const k = key(lx, ly);
-      if (!plot.floor[k]) return;
-      this.coins(s, ITEMS[plot.floor[k]].price);
-      delete plot.floor[k];
+      if (!view.floor[k]) return;
+      this.coins(s, ITEMS[view.floor[k]].price);
+      delete view.floor[k];
     }
     this.plotChanged(plot);
   }
@@ -393,12 +515,12 @@ export class Game {
     const facts = [];
     if (!plot) facts.push('they have not claimed a plot yet');
     else {
-      const objs = Object.values(plot.obj);
-      const walls = objs.filter((o) => ITEMS[o.t]?.wall).length;
+      const objs = [...Object.values(plot.obj), ...Object.values(plot.l1.obj)];
+      const walls = Object.keys(plot.walls).length;
       const crops = objs.filter((o) => ITEMS[o.t]?.crop).length;
       const fancy = objs.filter((o) => ITEMS[o.t]?.shop).map((o) => ITEMS[o.t].name);
       facts.push(`they live on plot ${plot.id + 1}`);
-      facts.push(walls > 8 ? 'they have built a house' : 'their house is barely started');
+      facts.push(walls > 8 ? (Object.keys(plot.walls).some((k) => k.startsWith('1:')) ? 'they have built a two-storey house' : 'they have built a house') : 'their house is barely started');
       if (crops) facts.push(`they are growing ${crops} crops`);
       if (fancy.length) facts.push(`their home has: ${[...new Set(fancy)].join(', ')}`);
     }

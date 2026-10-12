@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Game } from '../src/game.js';
 import { generateWorld, TILE, T, MAP_W } from '../../shared/world.js';
-import { canStand, objAt } from '../../shared/plot.js';
+import { canStand, objAt, rectEdges, edgeKey, levelView } from '../../shared/plot.js';
 import { START_COINS, ITEMS } from '../../shared/catalog.js';
 import { NPCS } from '../../shared/npcs.js';
 
@@ -46,9 +46,9 @@ test('guests can claim a plot, build and get refunds', async () => {
   assert.equal(a.welcome.you.coins, START_COINS);
   a.send({ type: 'claim', plotId: 3 });
   assert.equal(a.last('claimed').plotId, 3);
-  a.send({ type: 'place', plotId: 3, lx: 2, ly: 2, item: 'wall_wood' });
-  assert.equal(game.plots[3].obj['2,2'].t, 'wall_wood');
-  a.send({ type: 'place', plotId: 3, lx: 0, ly: 0, item: 'wall_wood' });
+  a.send({ type: 'place', plotId: 3, lx: 2, ly: 2, item: 'lamp' });
+  assert.equal(game.plots[3].obj['2,2'].t, 'lamp');
+  a.send({ type: 'place', plotId: 3, lx: 0, ly: 0, item: 'lamp' });
   assert.equal(game.plots[3].obj['0,0'], undefined);
   a.send({ type: 'remove', plotId: 3, lx: 2, ly: 2 });
   assert.equal(a.last('coins').coins, START_COINS);
@@ -279,4 +279,97 @@ test('broken model output is salvaged or rejected, never shown raw', async () =>
   assert.equal(parseAiReply(''), null);
   assert.equal(parseAiReply({ reply: 'Hi!', sentiment: 9 }).sentiment, 2);
   assert.equal(parseAiReply('Just words.').reply, 'Just words.');
+});
+
+// Put the player's feet at the centre of a local tile of their plot.
+function stand(game, a, plotId, lx, ly) {
+  const p = game.world.plots[plotId];
+  const s = a.session();
+  s.x = (p.x + lx + 0.5) * TILE; s.y = (p.y + ly + 0.8) * TILE;
+}
+
+test('Sims-style rooms: walls on edges, doors let you through, windows do not', async () => {
+  const { game, join } = setup();
+  const a = await join({ name: 'Ana' });
+  a.send({ type: 'claim', plotId: 0 });
+  stand(game, a, 0, 12, 9);
+  const coins = a.welcome.you.coins;
+  // A 4x3 room with its top-left tile at (2, 2).
+  a.send({ type: 'walls', plotId: 0, m: 'wall_brick', segs: rectEdges(2, 2, 4, 3) });
+  const plot = game.plots[0];
+  assert.equal(Object.keys(plot.walls).length, 14);
+  assert.equal(a.last('coins').coins, coins - 14 * ITEMS.wall_brick.price);
+  a.send({ type: 'floorRect', plotId: 0, x: 2, y: 2, w: 4, h: 3, item: 'floor_wood' });
+  assert.equal(Object.keys(plot.floor).length, 12);
+
+  // Walking from inside to outside through the bottom wall is blocked...
+  const p = game.world.plots[0];
+  const inside = { x: (p.x + 3.5) * TILE, y: (p.y + 4.6) * TILE };
+  const outside = { x: (p.x + 3.5) * TILE, y: (p.y + 5.3) * TILE };
+  assert.ok(canStand(game.world, game.plots, inside.x, inside.y));
+  assert.ok(!canStand(game.world, game.plots, inside.x, (p.y + 5) * TILE + 2), 'wall blocks');
+  // ...until a door goes in. A window keeps it closed.
+  a.send({ type: 'feature', plotId: 0, d: 'h', x: 3, y: 5, f: 'window' });
+  assert.ok(!canStand(game.world, game.plots, inside.x, (p.y + 5) * TILE + 2), 'window blocks');
+  a.send({ type: 'feature', plotId: 0, d: 'h', x: 3, y: 5, f: 'door' });
+  assert.equal(plot.walls[edgeKey(0, 'h', 3, 5)].f, 'door');
+  assert.ok(canStand(game.world, game.plots, inside.x, (p.y + 5) * TILE + 2), 'door lets you through');
+  assert.ok(canStand(game.world, game.plots, outside.x, outside.y));
+
+  // Doors need a wall; walls must stay inside the fence.
+  a.send({ type: 'feature', plotId: 0, d: 'h', x: 9, y: 9, f: 'door' });
+  assert.match(a.last('error').msg, /into a wall/);
+  a.send({ type: 'walls', plotId: 0, m: 'wall_brick', segs: [['h', 0, 3]] });
+  assert.match(a.last('error').msg, /inside your fence/);
+
+  // Big furniture can't straddle a wall.
+  a.send({ type: 'place', plotId: 0, lx: 5, ly: 3, item: 'sofa' });
+  assert.match(a.last('error').msg, /wall/);
+
+  // Sledgehammer: removing the door keeps the wall, removing the wall refunds both.
+  const before = a.last('coins').coins;
+  a.send({ type: 'remove', plotId: 0, edge: ['h', 3, 5], featureOnly: true });
+  assert.equal(plot.walls[edgeKey(0, 'h', 3, 5)].f, undefined);
+  a.send({ type: 'remove', plotId: 0, edge: ['h', 3, 5] });
+  assert.equal(plot.walls[edgeKey(0, 'h', 3, 5)], undefined);
+  assert.equal(a.last('coins').coins, before + ITEMS.door.price + ITEMS.wall_brick.price);
+});
+
+test('second storey, roofs and walls refused on top of players', async () => {
+  const { game, join } = setup();
+  const a = await join({ name: 'Ana' });
+  a.send({ type: 'claim', plotId: 1 });
+  stand(game, a, 1, 3, 3);
+  a.session().y = (game.world.plots[1].y + 4) * TILE; // feet right on the tile's bottom edge
+  a.send({ type: 'walls', plotId: 1, m: 'wall_wood', segs: [['h', 3, 4]] });
+  assert.match(a.last('error').msg, /standing/);
+  stand(game, a, 1, 13, 9);
+  // Upstairs furniture needs a floor first.
+  a.send({ type: 'place', plotId: 1, lx: 3, ly: 3, item: 'bed', level: 1 });
+  assert.match(a.last('error').msg, /floor/);
+  a.send({ type: 'floorRect', plotId: 1, x: 2, y: 2, w: 4, h: 4, item: 'floor_blue', level: 1 });
+  a.send({ type: 'place', plotId: 1, lx: 3, ly: 3, item: 'bed', level: 1 });
+  const up = levelView(game.plots[1], 1);
+  assert.equal(up.obj['3,3'].t, 'bed');
+  assert.equal(game.plots[1].obj['3,3'], undefined, 'ground floor untouched');
+  a.send({ type: 'walls', plotId: 1, m: 'wall_white', segs: rectEdges(2, 2, 4, 4), level: 1 });
+  assert.equal(Object.keys(game.plots[1].walls).filter((k) => k.startsWith('1:')).length, 16);
+  // Upstairs walls don't block walking on the ground.
+  const p = game.world.plots[1];
+  assert.ok(canStand(game.world, game.plots, (p.x + 3.5) * TILE, (p.y + 2) * TILE + 2));
+  // Roofs
+  a.send({ type: 'roof', plotId: 1, x: 2, y: 2, w: 4, h: 4, m: 'roof_red', level: 1 });
+  assert.equal(game.plots[1].roofs.length, 1);
+  a.send({ type: 'roof', plotId: 1, x: 3, y: 3, w: 2, h: 2, m: 'roof_blue', level: 1 });
+  assert.match(a.last('error').msg, /Overlaps/);
+  const coins = a.last('coins').coins;
+  a.send({ type: 'remove', plotId: 1, lx: 4, ly: 4, level: 1, roof: true });
+  assert.equal(game.plots[1].roofs.length, 0);
+  assert.equal(a.last('coins').coins, coins + 16 * ITEMS.roof_red.price);
+});
+
+test('old tile-walls from earlier saves are dropped on load', () => {
+  const game = new Game({ plots: { 0: { owner: 'x', floor: {}, obj: { '2,2': { t: 'wall_wood' }, '3,3': { t: 'lamp' } } } } });
+  assert.deepEqual(Object.keys(game.plots[0].obj), ['3,3']);
+  assert.deepEqual(game.plots[0].walls, {});
 });

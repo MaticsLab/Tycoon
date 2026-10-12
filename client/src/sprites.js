@@ -106,7 +106,8 @@ const PAL = {
 };
 const pick = (pal, f) => pal[Math.max(0, Math.min(pal.length - 1, Math.floor(f * pal.length)))];
 
-// opts.deco = false leaves out fences/rocks/flowers (the 3D view adds its own).
+// opts.deco = false leaves out all decorations; opts.three leaves out the ones the 3D
+// view builds as real geometry (fences, gates, rocks, fountain).
 export function renderGround(world, opts = {}) {
   const W = MAP_W * TILE, H = MAP_H * TILE;
   const tcls = new Uint8Array(MAP_W * MAP_H);
@@ -209,14 +210,14 @@ export function renderGround(world, opts = {}) {
     const t = tile(tx, ty), x = tx * TILE, y = ty * TILE, hv = tileHash(tx, ty);
     if (t === T.FLOWERS) flowers(d, x, y, tx, ty);
     else if (t === T.TALLGRASS) tuft(d, x + 3 + Math.floor(hv * 6), y + 12, hv);
-    else if (t === T.ROCK) rock(d, x, y, hv);
-    else if (t === T.FENCE) fence(d, x, y, tile, tx, ty);
-    else if (t === T.GATE) gatePost(d, x, y, tile(tx - 1, ty) === T.FENCE);
+    else if (t === T.ROCK) { if (!opts.three) rock(d, x, y, hv); }
+    else if (t === T.FENCE) { if (!opts.three) fence(d, x, y, tile, tx, ty); }
+    else if (t === T.GATE) { if (!opts.three) gatePost(d, x, y, tile(tx - 1, ty) === T.FENCE); }
     else if (t === T.GRASS && hv < 0.18) tuft(d, x + Math.floor(hv * 60) % 12 + 2, y + 10 + Math.floor(hv * 30) % 5, hv * 5);
     else if (t === T.PATH && hv < 0.1) pebble(d, x + Math.floor(hv * 90) % 12 + 2, y + Math.floor(hv * 170) % 12 + 2);
     else if (t === T.WATER && hv > 0.9 && tile(tx, ty - 1) === T.WATER && tile(tx, ty + 1) === T.WATER) lilypad(d, x + 4, y + 5, hv);
   }
-  fountain(d, 40 * TILE, 24 * TILE);
+  if (!opts.three) fountain(d, 40 * TILE, 24 * TILE);
   outline(deco);
   c.drawImage(deco, 0, 0);
   return cv;

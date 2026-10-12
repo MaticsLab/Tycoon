@@ -1,11 +1,16 @@
 import {
-  generateWorld, plotIdAtPixel, worldClock, darkness, SHOPS,
-  T, TILE, MAP_W, MAP_H, PLOT_W, PLOT_H, PLAYER_SPEED, WORLD_VERSION, tileHash,
+  generateWorld, plotIdAtPixel, worldClock, darkness,
+  TILE, MAP_W, MAP_H, PLOT_W, PLOT_H, PLAYER_SPEED, WORLD_VERSION,
 } from '@shared/world.js';
-import { canStand, inInterior, key, placementError, objAt, footprint, canRotate } from '@shared/plot.js';
+import {
+  canStand, inInterior, key, placementError, objAt, footprint, canRotate, levelView,
+  LEVELS, wallError, lineEdges, rectEdges, roofError, roofAt, edgeKey, edgeValid,
+} from '@shared/plot.js';
 import { ITEMS, GOODS, CATEGORIES, cropStage, itemName } from '@shared/catalog.js';
 import { NPCS } from '@shared/npcs.js';
-import { renderGround, drawTree, drawFloor, drawObject, drawPlayer, drawShop, itemIcon, shopSignY } from './sprites.js';
+import { itemIcon } from './sprites.js';
+import { View, LEVEL_H } from './gfx/view.js';
+import { Ghost } from './gfx/ghost.js';
 import { httpBase, signInGuest, signIn, signUp, getSession, signOut } from './auth.js';
 
 const $ = (id) => document.getElementById(id);
@@ -14,19 +19,17 @@ const store = {
   set(k, v) { try { v == null ? localStorage.removeItem('tycoon.' + k) : localStorage.setItem('tycoon.' + k, v); } catch { /* private mode */ } },
 };
 
-// ---------- World ----------
+// ---------- World & 3D view ----------
 const world = generateWorld();
-const ground = renderGround(world);
-const trees = [];
-for (let ty = 0; ty < MAP_H; ty++) for (let tx = 0; tx < MAP_W; tx++) {
-  if (world.tiles[ty * MAP_W + tx] === T.TREE) trees.push([tx, ty, tileHash(tx * 3, ty * 7)]);
-}
+const view = new View($('game'), world);
+const ghost = new Ghost(view.scene);
+const U = (px) => px / TILE; // world pixels -> 3D units
 
 const S = {
-  me: null,            // { id, name, color, x, y, dir, moving }
-  players: new Map(),  // other players by id
-  npcs: new Map(),     // npc id -> { id, x, y, tx, ty, dir, moving, bubble }
-  plots: world.plots.map((p) => ({ id: p.id, owner: null, ownerName: null, floor: {}, obj: {} })),
+  me: null,            // { id, name, color, x, y, dir, moving } (x, y in world pixels)
+  players: new Map(),
+  npcs: new Map(),
+  plots: world.plots.map((p) => ({ id: p.id, owner: null, ownerName: null, floor: {}, obj: {}, l1: { floor: {}, obj: {} }, walls: {}, roofs: [] })),
   coins: 0,
   inv: {},
   myPlot: null,
@@ -35,12 +38,14 @@ const S = {
   timeOffset: 0,
   epoch: 0,
   mode: 'walk',        // 'walk' | 'build'
-  tool: 'wall_wood',   // item id or 'remove'
+  tool: { kind: 'wall', id: 'wall_white' },
+  wallTool: 'line',    // 'line' | 'room'
   cat: 'build',
   rot: 0,
-  hover: null,
+  level: 0,            // build level
+  wallMode: 'cut',     // 'up' | 'cut' | 'down'
   connected: false,
-  talk: null,          // { npc, view, extra: null|'shop'|'gift', waiting, lines }
+  talk: null,
 };
 const serverNow = () => Date.now() + S.timeOffset;
 
@@ -81,7 +86,6 @@ function connect() {
     const wasConnected = S.connected;
     S.connected = false;
     if (!opened) {
-      // Rejected before connecting: maybe the session expired.
       try {
         if (!(await getSession(api(), token))) { store.set('token', null); toast('Please sign in again'); return showJoin(); }
       } catch { /* offline: keep retrying */ }
@@ -117,10 +121,13 @@ function onMessage(m) {
       S.connected = true;
       $('join').hidden = true;
       $('hud').hidden = false;
+      view.setTarget(U(S.me.x), U(S.me.y), true);
+      view.zoomBy(1);
       updateHud();
       if (first) {
         sysMsg(`Welcome, ${S.me.name}!`);
-        if (S.myPlot == null) sysMsg('Find a plot marked "For sale" to claim it. Rosa, Otto and Juniper are in the town square.');
+        if (S.myPlot == null) sysMsg('Find a plot with a FOR SALE sign to claim it. Rosa, Otto and Juniper are in the town square.');
+        sysMsg('Tip: ⟲ ⟳ (or Q / E) turn the camera.');
       }
       break;
     }
@@ -161,14 +168,11 @@ function onMessage(m) {
       if (n) { n.bubble = m.text; n.bubbleUntil = performance.now() + Math.min(9000, 2500 + m.text.length * 60); }
       break;
     }
-    case 'npc':
-      openTalk(m);
-      break;
-    case 'npcSay':
-      npcSaid(m);
-      break;
+    case 'npc': openTalk(m); break;
+    case 'npcSay': npcSaid(m); break;
     case 'plot':
       S.plots[m.plot.id] = m.plot;
+      plotsDirty = true;
       break;
     case 'coins':
       S.coins = m.coins;
@@ -357,6 +361,7 @@ function updateContext() {
     else if (action.startsWith('harvest')) btn.textContent = `🌾 Harvest (${action.split(':')[1]})`;
     else if (action.startsWith('talk')) btn.textContent = `💬 Talk to ${NPCS[action.split(':')[1]].name}`;
   }
+  syncPlots();
 }
 $('action').onclick = () => {
   if (lastAction === 'claim') send({ type: 'claim', plotId: plotIdAtPixel(world, S.me.x, S.me.y) });
@@ -370,6 +375,11 @@ $('btn-home').onclick = () => { setMode('walk'); closeTalk(); send({ type: 'home
 $('btn-chat').onclick = () => openChat();
 $('btn-bag').onclick = () => (modalKind === 'bag' ? closeModal() : showBag());
 $('btn-me').onclick = () => (modalKind === 'me' ? closeModal() : showMe());
+$('cam-left').onclick = () => turnCamera(-1);
+$('cam-right').onclick = () => turnCamera(1);
+$('zoom-in').onclick = () => view.zoomBy(1 / 1.25);
+$('zoom-out').onclick = () => view.zoomBy(1.25);
+function turnCamera(d) { view.rotate(d); plotsDirty = true; }
 
 function openChat() {
   $('chatform').hidden = false;
@@ -389,22 +399,20 @@ $('chatinput').addEventListener('keydown', (e) => {
 });
 
 // ---------- NPC conversations & shops ----------
-function openTalk(view) {
+function openTalk(v) {
   closeModal();
   setMode('walk');
-  const def = NPCS[view.npc];
-  if (!S.talk || S.talk.npc !== view.npc) {
-    S.talk = { npc: view.npc, view, extra: null, waiting: false, lines: [] };
+  const def = NPCS[v.npc];
+  if (!S.talk || S.talk.npc !== v.npc) {
+    S.talk = { npc: v.npc, view: v, extra: null, waiting: false, lines: [] };
     $('npc-name').textContent = `${def.icon} ${def.name}`;
     $('npc-role').textContent = def.role;
   }
-  S.talk.view = view;
-  if (view.say) S.talk.lines.push({ who: 'them', text: view.say });
+  S.talk.view = v;
+  if (v.say) S.talk.lines.push({ who: 'them', text: v.say });
   $('npcpanel').hidden = false;
-  $('npc-shop').hidden = !(view.sells.length || view.buys.length);
-  renderStatus();
-  renderLog();
-  renderExtra();
+  $('npc-shop').hidden = !(v.sells.length || v.buys.length);
+  renderStatus(); renderLog(); renderExtra();
 }
 
 function npcSaid(m) {
@@ -413,9 +421,7 @@ function npcSaid(m) {
   S.talk.view = { ...S.talk.view, ...m };
   S.talk.lines.push({ who: 'them', text: m.text });
   for (const c of m.changes || []) S.talk.lines.push({ who: 'note', text: `✨ ${c}` });
-  renderStatus();
-  renderLog();
-  renderExtra();
+  renderStatus(); renderLog(); renderExtra();
 }
 
 function closeTalk() {
@@ -456,15 +462,39 @@ function renderLog() {
   log.scrollTop = log.scrollHeight;
 }
 
+const iconCache = {};
 function cloneCanvas(src) {
   const c = document.createElement('canvas');
   c.width = src.width; c.height = src.height;
   c.getContext('2d').drawImage(src, 0, 0);
   return c;
 }
+function iconFor(id) {
+  if (!iconCache[id]) {
+    const d = ITEMS[id];
+    iconCache[id] = d && ['wall', 'feature', 'roof'].includes(d.layer) ? swatchIcon(id) : itemIcon(id);
+  }
+  return cloneCanvas(iconCache[id]);
+}
+// Icons for wall materials, doors/windows and roofs.
+function swatchIcon(id) {
+  const d = ITEMS[id];
+  const c = document.createElement('canvas');
+  c.width = c.height = 44;
+  const g = c.getContext('2d');
+  if (d.layer === 'wall') { g.fillStyle = d.color; g.fillRect(6, 4, 32, 36); g.fillStyle = 'rgba(0,0,0,.25)'; for (let y = 8; y < 40; y += 6) g.fillRect(6, y, 32, 1); g.strokeStyle = '#3a2716'; g.lineWidth = 2; g.strokeRect(6, 4, 32, 36); }
+  else if (d.layer === 'roof') { g.fillStyle = d.color; g.beginPath(); g.moveTo(4, 36); g.lineTo(22, 8); g.lineTo(40, 36); g.fill(); g.strokeStyle = '#3a2716'; g.lineWidth = 2; g.stroke(); }
+  else {
+    g.fillStyle = '#ece4d2'; g.fillRect(4, 4, 36, 36); g.strokeStyle = '#3a2716'; g.lineWidth = 2; g.strokeRect(4, 4, 36, 36);
+    if (id.startsWith('window')) { g.fillStyle = '#8fd0f0'; g.fillRect(12, id === 'window' ? 10 : 6, 20, id === 'window' ? 16 : 28); g.fillStyle = '#4a2e18'; g.fillRect(21, 8, 2, 30); }
+    else if (id === 'arch') { g.fillStyle = '#5a3a1e'; g.fillRect(12, 10, 20, 30); }
+    else { g.fillStyle = '#9b6436'; g.fillRect(12, 8, 20, 32); if (id === 'door_glass') { g.fillStyle = '#8fd0f0'; g.fillRect(15, 12, 14, 16); } g.fillStyle = '#f5c542'; g.fillRect(27, 24, 3, 3); }
+  }
+  return c;
+}
 function itemThumb(id) {
   if (GOODS[id]) { const s = document.createElement('span'); s.className = 'emo'; s.textContent = GOODS[id].icon; return s; }
-  return cloneCanvas(iconCache[id] ||= itemIcon(id));
+  return iconFor(id);
 }
 function itemRow(id, sub, buttons) {
   const row = document.createElement('div');
@@ -616,22 +646,24 @@ function showMe() {
   body.appendChild(other);
 }
 
-// ---------- Build tray ----------
-const iconCache = {};
+// ---------- Build mode (Sims-style) ----------
+const LAYER_KIND = { wall: 'wall', feature: 'feature', floor: 'floor', roof: 'roof', obj: 'obj' };
+const toolOf = (id) => ({ kind: LAYER_KIND[ITEMS[id].layer], id });
+
 function renderTabs() {
   const tabs = $('tabs');
   tabs.innerHTML = '';
-  const all = [...CATEGORIES, { id: 'special', name: '🎒 Bag' }, { id: 'remove', name: '🧹 Remove' }];
+  const all = [...CATEGORIES, { id: 'special', name: '🎒 Bag' }, { id: 'remove', name: '🔨 Sledgehammer' }];
   for (const c of all) {
     const b = document.createElement('button');
     b.textContent = c.name;
-    b.className = (c.id === 'remove' ? S.tool === 'remove' : S.cat === c.id && S.tool !== 'remove') ? 'sel' : '';
+    b.className = (c.id === 'remove' ? S.tool.kind === 'remove' : S.cat === c.id && S.tool.kind !== 'remove') ? 'sel' : '';
     b.onclick = () => {
-      if (c.id === 'remove') S.tool = 'remove';
+      if (c.id === 'remove') S.tool = { kind: 'remove' };
       else {
         S.cat = c.id;
         const first = Object.keys(ITEMS).find((k) => ITEMS[k].cat === c.id && (c.id !== 'special' || S.inv[k]));
-        if (S.tool === 'remove' || ITEMS[S.tool]?.cat !== c.id) S.tool = first || null;
+        S.tool = first ? toolOf(first) : { kind: 'none' };
       }
       renderTabs();
       renderItems();
@@ -639,13 +671,27 @@ function renderTabs() {
     tabs.appendChild(b);
   }
 }
+
 function renderItems() {
   const box = $('items');
   box.innerHTML = '';
   updateRotateBtn();
-  if (S.tool === 'remove') {
-    box.insertAdjacentHTML('beforeend', '<div style="padding:14px 8px;font-size:14px">Tap anything on your plot to remove it. Items are refunded in full, shop furniture goes back to your bag, crops are lost.</div>');
+  toolInfo();
+  if (S.tool.kind === 'remove') {
+    box.insertAdjacentHTML('beforeend', '<div style="padding:14px 8px;font-size:14px">Tap furniture, a floor tile or a wall to remove it. Tap a door or window to take just that out. Everything is refunded (shop furniture goes back to your bag; crops are lost).</div>');
     return;
+  }
+  if (S.cat === 'build') {
+    const seg = document.createElement('div');
+    seg.className = 'seg2';
+    for (const [k, label] of [['line', '▬ Wall'], ['room', '▢ Room']]) {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.className = S.wallTool === k ? 'sel' : '';
+      b.onclick = () => { S.wallTool = k; renderItems(); };
+      seg.appendChild(b);
+    }
+    box.appendChild(seg);
   }
   let any = false;
   for (const [id, def] of Object.entries(ITEMS)) {
@@ -654,115 +700,282 @@ function renderItems() {
     any = true;
     const b = document.createElement('button');
     b.dataset.id = id;
-    b.className = id === S.tool ? 'sel' : '';
-    b.appendChild(cloneCanvas(iconCache[id] ||= itemIcon(id)));
+    b.className = id === S.tool.id ? 'sel' : '';
+    b.appendChild(iconFor(id));
     const [w, h] = footprint(id, 0);
-    const size = w * h > 1 ? ` · ${w}×${h}` : '';
+    const size = def.layer === 'obj' && w * h > 1 ? ` · ${w}×${h}` : '';
+    const unit = def.layer === 'wall' ? '/wall' : def.layer === 'roof' || def.layer === 'floor' ? '/tile' : '';
     b.insertAdjacentHTML('beforeend', def.shop
       ? `<span>${esc(def.name)}</span><span class="count">×${S.inv[id]}${size}</span>`
-      : `<span>${esc(def.name)}</span><span class="price">🪙${def.price}${size}</span>`);
+      : `<span>${esc(def.name)}</span><span class="price">🪙${def.price}${unit}${size}</span>`);
     b.onclick = () => {
-      S.tool = id;
+      S.tool = toolOf(id);
       if (!canRotate(id)) S.rot = 0;
-      for (const o of box.children) o.classList.toggle('sel', o === b);
+      for (const o of box.querySelectorAll('button[data-id]')) o.classList.toggle('sel', o === b);
       updateRotateBtn();
+      toolInfo();
     };
+    box.appendChild(b);
+  }
+  if (S.cat === 'roof') {
+    const b = document.createElement('button');
+    b.dataset.id = 'roof_remove';
+    b.className = S.tool.kind === 'roofRemove' ? 'sel' : '';
+    b.innerHTML = '<span style="font-size:28px;line-height:44px">🧹</span><span>Remove roof</span>';
+    b.onclick = () => { S.tool = { kind: 'roofRemove' }; renderItems(); };
     box.appendChild(b);
   }
   if (!any && S.cat === 'special') box.insertAdjacentHTML('beforeend', '<div style="padding:14px 8px;font-size:14px">No furniture in your bag. Otto sells pianos, fireplaces and more in the town square.</div>');
   refreshTrayAffordability();
 }
+
 function refreshTrayAffordability() {
-  for (const b of $('items').children) {
-    if (b.dataset?.id && !ITEMS[b.dataset.id].shop) b.classList.toggle('poor', ITEMS[b.dataset.id].price > S.coins);
+  for (const b of $('items').querySelectorAll('button[data-id]')) {
+    const d = ITEMS[b.dataset.id];
+    if (d && !d.shop) b.classList.toggle('poor', d.price > S.coins);
   }
 }
 function updateRotateBtn() {
-  const ok = S.tool && S.tool !== 'remove' && canRotate(S.tool);
+  const ok = S.tool.kind === 'obj' && canRotate(S.tool.id);
   $('btn-rotate').disabled = !ok;
   $('btn-rotate').textContent = ok ? `↻ Rotate (${['front', 'left', 'back', 'right'][S.rot]})` : '↻ Rotate';
 }
-function rotate() {
-  if (!S.tool || S.tool === 'remove' || !canRotate(S.tool)) return;
+function rotateItem() {
+  if (S.tool.kind !== 'obj' || !canRotate(S.tool.id)) return;
   S.rot = (S.rot + 1) % 4;
   updateRotateBtn();
+  refreshPreview();
 }
-$('btn-rotate').onclick = rotate;
+$('btn-rotate').onclick = rotateItem;
+
+function setLevel(l) {
+  S.level = Math.max(0, Math.min(LEVELS - 1, l));
+  $('btn-level').textContent = S.level ? '⬆ Upstairs' : 'Ground floor';
+  plotsDirty = true;
+  toolInfo();
+  refreshPreview();
+}
+$('btn-level').onclick = () => setLevel(S.level ? 0 : 1);
+const WALL_MODES = { cut: 'Walls: cutaway', up: 'Walls: up', down: 'Walls: down' };
+function cycleWalls() {
+  S.wallMode = { cut: 'up', up: 'down', down: 'cut' }[S.wallMode];
+  $('btn-walls').textContent = WALL_MODES[S.wallMode];
+  plotsDirty = true;
+}
+$('btn-walls').onclick = cycleWalls;
+
+function toolInfo(extra) {
+  const t = S.tool, d = ITEMS[t.id];
+  const msgs = {
+    wall: S.wallTool === 'room' ? 'Drag from corner to corner to build a room (walls + wood floor).' : 'Drag along the grid lines to build a wall.',
+    feature: 'Tap a wall to set the door or window into it.',
+    floor: 'Tap or drag a rectangle to lay floor.',
+    roof: 'Drag a rectangle over your rooms to add a roof. Roofs show with walls up.',
+    roofRemove: 'Tap a roofed tile to remove that roof.',
+    obj: d?.crop ? 'Plant on tilled soil.' : 'Drag to position, release to place. ↻ rotates.',
+    remove: 'Tap something to remove it.',
+    none: '',
+  };
+  $('toolinfo').textContent = (extra ? extra + ' · ' : '') + (S.level ? 'Upstairs · ' : '') + (msgs[t.kind] || '');
+}
 
 function setMode(mode) {
   if (mode === 'build' && S.myPlot == null) { toast('Claim a plot first!'); return; }
   if (mode === 'build') closeTalk();
   S.mode = mode;
-  S.hover = null;
+  document.body.classList.toggle('building', mode === 'build');
   $('tray').hidden = mode !== 'build';
   $('btn-build').classList.toggle('on', mode === 'build');
   $('action').style.display = mode === 'build' ? 'none' : '';
   $('chatlog').style.display = mode === 'build' ? 'none' : '';
-  if (mode === 'build') { renderTabs(); renderItems(); }
-  resize();
+  drag = null;
+  ghost.clear();
+  if (mode === 'build') {
+    renderTabs(); renderItems();
+    const p = world.plots[S.myPlot];
+    view.setTarget(p.x + p.w / 2, p.y + p.h / 2 + 1);
+    view.zoom = 18; view.zoomBy(1);
+  } else if (S.me) {
+    view.zoom = 15; view.zoomBy(1);
+  }
+  plotsDirty = true;
 }
 
-function applyTool(lx, ly) {
+// --- picking helpers (plot-local) ---
+function myDef() { return world.plots[S.myPlot]; }
+function pickLocal(cx, cy, height = 0) {
+  const def = myDef();
+  const p = view.pick(cx, cy, S.level * LEVEL_H + height);
+  return p ? { fx: p.x - def.x, fz: p.z - def.y } : null;
+}
+const tileOf = (q) => [Math.floor(q.fx), Math.floor(q.fz)];
+const cornerOf = (q) => [Math.round(q.fx), Math.round(q.fz)];
+function edgeOf(q) {
+  const lx = Math.floor(q.fx), ly = Math.floor(q.fz), ux = q.fx - lx, uz = q.fz - ly;
+  const c = [[uz, ['h', lx, ly]], [1 - uz, ['h', lx, ly + 1]], [ux, ['v', lx, ly]], [1 - ux, ['v', lx + 1, ly]]];
+  c.sort((a, b) => a[0] - b[0]);
+  return { edge: c[0][1], dist: c[0][0] };
+}
+const rectOf = (a, b) => ({ x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(a[0] - b[0]) + 1, h: Math.abs(a[1] - b[1]) + 1 });
+const clampRect = (r) => {
+  const x0 = Math.max(1, r.x), y0 = Math.max(1, r.y), x1 = Math.min(PLOT_W - 2, r.x + r.w - 1), y1 = Math.min(PLOT_H - 2, r.y + r.h - 1);
+  return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+};
+
+// --- previews & commits ---
+let drag = null;        // { start, cur } in plot-local corner/tile coordinates
+let hover = null;       // last pointer position { cx, cy }
+
+function wallPlan() {
+  if (!drag) return null;
+  const [x0, y0] = drag.start, [x1, y1] = drag.cur;
+  if (S.wallTool === 'room') {
+    const r = { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
+    if (r.w < 1 || r.h < 1) return { edges: [], room: null };
+    return { edges: rectEdges(r.x, r.y, r.w, r.h), room: r };
+  }
+  return { edges: lineEdges(x0, y0, x1, y1) };
+}
+
+function refreshPreview() {
+  ghost.clear();
+  if (S.mode !== 'build' || !hover) return;
+  const plot = S.plots[S.myPlot], def = myDef(), t = S.tool;
+  const d = ITEMS[t.id];
+  if (t.kind === 'wall') {
+    if (!drag) {
+      const q = pickLocal(hover.cx, hover.cy);
+      if (q) { const [cx, cz] = cornerOf(q); ghost.tiles([[cx - 0.5, cz - 0.5]].map(([a, b]) => [a + 0.3, b + 0.3]), def, S.level, true, 0.6); }
+      return;
+    }
+    const plan = wallPlan();
+    const news = plan.edges.filter((e) => plot.walls?.[edgeKey(S.level, ...e)]?.m !== t.id);
+    const cost = news.length * d.price + (plan.room ? plan.room.w * plan.room.h * ITEMS.floor_wood.price : 0);
+    const ok = plan.edges.every((e) => !wallError(plot, S.level, ...e)) && cost <= S.coins;
+    ghost.walls(plan.edges, def, S.level, ok);
+    toolInfo(plan.room ? `Room ${plan.room.w}×${plan.room.h} · 🪙${cost}` : `${news.length} wall${news.length === 1 ? '' : 's'} · 🪙${cost}`);
+  } else if (t.kind === 'floor' || t.kind === 'roof') {
+    const q = pickLocal(hover.cx, hover.cy);
+    if (!q) return;
+    const r = clampRect(drag ? rectOf(drag.start, drag.cur) : rectOf(tileOf(q), tileOf(q)));
+    if (r.w < 1 || r.h < 1) return;
+    const tiles = [];
+    for (let j = 0; j < r.h; j++) for (let i = 0; i < r.w; i++) tiles.push([r.x + i, r.y + j]);
+    if (t.kind === 'floor') {
+      const ok = tiles.filter(([x, y]) => !placementError(plot, x, y, t.id, 0, S.level));
+      ghost.tiles(tiles, def, S.level, ok.length > 0 && ok.length * d.price <= S.coins);
+      if (drag) toolInfo(`${ok.length} tiles · 🪙${ok.length * d.price}`);
+    } else {
+      const err = roofError(plot, r.x, r.y, r.w, r.h, S.level);
+      ghost.tiles(tiles, def, S.level + 1, !err && r.w * r.h * d.price <= S.coins, 0.06);
+      if (drag) toolInfo(`Roof ${r.w}×${r.h} · 🪙${r.w * r.h * d.price}${err ? ' · ' + err : ''}`);
+    }
+  } else if (t.kind === 'feature') {
+    const q = pickLocal(hover.cx, hover.cy, 1.0);
+    if (!q) return;
+    const { edge } = edgeOf(q);
+    const has = !!plot.walls?.[edgeKey(S.level, ...edge)];
+    ghost.walls([edge], def, S.level, has && d.price <= S.coins);
+  } else if (t.kind === 'obj') {
+    const q = pickLocal(hover.cx, hover.cy);
+    if (!q) return;
+    const r = canRotate(t.id) ? S.rot : 0;
+    const [w, h] = footprint(t.id, r);
+    const lx = Math.round(q.fx - w / 2), ly = Math.round(q.fz - h / 2);
+    const ok = !placementError(plot, lx, ly, t.id, r, S.level) && (d.shop ? S.inv[t.id] > 0 : d.price <= S.coins);
+    ghost.item(t.id, r, def, lx, ly, S.level, ok);
+  } else if (t.kind === 'remove' || t.kind === 'roofRemove') {
+    const target = removeTarget(hover);
+    if (!target) return;
+    if (target.edge) ghost.walls([target.edge], def, S.level, false);
+    else if (target.tiles) ghost.tiles(target.tiles, def, target.level ?? S.level, false, 0.3);
+  }
+}
+
+function removeTarget(h) {
   const plot = S.plots[S.myPlot];
-  if (!S.tool) return;
-  if (S.tool === 'remove') {
-    if (objAt(plot, lx, ly) || plot.floor[key(lx, ly)]) send({ type: 'remove', plotId: S.myPlot, lx, ly });
-    return;
+  const q = pickLocal(h.cx, h.cy), qm = pickLocal(h.cx, h.cy, 1.0);
+  if (!q) return null;
+  const [lx, ly] = tileOf(q);
+  if (S.tool.kind === 'roofRemove') {
+    const i = roofAt(plot, lx, ly, S.level);
+    if (i < 0) return null;
+    const rf = plot.roofs[i];
+    const tiles = [];
+    for (let j = 0; j < rf.h; j++) for (let k = 0; k < rf.w; k++) tiles.push([rf.x + k, rf.y + j]);
+    return { roof: true, lx, ly, tiles, level: S.level + 1 };
   }
-  const def = ITEMS[S.tool];
-  const r = canRotate(S.tool) ? S.rot : 0;
-  const err = placementError(plot, lx, ly, S.tool, r);
-  if (err) { if (err !== 'Already there' && err !== 'Tile is occupied') toast(err); return; }
-  if (def.shop ? !S.inv[S.tool] : def.price > S.coins) { toast(def.shop ? `None left — buy more from ${NPCS[def.shop].name}` : 'Not enough coins — sell some crops!'); return; }
-  send({ type: 'place', plotId: S.myPlot, lx, ly, item: S.tool, r });
+  const view_ = levelView(plot, S.level);
+  if (qm) {
+    const { edge, dist } = edgeOf(qm);
+    const w = plot.walls?.[edgeKey(S.level, ...edge)];
+    if (w && dist < 0.22) return { edge, featureOnly: !!w.f };
+  }
+  const hit = objAt(view_, lx, ly);
+  if (hit) {
+    const [ax, ay] = hit.key.split(',').map(Number);
+    const [w, hh] = footprint(hit.obj.t, hit.obj.r || 0);
+    const tiles = [];
+    for (let j = 0; j < hh; j++) for (let i = 0; i < w; i++) tiles.push([ax + i, ay + j]);
+    return { lx, ly, tiles };
+  }
+  if (view_.floor[key(lx, ly)]) return { lx, ly, tiles: [[lx, ly]] };
+  return null;
 }
 
-// ---------- Canvas, camera ----------
-const cv = $('game');
-const ctx = cv.getContext('2d');
-const lightCv = document.createElement('canvas');
-const lctx = lightCv.getContext('2d');
-let dpr = 1, scale = 3, camX = 0, camY = 0, offX = 0, offY = 0;
-
-function resize() {
-  dpr = Math.min(window.devicePixelRatio || 1, 3);
-  cv.width = Math.round(innerWidth * dpr);
-  cv.height = Math.round(innerHeight * dpr);
-  lightCv.width = cv.width; lightCv.height = cv.height;
-  if (S.mode === 'build') {
-    const trayH = ($('tray').offsetHeight || 0) * dpr;
-    const s = Math.min(cv.width / ((PLOT_W + 1) * TILE), (cv.height - trayH - 60 * dpr) / ((PLOT_H + 1.5) * TILE));
-    scale = Math.max(1, s >= 2 ? Math.floor(s) : Math.floor(s * 2) / 2);
-  } else {
-    scale = Math.max(2, Math.round(Math.min(cv.width, cv.height) / (TILE * 13)));
+function commit(h) {
+  const plot = S.plots[S.myPlot], t = S.tool, d = ITEMS[t.id];
+  const base = { plotId: S.myPlot, level: S.level };
+  if (t.kind === 'wall') {
+    const plan = wallPlan();
+    if (!plan || !plan.edges.length) return;
+    send({ type: 'walls', ...base, m: t.id, segs: plan.edges });
+    if (plan.room) send({ type: 'floorRect', ...base, x: plan.room.x, y: plan.room.y, w: plan.room.w, h: plan.room.h, item: 'floor_wood' });
+  } else if (t.kind === 'floor' || t.kind === 'roof') {
+    const q = pickLocal(h.cx, h.cy);
+    const end = q ? tileOf(q) : drag?.cur;
+    const r = clampRect(rectOf(drag?.start || end, end));
+    if (r.w < 1 || r.h < 1) return;
+    if (t.kind === 'floor') send({ type: 'floorRect', ...base, x: r.x, y: r.y, w: r.w, h: r.h, item: t.id });
+    else send({ type: 'roof', ...base, x: r.x, y: r.y, w: r.w, h: r.h, m: t.id });
+  } else if (t.kind === 'feature') {
+    const q = pickLocal(h.cx, h.cy, 1.0);
+    if (!q) return;
+    const { edge } = edgeOf(q);
+    if (!plot.walls?.[edgeKey(S.level, ...edge)]) return toast('Doors and windows go into a wall');
+    send({ type: 'feature', ...base, d: edge[0], x: edge[1], y: edge[2], f: t.id });
+  } else if (t.kind === 'obj') {
+    const q = pickLocal(h.cx, h.cy);
+    if (!q) return;
+    const r = canRotate(t.id) ? S.rot : 0;
+    const [w, hh] = footprint(t.id, r);
+    const lx = Math.round(q.fx - w / 2), ly = Math.round(q.fz - hh / 2);
+    const err = placementError(plot, lx, ly, t.id, r, S.level);
+    if (err) { if (err !== 'Already there') toast(err); return; }
+    if (d.shop ? !S.inv[t.id] : d.price > S.coins) return toast(d.shop ? `None left — buy more from ${NPCS[d.shop].name}` : 'Not enough coins — sell some crops!');
+    send({ type: 'place', ...base, lx, ly, item: t.id, r });
+  } else if (t.kind === 'remove' || t.kind === 'roofRemove') {
+    const target = removeTarget(h);
+    if (!target) return;
+    if (target.edge) send({ type: 'remove', ...base, edge: target.edge, featureOnly: target.featureOnly });
+    else send({ type: 'remove', ...base, lx: target.lx, ly: target.ly, roof: !!target.roof });
   }
+}
+
+// ---------- Input ----------
+const cv = $('game');
+const overlay = $('overlay');
+const octx = overlay.getContext('2d');
+let dpr = 1;
+function resize() {
+  dpr = Math.min(devicePixelRatio || 1, 3);
+  overlay.width = Math.round(innerWidth * dpr);
+  overlay.height = Math.round(innerHeight * dpr);
+  view.resize();
 }
 addEventListener('resize', resize);
 resize();
 
-function updateCamera() {
-  let tx, ty;
-  if (S.mode === 'build') {
-    const p = world.plots[S.myPlot];
-    const trayH = ($('tray').offsetHeight || 0) * dpr;
-    tx = (p.x + p.w / 2) * TILE;
-    ty = (p.y + p.h / 2) * TILE + (trayH / 2 - 20 * dpr) / scale;
-  } else {
-    tx = S.me.x; ty = S.me.y - 8;
-    // Keep the speaker visible above the conversation sheet.
-    if (S.talk) ty += ($('npcpanel').offsetHeight * dpr) / 2 / scale;
-  }
-  const vw = cv.width / scale, vh = cv.height / scale;
-  const clamp = (v, half, max) => (max <= half * 2 ? max / 2 : Math.max(half, Math.min(max - half, v)));
-  camX = S.mode === 'build' ? tx : clamp(tx, vw / 2, MAP_W * TILE);
-  camY = S.mode === 'build' || S.talk ? ty : clamp(ty, vh / 2, MAP_H * TILE);
-  offX = Math.round(cv.width / 2 - camX * scale);
-  offY = Math.round(cv.height / 2 - camY * scale);
-}
-
-const toWorld = (cx, cy) => ({ x: (cx * dpr - offX) / scale, y: (cy * dpr - offY) / scale });
-
-// ---------- Input ----------
 const keys = new Set();
 addEventListener('keydown', (e) => {
   if (!S.me || document.activeElement?.tagName === 'INPUT') return;
@@ -773,80 +986,132 @@ addEventListener('keydown', (e) => {
     else openChat();
     return;
   }
-  if (e.key === 'Escape') { setMode('walk'); closeTalk(); closeModal(); }
-  if (e.key === 'b' || e.key === 'B') $('btn-build').click();
-  if ((e.key === 'r' || e.key === 'R') && S.mode === 'build') rotate();
-  if (e.key === 'i' || e.key === 'I') $('btn-bag').click();
-  keys.add(e.key.toLowerCase());
+  const k = e.key.toLowerCase();
+  if (k === 'escape') { if (drag) { drag = null; refreshPreview(); } else { setMode('walk'); closeTalk(); closeModal(); } }
+  if (k === 'b') $('btn-build').click();
+  if (k === 'q') turnCamera(-1);
+  if (k === 'e') turnCamera(1);
+  if (k === 'i') $('btn-bag').click();
+  if (S.mode === 'build') {
+    if (k === 'r') rotateItem();
+    if (k === 'v') cycleWalls();
+    if (e.key === 'PageUp') setLevel(1);
+    if (e.key === 'PageDown') setLevel(0);
+  }
+  keys.add(k);
 });
 addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 addEventListener('blur', () => keys.clear());
+cv.addEventListener('wheel', (e) => { e.preventDefault(); view.zoomBy(e.deltaY > 0 ? 1.12 : 1 / 1.12); }, { passive: false });
+cv.addEventListener('contextmenu', (e) => e.preventDefault());
 
+const pointers = new Map();
 const stick = { id: null, sx: 0, sy: 0, x: 0, y: 0, active: false, moved: false, t: 0 };
-let lastPaint = null;
+let gesture = null; // two-finger pan/pinch, or right-mouse pan
 
-function tileUnder(cx, cy) {
-  const w = toWorld(cx, cy);
-  const tx = Math.floor(w.x / TILE), ty = Math.floor(w.y / TILE);
-  const p = world.plots[S.myPlot];
-  return p ? { lx: tx - p.x, ly: ty - p.y, tx, ty } : { tx, ty };
+function panBy(dx, dy) {
+  const k = (view.camera.top - view.camera.bottom) / cv.clientHeight;
+  const g = view.ground();
+  view.goal.x += (-g.rx * dx + g.fx * dy / Math.sin(0.62)) * k;
+  view.goal.z += (-g.rz * dx + g.fz * dy / Math.sin(0.62)) * k;
 }
 
 cv.addEventListener('pointerdown', (e) => {
-  if (!S.me || stick.id !== null) return;
+  if (!S.me) return;
   cv.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pointers.size === 2 || e.button === 1 || e.button === 2) {
+    // Second finger (or right/middle mouse): camera gesture instead of a tool/joystick.
+    const pts = [...pointers.values()];
+    gesture = { cx: e.clientX, cy: e.clientY, dist: pts.length === 2 ? Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) : 0 };
+    drag = null; stick.id = null; stick.active = false;
+    refreshPreview();
+    return;
+  }
+  hover = { cx: e.clientX, cy: e.clientY };
+  if (S.mode === 'build') {
+    const q = pickLocal(e.clientX, e.clientY);
+    if (q && ['wall', 'floor', 'roof'].includes(S.tool.kind)) drag = { start: S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q), cur: S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q) };
+    refreshPreview();
+    return;
+  }
   stick.id = e.pointerId;
   stick.sx = stick.x = e.clientX; stick.sy = stick.y = e.clientY;
   stick.moved = false; stick.t = performance.now();
-  if (S.mode === 'build') {
-    const t = tileUnder(e.clientX, e.clientY);
-    S.hover = inInterior(t.lx, t.ly) ? t : null;
-    lastPaint = `${t.lx},${t.ly}`;
-    applyTool(t.lx, t.ly);
-  }
 });
+
 cv.addEventListener('pointermove', (e) => {
-  if (S.mode === 'build') {
-    const t = tileUnder(e.clientX, e.clientY);
-    S.hover = inInterior(t.lx, t.ly) ? t : null;
-    // Walls, floors and other 1x1 items paint while dragging; big items place on tap.
-    const paintable = S.tool === 'remove' || (ITEMS[S.tool] && footprint(S.tool, 0).join() === '1,1' && !ITEMS[S.tool].shop);
-    if (e.pointerId === stick.id && paintable && `${t.lx},${t.ly}` !== lastPaint) {
-      lastPaint = `${t.lx},${t.ly}`;
-      applyTool(t.lx, t.ly);
+  const prev = pointers.get(e.pointerId);
+  if (prev) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (gesture && prev) {
+    const pts = [...pointers.values()];
+    if (pts.length === 2) {
+      const cx = (pts[0].x + pts[1].x) / 2, cy = (pts[0].y + pts[1].y) / 2, dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      if (S.mode === 'build') panBy(cx - gesture.cx, cy - gesture.cy);
+      if (gesture.dist > 0 && dist > 0) view.zoomBy(gesture.dist / dist);
+      Object.assign(gesture, { cx, cy, dist });
+    } else if (S.mode === 'build') {
+      panBy(e.clientX - gesture.cx, e.clientY - gesture.cy);
+      Object.assign(gesture, { cx: e.clientX, cy: e.clientY });
     }
+    return;
+  }
+  if (S.mode === 'build') {
+    hover = { cx: e.clientX, cy: e.clientY };
+    if (drag) {
+      const q = pickLocal(e.clientX, e.clientY);
+      if (q) drag.cur = S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q);
+    }
+    refreshPreview();
     return;
   }
   if (e.pointerId !== stick.id) return;
   stick.x = e.clientX; stick.y = e.clientY;
   if (Math.hypot(stick.x - stick.sx, stick.y - stick.sy) > 10) { stick.moved = true; stick.active = true; }
 });
+
 const endPointer = (e) => {
+  const had = pointers.delete(e.pointerId);
+  if (gesture) { if (!pointers.size) gesture = null; return; }
+  if (!had) return;
+  if (S.mode === 'build') {
+    if (e.type === 'pointerup') commit({ cx: e.clientX, cy: e.clientY });
+    drag = null;
+    if (e.pointerType !== 'mouse') hover = null;
+    refreshPreview();
+    toolInfo();
+    return;
+  }
   if (e.pointerId !== stick.id) return;
-  if (S.mode === 'walk' && !stick.moved && performance.now() - stick.t < 350) onTap(e.clientX, e.clientY);
-  stick.id = null; stick.active = false; lastPaint = null;
+  if (!stick.moved && performance.now() - stick.t < 350) onTap(e.clientX, e.clientY);
+  stick.id = null; stick.active = false;
 };
 cv.addEventListener('pointerup', endPointer);
 cv.addEventListener('pointercancel', endPointer);
+cv.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && S.mode === 'build' && !drag) { hover = null; refreshPreview(); } });
 
 function onTap(cx, cy) {
-  const w = toWorld(cx, cy);
   // Tap an NPC to talk.
   for (const n of S.npcs.values()) {
-    if (Math.abs(w.x - n.x) < 10 && w.y < n.y + 3 && w.y > n.y - 26) {
+    const p = view.toScreen(U(n.x), 1.0, U(n.y));
+    if (Math.hypot(p.x - cx, p.y - cy) < 34) {
       if (Math.hypot(n.x - S.me.x, n.y - S.me.y) < TILE * 3.4) send({ type: 'npcOpen', npc: n.id });
       else toast(`Walk closer to ${n.name}`);
       return;
     }
   }
   if (S.myPlot == null) return;
-  const t = tileUnder(cx, cy);
-  const hit = objAt(S.plots[S.myPlot], t.lx, t.ly);
-  if (hit && ITEMS[hit.obj.t]?.crop && cropStage(hit.obj, serverNow()) === 3 && Math.hypot(w.x - S.me.x, w.y - S.me.y) < TILE * 3) {
-    send({ type: 'harvest', plotId: S.myPlot, lx: t.lx, ly: t.ly });
+  const def = myDef();
+  const p = view.pick(cx, cy, 0);
+  if (!p) return;
+  const lx = Math.floor(p.x - def.x), ly = Math.floor(p.z - def.y);
+  const hit = objAt(S.plots[S.myPlot], lx, ly);
+  if (hit && ITEMS[hit.obj.t]?.crop && cropStage(hit.obj, serverNow()) === 3 && Math.hypot(p.x * TILE - S.me.x, p.z * TILE - S.me.y) < TILE * 3) {
+    send({ type: 'harvest', plotId: S.myPlot, lx, ly });
   }
 }
 
+// Input in screen terms: x = right, y = down (towards the camera).
 function inputVector() {
   let x = 0, y = 0;
   if (keys.has('arrowleft') || keys.has('a')) x -= 1;
@@ -861,6 +1126,34 @@ function inputVector() {
   return len > 1 ? { x: x / len, y: y / len } : { x, y };
 }
 
+// ---------- Plots in 3D ----------
+let plotsDirty = true;
+let lastPlotSync = 0;
+function plotOpts(id) {
+  const base = { cut: 'up', maxLevel: LEVELS - 1, roofs: true, now: serverNow() };
+  if (S.mode === 'build' && id === S.myPlot) return { ...base, cut: S.wallMode, maxLevel: S.level, roofs: S.wallMode === 'up' };
+  // Walking inside a house: cut the walls away and hide what's above, Sims-style.
+  if (S.me && plotIdAtPixel(world, S.me.x, S.me.y) === id) {
+    const def = world.plots[id];
+    const lx = Math.floor(U(S.me.x)) - def.x, ly = Math.floor(U(S.me.y)) - def.y;
+    const f = S.plots[id].floor[key(lx, ly)];
+    if (f && f !== 'soil' && f !== 'floor_stone') return { ...base, cut: 'cut', maxLevel: 0, roofs: false };
+  }
+  return base;
+}
+function syncPlots(force) {
+  const now = performance.now();
+  if (!force && !plotsDirty && now - lastPlotSync < 1500) return;
+  plotsDirty = false;
+  lastPlotSync = now;
+  const sNow = serverNow();
+  for (const def of world.plots) {
+    const st = S.plots[def.id];
+    const crops = Object.values(st.obj).filter((o) => ITEMS[o.t]?.crop).map((o) => cropStage(o, sNow)).join('');
+    view.setPlot(def, st, { ...plotOpts(def.id), crops });
+  }
+}
+
 // ---------- Update ----------
 let sendAcc = 0, lastSent = '';
 function update(dt) {
@@ -868,13 +1161,23 @@ function update(dt) {
   const v = S.mode === 'walk' ? inputVector() : { x: 0, y: 0 };
   me.moving = Math.hypot(v.x, v.y) > 0.1;
   if (me.moving) {
+    const g = view.ground();
+    const wx = g.rx * v.x - g.fx * v.y, wz = g.rz * v.x - g.fz * v.y;
     const sp = PLAYER_SPEED * dt;
-    const nx = me.x + v.x * sp, ny = me.y + v.y * sp;
+    const nx = me.x + wx * sp, ny = me.y + wz * sp;
     if (canStand(world, S.plots, nx, me.y)) me.x = nx;
     if (canStand(world, S.plots, me.x, ny)) me.y = ny;
-    me.dir = Math.abs(v.x) > Math.abs(v.y) ? (v.x < 0 ? 2 : 3) : (v.y < 0 ? 1 : 0);
-    // Walking away ends the conversation.
+    me.dir = Math.abs(wx) > Math.abs(wz) ? (wx < 0 ? 2 : 3) : (wz < 0 ? 1 : 0);
     if (S.talk) { const n = S.npcs.get(S.talk.npc); if (n && Math.hypot(n.x - me.x, n.y - me.y) > TILE * 4) closeTalk(); }
+  }
+  if (S.mode === 'build') {
+    // WASD pans in build mode.
+    let px = 0, py = 0;
+    if (keys.has('a') || keys.has('arrowleft')) px += 1;
+    if (keys.has('d') || keys.has('arrowright')) px -= 1;
+    if (keys.has('w') || keys.has('arrowup')) py += 1;
+    if (keys.has('s') || keys.has('arrowdown')) py -= 1;
+    if (px || py) panBy(px * 500 * dt, py * 500 * dt);
   }
   sendAcc += dt;
   if (sendAcc >= 0.1) {
@@ -886,245 +1189,101 @@ function update(dt) {
   const k = Math.min(1, dt * 10);
   for (const p of S.players.values()) { p.x += (p.tx - p.x) * k; p.y += (p.ty - p.y) * k; }
   for (const n of S.npcs.values()) { n.x += (n.tx - n.x) * k; n.y += (n.ty - n.y) * k; }
+  if (plotsDirty) syncPlots();
 }
 
 // ---------- Render ----------
 function render(now) {
-  const W = cv.width, H = cv.height;
-  updateCamera();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.imageSmoothingEnabled = false;
-  ctx.fillStyle = '#2d5a3d';
-  ctx.fillRect(0, 0, W, H);
-  ctx.setTransform(scale, 0, 0, scale, offX, offY);
-  ctx.drawImage(ground, 0, 0);
-
-  const x0 = Math.floor(-offX / scale / TILE) - 1, y0 = Math.floor(-offY / scale / TILE) - 1;
-  const x1 = x0 + Math.ceil(W / scale / TILE) + 3, y1 = y0 + Math.ceil(H / scale / TILE) + 3;
-  const visible = (tx, ty) => tx >= x0 && tx <= x1 && ty >= y0 && ty <= y1;
+  if (S.mode !== 'build' || !S.me) view.setTarget(U(S.me.x), U(S.me.y));
   const sNow = serverNow();
-
-  // Water shimmer and fountain spray.
-  for (let ty = Math.max(0, y0); ty < Math.min(MAP_H, y1); ty++) for (let tx = Math.max(0, x0); tx < Math.min(MAP_W, x1); tx++) {
-    if (world.tiles[ty * MAP_W + tx] !== T.WATER) continue;
-    const ph = (now / 900 + tileHash(tx, ty) * 6) % 6;
-    if (ph < 1) { ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.fillRect(tx * TILE + 4 + Math.floor(ph * 6), ty * TILE + 6, 2, 1); }
-  }
-  if (visible(41, 25)) {
-    ctx.fillStyle = 'rgba(200,235,255,0.85)';
-    for (let i = 0; i < 10; i++) {
-      const f = ((now / 1000) + i / 10) % 1;
-      const ang = i * 2.4;
-      const fx = 42 * TILE + Math.cos(ang) * f * 14, fy = 25 * TILE + 4 - Math.sin(f * Math.PI) * 14 + f * 8;
-      ctx.fillRect(Math.round(fx), Math.round(fy), 2, 2);
-    }
-  }
-
-  const myPlotHere = plotIdAtPixel(world, S.me.x, S.me.y);
-  const drawables = [];
-
-  for (const p of world.plots) {
-    if (p.x + p.w < x0 || p.x > x1 || p.y + p.h < y0 || p.y > y1) continue;
-    const st = S.plots[p.id];
-    for (const [k, f] of Object.entries(st.floor)) {
-      const [lx, ly] = k.split(',').map(Number);
-      drawFloor(ctx, f, (p.x + lx) * TILE, (p.y + ly) * TILE, lx, ly);
-    }
-    const short = (S.mode === 'build' && p.id === S.myPlot) || myPlotHere === p.id;
-    for (const [k, o] of Object.entries(st.obj)) {
-      const [lx, ly] = k.split(',').map(Number);
-      const def = ITEMS[o.t];
-      if (!def) continue;
-      const px = (p.x + lx) * TILE, py = (p.y + ly) * TILE;
-      const bottom = py + footprint(o.t, o.r || 0)[1] * TILE;
-      const sortY = def.flat || def.crop ? py - 1000 : def.solid ? bottom : bottom - 12;
-      const nb = def.wall ? { l: ITEMS[objAt(st, lx - 1, ly)?.obj.t]?.wall, r: ITEMS[objAt(st, lx + 1, ly)?.obj.t]?.wall } : undefined;
-      drawables.push({ y: sortY, draw: () => drawObject(ctx, o, px, py, sNow, { short, nb }) });
-    }
-    if (!st.owner) {
-      const sx = (p.gate[0] - 2) * TILE, sy = (p.gateY + 1) * TILE;
-      drawables.push({ y: sy + 14, draw: () => forSaleSign(sx, sy) });
-    }
-  }
-  for (const shop of SHOPS) {
-    if (shop.x + shop.w >= x0 && shop.x <= x1 && shop.y + shop.h >= y0 - 2 && shop.y <= y1) {
-      drawables.push({ y: (shop.y + shop.h) * TILE, draw: () => drawShop(ctx, shop, now) });
-    }
-  }
-
-  for (const [tx, ty, v] of trees) if (visible(tx, ty)) drawables.push({ y: ty * TILE + TILE, draw: () => drawTree(ctx, tx * TILE, ty * TILE, v) });
-  for (const p of S.players.values()) drawables.push({ y: p.y, draw: () => drawPlayer(ctx, p, now) });
+  for (const p of S.players.values()) view.actor(p.id, U(p.x), U(p.y), p.dir, p.moving, p.color, null, now);
   for (const n of S.npcs.values()) {
     const d = NPCS[n.id];
-    drawables.push({ y: n.y, draw: () => drawPlayer(ctx, { ...n, color: d.look.shirt }, now, d.look) });
+    view.actor(`npc:${n.id}`, U(n.x), U(n.y), n.dir, n.moving, d.look.shirt, d.look, now);
   }
-  drawables.push({ y: S.me.y, draw: () => drawPlayer(ctx, S.me, now) });
-  drawables.sort((a, b) => a.y - b.y);
-  for (const d of drawables) d.draw();
+  view.actor(S.me.id, U(S.me.x), U(S.me.y), S.me.dir, S.me.moving, S.me.color, null, now);
+  view.pruneActors();
+  view.render(now, darkness(worldClock(sNow, S.epoch).hours), S.mode !== 'build');
+  drawOverlay(now);
+}
 
-  if (S.mode === 'build') drawBuildOverlay();
-
-  const dark = darkness(worldClock(sNow, S.epoch).hours);
-  if (dark > 0) drawNight(dark, x0, y0, x1, y1);
-
-  // Screen-space labels.
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  const fs = Math.round(11 * dpr);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'bottom';
-  for (const p of world.plots) {
-    if (!visible(p.x + p.w / 2, p.y)) continue;
-    const st = S.plots[p.id];
-    const label = st.owner ? `🏡 ${st.ownerName}` : `Plot ${p.id + 1} · For sale`;
-    tag(label, (p.x + p.w / 2) * TILE * scale + offX, p.y * TILE * scale + offY - 2 * dpr, fs, st.owner === S.me.id ? '#ffe08a' : '#fff');
+function drawOverlay(now) {
+  octx.setTransform(1, 0, 0, 1, 0, 0);
+  octx.clearRect(0, 0, overlay.width, overlay.height);
+  octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  octx.textAlign = 'center';
+  octx.textBaseline = 'bottom';
+  const W = innerWidth, H = innerHeight;
+  const onScreen = (p) => p.x > -60 && p.y > -60 && p.x < W + 60 && p.y < H + 60;
+  for (const def of world.plots) {
+    const st = S.plots[def.id];
+    if (!st.owner) continue;
+    const p = view.toScreen(def.x + def.w / 2, 0.9, def.y + 0.5);
+    if (onScreen(p)) tag(`🏡 ${st.ownerName}`, p.x, p.y, 11, st.owner === S.me.id ? '#ffe08a' : '#fff');
   }
-  for (const shop of SHOPS) {
-    if (!visible(shop.x + shop.w / 2, shop.y)) continue;
-    ctx.font = `bold ${Math.round(4.2 * scale)}px ui-rounded, 'Trebuchet MS', sans-serif`;
-    ctx.fillStyle = '#3a2716';
-    ctx.fillText(shop.name, (shop.x + shop.w / 2) * TILE * scale + offX, shopSignY(shop) * scale + offY);
+  const heads = [];
+  for (const p of [...S.players.values(), S.me]) heads.push([p, p.name, p === S.me ? '#ffe08a' : '#fff']);
+  for (const n of S.npcs.values()) { const d = NPCS[n.id]; heads.push([n, `${d.icon} ${d.name}`, '#bdf0a8']); }
+  for (const [p, label, col] of heads) {
+    const s = view.toScreen(U(p.x), 2.35, U(p.y));
+    if (!onScreen(s)) continue;
+    tag(label, s.x, s.y, 11, col);
+    if (p.bubble && performance.now() < p.bubbleUntil) bubble(p.bubble, s.x, s.y - 20, 13);
   }
-  for (const p of [...S.players.values(), S.me]) {
-    const sx = p.x * scale + offX, sy = (p.y - 24) * scale + offY;
-    tag(p.name, sx, sy, fs, p === S.me ? '#ffe08a' : '#fff');
-    if (p.bubble && performance.now() < p.bubbleUntil) bubble(p.bubble, sx, sy - fs - 6 * dpr, Math.round(13 * dpr));
-  }
-  for (const n of S.npcs.values()) {
-    const sx = n.x * scale + offX, sy = (n.y - 24) * scale + offY;
-    const d = NPCS[n.id];
-    tag(`${d.icon} ${d.name}`, sx, sy, fs, '#bdf0a8');
-    if (n.bubble && performance.now() < n.bubbleUntil) bubble(n.bubble, sx, sy - fs - 6 * dpr, Math.round(13 * dpr));
-  }
-
   if (stick.active && S.mode === 'walk') {
-    const r = 40 * dpr;
-    ctx.globalAlpha = 0.35;
-    ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.arc(stick.sx * dpr, stick.sy * dpr, r, 0, Math.PI * 2); ctx.fill();
+    octx.globalAlpha = 0.35;
+    octx.fillStyle = '#fff';
+    octx.beginPath(); octx.arc(stick.sx, stick.sy, 40, 0, Math.PI * 2); octx.fill();
     const dx = stick.x - stick.sx, dy = stick.y - stick.sy, d = Math.hypot(dx, dy) || 1, k = Math.min(1, 40 / d);
-    ctx.globalAlpha = 0.7;
-    ctx.beginPath(); ctx.arc((stick.sx + dx * k) * dpr, (stick.sy + dy * k) * dpr, r * 0.45, 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = 1;
+    octx.globalAlpha = 0.7;
+    octx.beginPath(); octx.arc(stick.sx + dx * k, stick.sy + dy * k, 18, 0, Math.PI * 2); octx.fill();
+    octx.globalAlpha = 1;
   }
-}
-
-function forSaleSign(x, y) {
-  ctx.fillStyle = '#6b4a2b'; ctx.fillRect(x + 7, y + 4, 2, 11);
-  ctx.fillStyle = '#c99363'; ctx.fillRect(x + 1, y - 3, 14, 8);
-  ctx.fillStyle = '#e74c3c'; ctx.fillRect(x + 3, y - 1, 10, 4);
-  ctx.fillStyle = '#fff'; ctx.fillRect(x + 5, y, 6, 1); ctx.fillRect(x + 5, y + 2, 4, 1);
-}
-
-function drawBuildOverlay() {
-  const p = world.plots[S.myPlot];
-  const st = S.plots[S.myPlot];
-  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-  ctx.lineWidth = 1 / scale;
-  ctx.beginPath();
-  for (let lx = 1; lx <= p.w - 1; lx++) { ctx.moveTo((p.x + lx) * TILE, (p.y + 1) * TILE); ctx.lineTo((p.x + lx) * TILE, (p.y + p.h - 1) * TILE); }
-  for (let ly = 1; ly <= p.h - 1; ly++) { ctx.moveTo((p.x + 1) * TILE, (p.y + ly) * TILE); ctx.lineTo((p.x + p.w - 1) * TILE, (p.y + ly) * TILE); }
-  ctx.stroke();
-  if (!S.hover || !S.tool) return;
-  const { lx, ly } = S.hover;
-  if (S.tool === 'remove') {
-    const hit = objAt(st, lx, ly);
-    const [w, h] = hit ? footprint(hit.obj.t, hit.obj.r || 0) : [1, 1];
-    const [ax, ay] = hit ? hit.key.split(',').map(Number) : [lx, ly];
-    ctx.fillStyle = hit || st.floor[key(lx, ly)] ? 'rgba(255,90,90,0.4)' : 'rgba(255,255,255,0.15)';
-    ctx.fillRect((p.x + ax) * TILE, (p.y + ay) * TILE, w * TILE, h * TILE);
-    return;
-  }
-  const def = ITEMS[S.tool];
-  const r = canRotate(S.tool) ? S.rot : 0;
-  const [w, h] = def.layer === 'floor' ? [1, 1] : footprint(S.tool, r);
-  const ok = !placementError(st, lx, ly, S.tool, r) && (def.shop ? S.inv[S.tool] > 0 : def.price <= S.coins);
-  ctx.fillStyle = ok ? 'rgba(120,255,120,0.3)' : 'rgba(255,90,90,0.35)';
-  ctx.fillRect((p.x + lx) * TILE, (p.y + ly) * TILE, w * TILE, h * TILE);
-  ctx.globalAlpha = 0.65;
-  if (def.layer === 'floor') drawFloor(ctx, S.tool, (p.x + lx) * TILE, (p.y + ly) * TILE, lx, ly);
-  else drawObject(ctx, { t: S.tool, r, p: serverNow() }, (p.x + lx) * TILE, (p.y + ly) * TILE, serverNow(), { short: true });
-  ctx.globalAlpha = 1;
-}
-
-function drawNight(dark, x0, y0, x1, y1) {
-  const W = cv.width, H = cv.height;
-  lctx.setTransform(1, 0, 0, 1, 0, 0);
-  lctx.globalCompositeOperation = 'source-over';
-  lctx.clearRect(0, 0, W, H);
-  lctx.fillStyle = `rgba(16, 22, 60, ${dark})`;
-  lctx.fillRect(0, 0, W, H);
-  lctx.globalCompositeOperation = 'destination-out';
-  const glow = (wx, wy, rad) => {
-    const sx = wx * scale + offX, sy = wy * scale + offY, R = rad * scale;
-    const g = lctx.createRadialGradient(sx, sy, 0, sx, sy, R);
-    g.addColorStop(0, 'rgba(0,0,0,0.95)');
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    lctx.fillStyle = g;
-    lctx.fillRect(sx - R, sy - R, R * 2, R * 2);
-  };
-  for (const p of world.plots) {
-    if (p.x + p.w < x0 || p.x > x1 || p.y + p.h < y0 || p.y > y1) continue;
-    for (const [k, o] of Object.entries(S.plots[p.id].obj)) {
-      if (!ITEMS[o.t]?.light && o.t !== 'window') continue;
-      const [lx, ly] = k.split(',').map(Number);
-      const [w] = footprint(o.t, o.r || 0);
-      const big = o.t === 'lamppost';
-      glow((p.x + lx) * TILE + (w * TILE) / 2, (p.y + ly) * TILE + (big ? -6 : 0), o.t === 'window' ? 22 : big ? 64 : 44);
-    }
-  }
-  for (const shop of SHOPS) {
-    glow(shop.x * TILE + 15, shop.y * TILE + 30, 26);
-    glow((shop.x + shop.w) * TILE - 15, shop.y * TILE + 30, 26);
-  }
-  glow(42 * TILE, 26 * TILE, 70);
-  glow(S.me.x, S.me.y - 8, 34);
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.drawImage(lightCv, 0, 0);
 }
 
 function tag(text, x, y, fs, color) {
-  ctx.font = `bold ${fs}px ui-rounded, 'Trebuchet MS', sans-serif`;
-  const w = ctx.measureText(text).width + fs * 0.8;
-  ctx.fillStyle = 'rgba(30,22,12,0.55)';
+  octx.font = `bold ${fs}px ui-rounded, 'Trebuchet MS', sans-serif`;
+  const w = octx.measureText(text).width + fs * 0.8;
+  octx.fillStyle = 'rgba(30,22,12,0.55)';
   roundRect(x - w / 2, y - fs * 1.35, w, fs * 1.35, fs * 0.4);
-  ctx.fillStyle = color;
-  ctx.fillText(text, x, y - fs * 0.15);
+  octx.fillStyle = color;
+  octx.fillText(text, x, y - fs * 0.15);
 }
 
 function bubble(text, x, y, fs) {
-  ctx.font = `${fs}px ui-rounded, 'Trebuchet MS', sans-serif`;
+  octx.font = `${fs}px ui-rounded, 'Trebuchet MS', sans-serif`;
   const words = text.split(' ');
   const maxW = fs * 14;
   const lines = [];
   let line = '';
   for (const w of words) {
     const test = line ? line + ' ' + w : w;
-    if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = w; } else line = test;
+    if (octx.measureText(test).width > maxW && line) { lines.push(line); line = w; } else line = test;
   }
   lines.push(line);
   const lh = fs * 1.25;
-  const w = Math.min(maxW, Math.max(...lines.map((l) => ctx.measureText(l).width))) + fs;
+  const w = Math.min(maxW, Math.max(...lines.map((l) => octx.measureText(l).width))) + fs;
   const h = lines.length * lh + fs * 0.5;
-  ctx.fillStyle = '#fffaf0';
-  ctx.strokeStyle = '#6b4a2b';
-  ctx.lineWidth = Math.max(1, fs / 7);
+  octx.fillStyle = '#fffaf0';
+  octx.strokeStyle = '#6b4a2b';
+  octx.lineWidth = 2;
   roundRect(x - w / 2, y - h, w, h, fs * 0.5, true);
-  ctx.beginPath(); ctx.moveTo(x - fs * 0.4, y - 1); ctx.lineTo(x, y + fs * 0.5); ctx.lineTo(x + fs * 0.4, y - 1); ctx.fill();
-  ctx.fillStyle = '#3a2a1a';
-  ctx.textBaseline = 'bottom';
-  lines.forEach((l, i) => ctx.fillText(l, x, y - h + fs * 0.25 + lh * (i + 1)));
+  octx.beginPath(); octx.moveTo(x - fs * 0.4, y - 1); octx.lineTo(x, y + fs * 0.5); octx.lineTo(x + fs * 0.4, y - 1); octx.fill();
+  octx.fillStyle = '#3a2a1a';
+  octx.textBaseline = 'bottom';
+  lines.forEach((l, i) => octx.fillText(l, x, y - h + fs * 0.25 + lh * (i + 1)));
 }
 
 function roundRect(x, y, w, h, rad, stroke) {
-  ctx.beginPath();
-  ctx.moveTo(x + rad, y);
-  ctx.arcTo(x + w, y, x + w, y + h, rad);
-  ctx.arcTo(x + w, y + h, x, y + h, rad);
-  ctx.arcTo(x, y + h, x, y, rad);
-  ctx.arcTo(x, y, x + w, y, rad);
-  ctx.closePath();
-  ctx.fill();
-  if (stroke) ctx.stroke();
+  octx.beginPath();
+  octx.moveTo(x + rad, y);
+  octx.arcTo(x + w, y, x + w, y + h, rad);
+  octx.arcTo(x + w, y + h, x, y + h, rad);
+  octx.arcTo(x, y + h, x, y, rad);
+  octx.arcTo(x, y, x + w, y, rad);
+  octx.closePath();
+  octx.fill();
+  if (stroke) octx.stroke();
 }
 
 // ---------- Main loop ----------
@@ -1139,31 +1298,25 @@ function frame(now) {
     hudAcc += dt;
     if (hudAcc > 0.25) { hudAcc = 0; updateContext(); }
   } else {
-    drawAttract(now);
+    // Behind the join screen: a slow drift over the village.
+    view.setTarget(42 + Math.sin(now / 9000) * 14, 30 + Math.cos(now / 11000) * 10);
+    if (!frame.plotsBuilt) { syncPlots(true); frame.plotsBuilt = true; }
+    view.render(now, 0, true);
+    octx.clearRect(0, 0, overlay.width, overlay.height);
   }
   requestAnimationFrame(frame);
-}
-
-// Idle background behind the join screen: slow pan over the village.
-function drawAttract(now) {
-  const W = cv.width, H = cv.height;
-  const s = Math.max(2, Math.round(Math.min(W, H) / (TILE * 13)));
-  const cx = 42 * TILE + Math.sin(now / 9000) * 18 * TILE, cy = 30 * TILE + Math.cos(now / 11000) * 12 * TILE;
-  ctx.setTransform(s, 0, 0, s, Math.round(W / 2 - cx * s), Math.round(H / 2 - cy * s));
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(ground, 0, 0);
-  const vx0 = (cx - W / 2 / s) / TILE - 2, vx1 = (cx + W / 2 / s) / TILE + 2, vy0 = (cy - H / 2 / s) / TILE - 2, vy1 = (cy + H / 2 / s) / TILE + 3;
-  for (const shop of SHOPS) drawShop(ctx, shop, now);
-  for (const [tx, ty, v] of trees) if (tx > vx0 && tx < vx1 && ty > vy0 && ty < vy1) drawTree(ctx, tx * TILE, ty * TILE, v);
 }
 
 showJoin();
 requestAnimationFrame(frame);
 
-// Test hook: ?debug exposes state and a tile -> screen helper for automated playtests.
+// Test hook: ?debug exposes state and helpers for automated playtests.
 if (new URLSearchParams(location.search).has('debug')) {
   window.__tycoon = {
-    S,
-    tileToClient: (tx, ty) => ({ x: ((tx + 0.5) * TILE * scale + offX) / dpr, y: ((ty + 0.5) * TILE * scale + offY) / dpr }),
+    S, view, world,
+    // Screen position of a plot-local point (at floor height + h).
+    plotToClient: (lx, ly, h = 0, plotId = S.myPlot) => { const d = world.plots[plotId]; return view.toScreen(d.x + lx, S.level * LEVEL_H + h, d.y + ly); },
+    tileToClient: (tx, ty) => view.toScreen(tx + 0.5, 0, ty + 0.5),
+    setLevel, cycleWalls, turnCamera, setMode, send,
   };
 }

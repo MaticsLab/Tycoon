@@ -1,85 +1,103 @@
 # Tycoon Village
 
-A small cozy multiplayer life-sim for Android (and the browser), inspired by Stardew Valley and The Sims.
-Everyone joins the same village. You pick a free plot, then build a house on it tile by tile: walls, windows, doors, floors, furniture.
-You can also lay out a garden and grow crops to earn coins for more furniture.
+A cozy multiplayer life-sim for the browser and Android: Stardew Valley's pixel art meets The Sims' build mode.
+Everyone shares one village. You claim a plot, build a house wall by wall in 3D, furnish it, and grow crops.
+You can also befriend villagers whose personalities change based on how you treat them.
 
-## What's in the world
+**Play:** https://tycoon-village.plain-silence-2a72.workers.dev
 
-- **A shared village**: 14 fenced plots around a town square with a pond and a fountain, surrounded by forest.
-- **Plots**: walk into any plot marked *For sale* and tap **Claim this plot**. Each player can own one plot.
-- **Sims-style build mode**: tap **Build** to open the catalogue (Walls, Floors, Furniture, Garden, Farm). Tap or drag to place items, and use **Remove** for a full refund.
-  Walls switch to a cut-away view when you're inside a plot, so you can see the rooms.
-- **Farming**: till soil, plant turnips, carrots, strawberries or pumpkins, and harvest them when they sparkle. Crops keep growing while you're offline.
-- **Multiplayer**: you see other villagers walking around in real time, and chat shows up as speech bubbles.
-- **Day and night**: one in-game day lasts 24 real minutes. At night the village goes dark, and lamps, lamp posts and windows light up.
-- **Persistence**: plots, houses, coins and positions are saved on the server. Players get their own plot back when they reconnect from the same device.
+## Features
 
-All the art is pixel art drawn in code, so the project has no image assets to manage.
+- **A 3D village that still looks like pixel art.** The world renders at low resolution and is scaled up with sharp pixels.
+  Ground, walls, floors and roofs use hand-painted pixel textures.
+  Characters, NPCs, trees and crops are pixel sprites that always face the camera (the "HD-2D" look).
+  - The camera is isometric. Turn it in 90° steps with ⟲ ⟳ or Q / E, and zoom with + −, the mouse wheel or a pinch.
+  - Sunlight casts shadows. At night, lamps, fireplaces and windows light up.
+- **Sims-style build mode** on your own plot:
+  - **Walls** sit on the grid lines between tiles. Drag to draw a wall, or use the **Room** tool to drag out four walls plus a floor at once. There are six wall materials.
+  - **Doors and windows** go into walls: wood or French doors, archways, and normal or tall windows. Doors let people through; windows don't.
+  - **Floors** are laid by dragging a rectangle. **Roofs** are gable roofs dragged over your rooms.
+  - **Two storeys.** Switch between *Ground floor* and *Upstairs* to build and furnish each one.
+  - **Walls up / cutaway / down**, just like The Sims. When you walk inside a house, the walls cut away and the roof and upstairs hide automatically.
+  - **Furniture** comes as small 3D models. Larger pieces span 2 or 4 tiles, and anything with a front can be rotated. Plants are pixel-art cards.
+  - The **sledgehammer** removes anything with a full refund. Tap a door or window to remove just that.
+- **Town square** with two shops and three NPCs:
+  - **Rosa's Market** buys your crops and sells gifts.
+  - **Otto's Furniture** sells exclusive pieces: piano, fireplace, aquarium, grandfather clock, telescope and statue.
+  - **Juniper** is the village gardener and gossip.
+- **NPCs with memory and evolving personalities.** Conversations run on Workers AI.
+  - Each NPC has five traits: warmth, cheer, trust, generosity and energy. Kindness, insults and gifts shift those traits over time, and the NPC keeps a diary of how and why they changed.
+  - They remember facts about you, keep the last few lines of your conversation, and pass gossip to each other.
+  - Their mood and how much they like you change their shop prices.
+- **Farming.** Till soil, plant seeds, harvest into your bag, then sell to Rosa.
+- **Accounts.** Sign up with email and password, and log in with either your username or email. Your plot follows you to any device.
+  "Play now" starts you as a guest; signing up later keeps the guest's plot, coins and friendships.
 
-## Project layout
+## How it's built
 
 ```
-shared/   world map generation, collision, clock, item catalogue (used by server AND client)
-server/   Node.js authoritative game server (WebSocket at /ws, also serves the built client)
-client/   the game (Vite + canvas), plus the Capacitor Android project in client/android
+shared/   world map, plot & building rules (walls, levels, roofs, collision), catalog, NPC definitions
+worker/   Cloudflare Worker + Durable Object (the authoritative game server), Better Auth, NPC minds
+client/   the game: Vite + Three.js (3D view) + canvas pixel-art painters; Capacitor Android project in client/android
 ```
 
-## Running it
+| Piece                 | Cloudflare product                                                                                         |
+|-----------------------|------------------------------------------------------------------------------------------------------------|
+| Game client           | Workers Static Assets                                                                                      |
+| Live world            | one Durable Object (`World`). It runs the simulation and stores plots, profiles and NPC minds in its SQLite storage |
+| Accounts and sessions | Better Auth on the **`tycoon-auth` D1 database** (`user`, `session`, `account` and `verification` tables)  |
+| NPC dialogue          | Workers AI: Llama 3.3 70B, falling back to Llama 3.1 8B, then to scripted lines                            |
 
-Requires Node.js 20 or newer.
+The Worker checks the player's Better Auth session before letting a WebSocket into the Durable Object. The game itself never handles passwords.
+The browser and the Android app both use bearer tokens, which work the same in both and avoid cross-site cookies.
+
+## Development
+
+Requires Node.js 22+.
 
 ```bash
 npm install
-npm run build        # build the web client
-npm start            # server on http://localhost:8080 — open it in a browser
+cp worker/.dev.vars.example worker/.dev.vars   # then fill in a BETTER_AUTH_SECRET
+npm run db:migrate:local -w worker              # create the Better Auth tables in local D1
+npm run dev                                     # builds the client, runs `wrangler dev` on http://localhost:8787
+npm test                                        # server/game rule tests
 ```
 
-Open the page in two browser windows to see multiplayer working.
+`wrangler dev` runs the Worker, Durable Object and D1 locally. Workers AI always calls Cloudflare, so log in with `wrangler login` or set `CLOUDFLARE_API_TOKEN`.
 
-To develop with hot reload, run `npm run dev -w server` and `npm run dev -w client` in two terminals, then open the Vite URL (http://localhost:5173). Vite forwards `/ws` to the game server.
-
-Run the server tests with `npm test`.
-
-### Server settings (environment variables)
-
-| Variable    | Default                  | Purpose                               |
-|-------------|--------------------------|---------------------------------------|
-| `PORT`      | `8080`                   | HTTP + WebSocket port                 |
-| `DATA_FILE` | `server/data/world.json` | where the world is saved (every 5 s)  |
-| `STATIC_DIR`| `client/dist`            | built client to serve                 |
-
-## Building the Android app
-
-You'll need [Android Studio](https://developer.android.com/studio) with JDK 21.
+## Deploying
 
 ```bash
-npm install
-npm run android      # builds the client, syncs it into client/android, opens Android Studio
+npx wrangler secret put BETTER_AUTH_SECRET -c worker/wrangler.jsonc   # once: any long random string
+npm run db:migrate -w worker                                           # apply D1 migrations remotely
+npm run deploy                                                         # build the client and deploy the Worker
 ```
 
-In Android Studio, press **Run** to install the app on an emulator or a phone, or use *Build → Build APK(s)*.
+If you move to your own domain, update `BETTER_AUTH_URL` in `worker/wrangler.jsonc`.
 
-The app needs to know where the game server is. Set it in either of two ways:
+## Android app
 
-- **On the join screen**, open **Server** and enter `ws://<your-computer's-LAN-IP>:8080/ws`. The app remembers it.
-  The Android emulator defaults to `ws://10.0.2.2:8080/ws`, which points at your computer.
-- **Baked in at build time**: `VITE_SERVER_URL=wss://play.example.com/ws npm run android`.
+You'll need Android Studio with JDK 21.
 
-When you host the server publicly, put it behind HTTPS so players connect with `wss://`.
-Any Node host works (Fly.io, Render, Railway, a small VPS), as long as `DATA_FILE` is on a persistent disk.
+```bash
+VITE_SERVER_URL=wss://tycoon-village.plain-silence-2a72.workers.dev/ws npm run android
+```
 
-## How the multiplayer works
+This builds the client with the server address baked in, syncs it into `client/android` and opens Android Studio. Press **Run** to install it.
+Players can also change the server under **Server** on the join screen.
 
-- The server is authoritative. It checks every claim, placement, removal and harvest against plot ownership, the coin balance and the shared placement rules in `shared/catalog.js`.
-- Movement is predicted on the client for responsiveness. The server checks it against speed and collision limits and snaps back anyone who cheats or desyncs.
-- Positions are broadcast 10 times a second, and clients interpolate between updates. Plot changes are pushed to every player as they happen.
-- Identity is a random token kept on the device; there are no accounts yet.
+## Controls
+
+|                 | Desktop                                       | Phone                              |
+|-----------------|-----------------------------------------------|------------------------------------|
+| Walk            | WASD / arrows (relative to the camera)        | drag anywhere (virtual joystick)   |
+| Camera          | Q / E to turn, mouse wheel to zoom            | ⟲ ⟳ + − buttons, pinch to zoom     |
+| Talk / interact | Enter, or click an NPC                        | tap the action button or the NPC   |
+| Build mode      | B · R rotate · V walls · PgUp/PgDn floors · WASD or right-drag to pan | two-finger drag to pan |
 
 ## Ideas for next steps
 
-- Accounts and login, so a plot follows you across devices
-- Multi-tile furniture and item rotation
-- Shops and NPCs in the town square, and selling crops to a market
-- Visiting permissions (lock your door, a friends list)
-- Several worlds/shards once one village fills up
+- Stairs so avatars can walk upstairs (upper floors can already be built and furnished)
+- Wallpaper and paint on each side of a wall, and terrain tools
+- More villagers and seasonal events driven by NPC gossip
+- Several village shards once one fills up

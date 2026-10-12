@@ -1,5 +1,8 @@
 // Everything a player can place on their plot.
-//   layer: 'floor' (one per tile, walkable) or 'obj' (drawn on top)
+//   layer: 'floor' (one per tile, walkable), 'obj' (furniture etc. on a tile),
+//          'wall' (a wall segment on a tile edge, priced per segment),
+//          'feature' (a door or window set into an existing wall segment),
+//          'roof' (a roof over a rectangle, priced per tile covered)
 //   size:  [w, h] footprint in tiles when unrotated (default 1x1)
 //   rot:   'none' (looks the same every way), 'turn' (top-down, footprint turns),
 //          'face' (has front/back/side art)
@@ -8,18 +11,32 @@
 //   shop:  only sold by that NPC; bought into your bag, placed from the Bag tab
 export const CATEGORIES = [
   { id: 'build', name: 'Walls' },
+  { id: 'opening', name: 'Doors & Windows' },
   { id: 'floor', name: 'Floors' },
+  { id: 'roof', name: 'Roofs' },
   { id: 'furniture', name: 'Furniture' },
   { id: 'garden', name: 'Garden' },
   { id: 'farm', name: 'Farm' },
 ];
 
 export const ITEMS = {
-  wall_wood:     { name: 'Wood Wall',    cat: 'build', layer: 'obj', price: 12, solid: true, wall: true },
-  wall_brick:    { name: 'Brick Wall',   cat: 'build', layer: 'obj', price: 18, solid: true, wall: true },
-  wall_white:    { name: 'Plaster Wall', cat: 'build', layer: 'obj', price: 15, solid: true, wall: true },
-  window:        { name: 'Window',       cat: 'build', layer: 'obj', price: 20, solid: true, wall: true },
-  door:          { name: 'Door',         cat: 'build', layer: 'obj', price: 25, solid: false, wall: true },
+  wall_wood:     { name: 'Log Cabin',    cat: 'build', layer: 'wall', price: 10, color: '#a8703f' },
+  wall_white:    { name: 'Plaster',      cat: 'build', layer: 'wall', price: 12, color: '#ece4d2' },
+  wall_brick:    { name: 'Red Brick',    cat: 'build', layer: 'wall', price: 16, color: '#b0533c' },
+  wall_stone:    { name: 'Fieldstone',   cat: 'build', layer: 'wall', price: 18, color: '#a9a294' },
+  wall_blue:     { name: 'Blue Siding',  cat: 'build', layer: 'wall', price: 14, color: '#7fa7c9' },
+  wall_sage:     { name: 'Sage Siding',  cat: 'build', layer: 'wall', price: 14, color: '#9cb88a' },
+
+  door:          { name: 'Wood Door',    cat: 'opening', layer: 'feature', price: 25, passable: true },
+  door_glass:    { name: 'French Door',  cat: 'opening', layer: 'feature', price: 45, passable: true },
+  arch:          { name: 'Open Archway', cat: 'opening', layer: 'feature', price: 15, passable: true },
+  window:        { name: 'Window',       cat: 'opening', layer: 'feature', price: 20 },
+  window_tall:   { name: 'Tall Window',  cat: 'opening', layer: 'feature', price: 30 },
+
+  roof_red:      { name: 'Red Shingles',  cat: 'roof', layer: 'roof', price: 3, color: '#b2412f' },
+  roof_blue:     { name: 'Slate Blue',    cat: 'roof', layer: 'roof', price: 3, color: '#3f5f86' },
+  roof_green:    { name: 'Moss Green',    cat: 'roof', layer: 'roof', price: 3, color: '#4f7a3a' },
+  roof_thatch:   { name: 'Thatch',        cat: 'roof', layer: 'roof', price: 2, color: '#c9a24c' },
 
   floor_wood:    { name: 'Wood Floor',   cat: 'floor', layer: 'floor', price: 4 },
   floor_tile:    { name: 'Tile Floor',   cat: 'floor', layer: 'floor', price: 5 },
