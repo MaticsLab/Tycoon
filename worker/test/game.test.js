@@ -5,6 +5,7 @@ import { generateWorld, TILE, T, MAP_W, STARTER_PLOTS, WORLD_VERSION } from '../
 import { canStand, objAt, rectEdges, edgeKey, levelView, landError, LAND_PRICE, heightAt, LEVEL_H, plotEntrance } from '../../shared/plot.js';
 import { START_COINS, ITEMS } from '../../shared/catalog.js';
 import { NPCS } from '../../shared/npcs.js';
+import { DEFAULT_LOOK } from '../../shared/look.js';
 
 function setup(opts = {}) {
   let clock = 1_000_000;
@@ -568,7 +569,7 @@ test('character looks are validated, saved and shared; logging in elsewhere keep
   const a = await join({ name: 'Dwight', farm: 'Schrute', fav: 'Beets', look: { body: 1, skin: 3, hair: 999, shirt: 2, acc: 4, eyes: [10, 20, 30], hairColor: 'red', pants: [1, 2, 3] } }, user);
   const you = a.welcome.you;
   assert.equal(you.farm, 'Schrute');
-  assert.equal(you.look.hair, 0, 'out-of-range style falls back');
+  assert.equal(you.look.hair, DEFAULT_LOOK.hair, 'out-of-range style falls back');
   assert.deepEqual(you.look.eyes, [10, 20, 30]);
   assert.ok(Array.isArray(you.look.hairColor));
   const b = await join({ name: 'Pam' });
