@@ -5,6 +5,7 @@
 //   everything else: the game client, served by Workers Static Assets
 import { DurableObject } from 'cloudflare:workers';
 import { Game } from './game.js';
+import { WORLD_VERSION } from '../../shared/world.js';
 import { getAuth, userFromToken, worldStub, NATIVE_ORIGINS } from './auth.js';
 
 const MODELS = ['@cf/meta/llama-3.3-70b-instruct-fp8-fast', '@cf/meta/llama-3.1-8b-instruct-fast'];
@@ -54,7 +55,11 @@ export class World extends DurableObject {
     this.timers = null;
     ctx.blockConcurrencyWhile(async () => {
       const entries = await ctx.storage.list();
-      this.game = new Game(Game.fromEntries(entries), { ai: env.AI ? (messages, schema, parse) => this.askAI(messages, schema, parse) : null });
+      this.game = new Game(Game.fromEntries(entries), {
+        ai: env.AI ? (messages, schema, parse) => this.askAI(messages, schema, parse) : null,
+        cheats: env.CHEATS || 'all',
+        admins: String(env.ADMINS || '').split(',').map((u) => u.trim().toLowerCase()).filter(Boolean),
+      });
     });
   }
 
@@ -80,7 +85,7 @@ export class World extends DurableObject {
 
   async fetch(request) {
     if (new URL(request.url).pathname === '/health') {
-      return Response.json({ ok: true, online: this.game.sessions.size });
+      return Response.json({ ok: true, online: this.game.sessions.size, world: WORLD_VERSION, version: this.env.CF_VERSION_METADATA?.id || null });
     }
     const h = request.headers;
     const identity = {

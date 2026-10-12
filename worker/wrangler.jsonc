@@ -15,11 +15,13 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["World"] }],
   "ai": { "binding": "AI" },
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
   // Better Auth tables (user, session, account, verification). Apply with: npm run db:migrate
   "d1_databases": [
     { "binding": "DB", "database_name": "tycoon-auth", "database_id": "9ea327da-602c-43d8-ae9f-a297912a5f1b", "migrations_dir": "migrations" }
   ],
   // BETTER_AUTH_SECRET is a secret: `wrangler secret put BETTER_AUTH_SECRET` (and .dev.vars locally).
-  "vars": { "BETTER_AUTH_URL": "https://tycoon-village.plain-silence-2a72.workers.dev" },
+  // CHEATS: "all" (anyone can open the cheat console), "admins" (only usernames in ADMINS), or "off".
+  "vars": { "BETTER_AUTH_URL": "https://tycoon-village.plain-silence-2a72.workers.dev", "CHEATS": "all", "ADMINS": "" },
   "observability": { "enabled": true }
 }

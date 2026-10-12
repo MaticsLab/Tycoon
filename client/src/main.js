@@ -1,10 +1,11 @@
 import {
   generateWorld, plotIdAtPixel, worldClock, darkness,
-  TILE, MAP_W, MAP_H, PLOT_W, PLOT_H, PLAYER_SPEED, WORLD_VERSION,
+  TILE, MAP_W, MAP_H, PLAYER_SPEED, WORLD_VERSION,
 } from '@shared/world.js';
 import {
   canStand, inInterior, key, placementError, objAt, footprint, canRotate, levelView,
-  LEVELS, wallError, lineEdges, rectEdges, roofError, roofAt, edgeKey, edgeValid,
+  LEVELS, wallError, lineEdges, rectEdges, roofError, roofAt, edgeKey,
+  indexPlots, landError, contentFits, mergedRect, splitRects, hasContent, LAND_PRICE,
 } from '@shared/plot.js';
 import { ITEMS, GOODS, CATEGORIES, cropStage, itemName } from '@shared/catalog.js';
 import { NPCS } from '@shared/npcs.js';
@@ -29,7 +30,7 @@ const S = {
   me: null,            // { id, name, color, x, y, dir, moving } (x, y in world pixels)
   players: new Map(),
   npcs: new Map(),
-  plots: world.plots.map((p) => ({ id: p.id, owner: null, ownerName: null, floor: {}, obj: {}, l1: { floor: {}, obj: {} }, walls: {}, roofs: [] })),
+  plots: {},           // live plots by id, each with its own x, y, w, h
   coins: 0,
   inv: {},
   myPlot: null,
@@ -46,7 +47,10 @@ const S = {
   wallMode: 'cut',     // 'up' | 'cut' | 'down'
   connected: false,
   talk: null,
+  freeBuild: false,    // bb.enablefreebuild
+  freeLand: false,     // freerealestate on
 };
+const afford = (cost) => S.freeBuild || cost <= S.coins;
 const serverNow = () => Date.now() + S.timeOffset;
 
 // ---------- Networking ----------
@@ -117,7 +121,11 @@ function onMessage(m) {
       for (const p of m.players) S.players.set(p.id, { ...p, tx: p.x, ty: p.y });
       S.npcs.clear();
       for (const n of m.npcs) S.npcs.set(n.id, { ...n, tx: n.x, ty: n.y, moving: false, name: NPCS[n.id].name });
-      m.plots.forEach((p) => { S.plots[p.id] = p; });
+      S.plots = {};
+      for (const p of m.plots) S.plots[p.id] = p;
+      indexPlots(world, S.plots);
+      for (const id of [...view.plots.keys()]) if (!S.plots[id]) view.removePlot(id);
+      plotsDirty = true;
       S.connected = true;
       $('join').hidden = true;
       $('hud').hidden = false;
@@ -172,7 +180,22 @@ function onMessage(m) {
     case 'npcSay': npcSaid(m); break;
     case 'plot':
       S.plots[m.plot.id] = m.plot;
+      indexPlots(world, S.plots);
       plotsDirty = true;
+      if (S.mode === 'build') refreshPreview();
+      break;
+    case 'plotRemoved':
+      delete S.plots[m.id];
+      indexPlots(world, S.plots);
+      view.removePlot(m.id);
+      break;
+    case 'console':
+      consoleLine(m.text);
+      break;
+    case 'freebuild':
+      S.freeBuild = m.on;
+      toolInfo();
+      refreshTrayAffordability();
       break;
     case 'coins':
       S.coins = m.coins;
@@ -653,14 +676,18 @@ const toolOf = (id) => ({ kind: LAYER_KIND[ITEMS[id].layer], id });
 function renderTabs() {
   const tabs = $('tabs');
   tabs.innerHTML = '';
-  const all = [...CATEGORIES, { id: 'special', name: '🎒 Bag' }, { id: 'remove', name: '🔨 Sledgehammer' }];
+  const all = [{ id: 'land', name: '🗺️ Land' }, ...CATEGORIES, { id: 'special', name: '🎒 Bag' }, { id: 'remove', name: '🔨 Sledgehammer' }];
   for (const c of all) {
     const b = document.createElement('button');
     b.textContent = c.name;
     b.className = (c.id === 'remove' ? S.tool.kind === 'remove' : S.cat === c.id && S.tool.kind !== 'remove') ? 'sel' : '';
     b.onclick = () => {
       if (c.id === 'remove') S.tool = { kind: 'remove' };
-      else {
+      else if (c.id === 'land') {
+        S.cat = 'land'; S.tool = { kind: 'resize' };
+        const p = myDef();
+        view.zoom = Math.max(view.zoom, Math.min(70, p.w + 10)); view.zoomBy(1);
+      } else {
         S.cat = c.id;
         const first = Object.keys(ITEMS).find((k) => ITEMS[k].cat === c.id && (c.id !== 'special' || S.inv[k]));
         S.tool = first ? toolOf(first) : { kind: 'none' };
@@ -679,6 +706,17 @@ function renderItems() {
   toolInfo();
   if (S.tool.kind === 'remove') {
     box.insertAdjacentHTML('beforeend', '<div style="padding:14px 8px;font-size:14px">Tap furniture, a floor tile or a wall to remove it. Tap a door or window to take just that out. Everything is refunded (shop furniture goes back to your bag; crops are lost).</div>');
+    return;
+  }
+  if (S.cat === 'land') {
+    for (const [k, icon, label] of [['resize', '↔️', 'Resize'], ['merge', '🔗', 'Merge'], ['split', '✂️', 'Split']]) {
+      const b = document.createElement('button');
+      b.dataset.tool = k;
+      b.className = S.tool.kind === k ? 'sel' : '';
+      b.innerHTML = `<span style="font-size:26px;line-height:44px">${icon}</span><span>${label}</span>`;
+      b.onclick = () => { S.tool = { kind: k }; renderItems(); };
+      box.appendChild(b);
+    }
     return;
   }
   if (S.cat === 'build') {
@@ -774,9 +812,12 @@ function toolInfo(extra) {
     roofRemove: 'Tap a roofed tile to remove that roof.',
     obj: d?.crop ? 'Plant on tilled soil.' : 'Drag to position, release to place. ↻ rotates.',
     remove: 'Tap something to remove it.',
+    resize: `Drag your fence's west, east or north side. Growing costs 🪙${LAND_PRICE} per tile.`,
+    merge: 'Tap the empty plot next door to join it to yours.',
+    split: 'Drag across your plot to choose a cut line; the empty side goes up for sale.',
     none: '',
   };
-  $('toolinfo').textContent = (extra ? extra + ' · ' : '') + (S.level ? 'Upstairs · ' : '') + (msgs[t.kind] || '');
+  $('toolinfo').textContent = (S.freeBuild ? '🆓 Free build · ' : '') + (extra ? extra + ' · ' : '') + (S.level && !['resize', 'merge', 'split'].includes(t.kind) ? 'Upstairs · ' : '') + (msgs[t.kind] || '');
 }
 
 function setMode(mode) {
@@ -792,17 +833,20 @@ function setMode(mode) {
   ghost.clear();
   if (mode === 'build') {
     renderTabs(); renderItems();
-    const p = world.plots[S.myPlot];
+    const p = S.plots[S.myPlot];
     view.setTarget(p.x + p.w / 2, p.y + p.h / 2 + 1);
-    view.zoom = 18; view.zoomBy(1);
+    view.maxZoom = 80;
+    view.zoom = Math.max(18, Math.min(30, p.w * 0.9)); view.zoomBy(1);
   } else if (S.me) {
+    view.maxZoom = 40;
     view.zoom = 15; view.zoomBy(1);
   }
   plotsDirty = true;
 }
 
 // --- picking helpers (plot-local) ---
-function myDef() { return world.plots[S.myPlot]; }
+function myDef() { return S.plots[S.myPlot]; }
+function pickWorld(cx, cy) { const p = view.pick(cx, cy, 0); return p ? { x: p.x, z: p.z } : null; }
 function pickLocal(cx, cy, height = 0) {
   const def = myDef();
   const p = view.pick(cx, cy, S.level * LEVEL_H + height);
@@ -818,7 +862,8 @@ function edgeOf(q) {
 }
 const rectOf = (a, b) => ({ x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(a[0] - b[0]) + 1, h: Math.abs(a[1] - b[1]) + 1 });
 const clampRect = (r) => {
-  const x0 = Math.max(1, r.x), y0 = Math.max(1, r.y), x1 = Math.min(PLOT_W - 2, r.x + r.w - 1), y1 = Math.min(PLOT_H - 2, r.y + r.h - 1);
+  const plot = myDef();
+  const x0 = Math.max(0, r.x), y0 = Math.max(0, r.y), x1 = Math.min(plot.w - 1, r.x + r.w - 1), y1 = Math.min(plot.h - 1, r.y + r.h - 1);
   return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
 };
 
@@ -851,7 +896,7 @@ function refreshPreview() {
     const plan = wallPlan();
     const news = plan.edges.filter((e) => plot.walls?.[edgeKey(S.level, ...e)]?.m !== t.id);
     const cost = news.length * d.price + (plan.room ? plan.room.w * plan.room.h * ITEMS.floor_wood.price : 0);
-    const ok = plan.edges.every((e) => !wallError(plot, S.level, ...e)) && cost <= S.coins;
+    const ok = plan.edges.every((e) => !wallError(plot, S.level, ...e)) && afford(cost);
     ghost.walls(plan.edges, def, S.level, ok);
     toolInfo(plan.room ? `Room ${plan.room.w}×${plan.room.h} · 🪙${cost}` : `${news.length} wall${news.length === 1 ? '' : 's'} · 🪙${cost}`);
   } else if (t.kind === 'floor' || t.kind === 'roof') {
@@ -863,11 +908,11 @@ function refreshPreview() {
     for (let j = 0; j < r.h; j++) for (let i = 0; i < r.w; i++) tiles.push([r.x + i, r.y + j]);
     if (t.kind === 'floor') {
       const ok = tiles.filter(([x, y]) => !placementError(plot, x, y, t.id, 0, S.level));
-      ghost.tiles(tiles, def, S.level, ok.length > 0 && ok.length * d.price <= S.coins);
+      ghost.tiles(tiles, def, S.level, ok.length > 0 && afford(ok.length * d.price));
       if (drag) toolInfo(`${ok.length} tiles · 🪙${ok.length * d.price}`);
     } else {
       const err = roofError(plot, r.x, r.y, r.w, r.h, S.level);
-      ghost.tiles(tiles, def, S.level + 1, !err && r.w * r.h * d.price <= S.coins, 0.06);
+      ghost.tiles(tiles, def, S.level + 1, !err && afford(r.w * r.h * d.price), 0.06);
       if (drag) toolInfo(`Roof ${r.w}×${r.h} · 🪙${r.w * r.h * d.price}${err ? ' · ' + err : ''}`);
     }
   } else if (t.kind === 'feature') {
@@ -875,21 +920,68 @@ function refreshPreview() {
     if (!q) return;
     const { edge } = edgeOf(q);
     const has = !!plot.walls?.[edgeKey(S.level, ...edge)];
-    ghost.walls([edge], def, S.level, has && d.price <= S.coins);
+    ghost.walls([edge], def, S.level, has && afford(d.price));
   } else if (t.kind === 'obj') {
     const q = pickLocal(hover.cx, hover.cy);
     if (!q) return;
     const r = canRotate(t.id) ? S.rot : 0;
     const [w, h] = footprint(t.id, r);
     const lx = Math.round(q.fx - w / 2), ly = Math.round(q.fz - h / 2);
-    const ok = !placementError(plot, lx, ly, t.id, r, S.level) && (d.shop ? S.inv[t.id] > 0 : d.price <= S.coins);
+    const ok = !placementError(plot, lx, ly, t.id, r, S.level) && (S.freeBuild || (d.shop ? S.inv[t.id] > 0 : d.price <= S.coins));
     ghost.item(t.id, r, def, lx, ly, S.level, ok);
   } else if (t.kind === 'remove' || t.kind === 'roofRemove') {
     const target = removeTarget(hover);
     if (!target) return;
     if (target.edge) ghost.walls([target.edge], def, S.level, false);
     else if (target.tiles) ghost.tiles(target.tiles, def, target.level ?? S.level, false, 0.3);
+  } else if (t.kind === 'resize' || t.kind === 'merge' || t.kind === 'split') {
+    const plan = landPlan(hover);
+    if (!plan) { ghost.rect(def.x, def.y, def.w, def.h, true); return; }
+    if (plan.rect) ghost.rect(plan.rect.x, plan.rect.y, plan.rect.w, plan.rect.h, plan.ok);
+    if (plan.sold) { ghost.rect(plan.sold.x, plan.sold.y, plan.sold.w, plan.sold.h, false); ghost.cut(plan.at, def.y, def.h); }
+    toolInfo(plan.info);
   }
+}
+
+// What the land tools would do at the pointer: { rect, ok, info, ...message fields }.
+const LAND_SIDES = ['west', 'east', 'north'];
+function landPlan(h) {
+  const plot = myDef(), t = S.tool;
+  const q = pickWorld(h.cx, h.cy);
+  if (!q) return null;
+  const landCost = (n) => (S.freeLand ? 0 : Math.max(0, n) * LAND_PRICE);
+  if (t.kind === 'resize') {
+    // Which side are we dragging? Picked on pointer-down, else the nearest one.
+    const dist = { west: Math.abs(q.x - plot.x), east: Math.abs(q.x - plot.x - plot.w), north: Math.abs(q.z - plot.y) };
+    const side = drag?.side || LAND_SIDES.reduce((a, b) => (dist[a] <= dist[b] ? a : b));
+    if (!drag) return { rect: { ...plot }, ok: true, info: `Drag the ${side} fence` };
+    let { x, y, w, h: hh } = plot;
+    if (side === 'west') { x = Math.round(q.x); w = plot.x + plot.w - x; }
+    else if (side === 'east') w = Math.round(q.x) - plot.x;
+    else { y = Math.round(q.z); hh = plot.y + plot.h - y; }
+    const rect = { x, y, w, h: hh };
+    const ix = Math.max(0, Math.min(x + w, plot.x + plot.w) - Math.max(x, plot.x)), iy = Math.max(0, Math.min(y + hh, plot.y + plot.h) - Math.max(y, plot.y));
+    const cost = landCost(w * hh - ix * iy);
+    const err = landError(S.plots, plot.id, rect) || (contentFits(plot, rect) ? null : 'your house wouldn’t fit');
+    return { rect, ok: !err && afford(cost), info: `${w}×${hh} · 🪙${cost}${err ? ' · ' + err : ''}`, msg: { type: 'resizePlot', plotId: plot.id, ...rect } };
+  }
+  if (t.kind === 'merge') {
+    const id = world.plotAt[Math.floor(q.z) * MAP_W + Math.floor(q.x)];
+    const o = id >= 0 && id !== plot.id ? S.plots[id] : null;
+    if (!o) return { rect: { ...plot }, ok: true, info: 'Point at the plot next door' };
+    const rect = mergedRect(plot, o);
+    const rest = Object.fromEntries(Object.entries(S.plots).filter(([k]) => +k !== o.id));
+    const err = o.owner ? 'that plot is owned' : hasContent(o) ? 'that plot isn’t empty' : !rect ? 'not side by side' : landError(rest, plot.id, rect);
+    const cost = landCost(o.w * o.h);
+    return { rect: rect || o, ok: !err && afford(cost), info: `${rect ? `${rect.w}×${rect.h}` : ''} · 🪙${cost}${err ? ' · ' + err : ''}`, msg: { type: 'mergePlot', plotId: plot.id, other: o.id } };
+  }
+  const at = Math.round(q.x);
+  const parts = splitRects(plot, at);
+  if (!parts) return { rect: { ...plot }, ok: false, info: 'Both halves must be at least 8 wide' };
+  const fits = parts.map((r) => contentFits(plot, r));
+  const keep = fits[0] && fits[1] ? (parts[0].w >= parts[1].w ? 0 : 1) : fits[0] ? 0 : fits[1] ? 1 : -1;
+  if (keep < 0) return { rect: { ...plot }, ok: false, info: 'Your house is on both sides of that line' };
+  return { rect: parts[keep], sold: parts[1 - keep], at, ok: true, info: `Keep ${parts[keep].w}×${plot.h} · the other ${parts[1 - keep].w}×${plot.h} goes up for sale`, msg: { type: 'splitPlot', plotId: plot.id, at } };
 }
 
 function removeTarget(h) {
@@ -952,15 +1044,62 @@ function commit(h) {
     const lx = Math.round(q.fx - w / 2), ly = Math.round(q.fz - hh / 2);
     const err = placementError(plot, lx, ly, t.id, r, S.level);
     if (err) { if (err !== 'Already there') toast(err); return; }
-    if (d.shop ? !S.inv[t.id] : d.price > S.coins) return toast(d.shop ? `None left — buy more from ${NPCS[d.shop].name}` : 'Not enough coins — sell some crops!');
+    if (!S.freeBuild && (d.shop ? !S.inv[t.id] : d.price > S.coins)) return toast(d.shop ? `None left — buy more from ${NPCS[d.shop].name}` : 'Not enough coins — sell some crops!');
     send({ type: 'place', ...base, lx, ly, item: t.id, r });
   } else if (t.kind === 'remove' || t.kind === 'roofRemove') {
     const target = removeTarget(h);
     if (!target) return;
     if (target.edge) send({ type: 'remove', ...base, edge: target.edge, featureOnly: target.featureOnly });
     else send({ type: 'remove', ...base, lx: target.lx, ly: target.ly, roof: !!target.roof });
+  } else if (t.kind === 'resize' || t.kind === 'merge' || t.kind === 'split') {
+    const plan = landPlan(h);
+    if (plan?.msg && plan.ok) send(plan.msg);
+    else if (plan?.info && drag) toast(plan.info.split(' · ').pop());
   }
 }
+
+// ---------- Cheat console (Ctrl/Cmd + Shift + C, or the ` key) ----------
+function openConsole() {
+  $('console').hidden = false;
+  $('console-input').focus();
+}
+function closeConsole() { $('console').hidden = true; $('console-input').blur(); }
+function consoleLine(text) {
+  const d = document.createElement('div');
+  d.textContent = text;
+  const log = $('console-log');
+  log.appendChild(d);
+  while (log.children.length > 5) log.firstChild.remove();
+  $('console').hidden = false;
+}
+$('console').onsubmit = (e) => {
+  e.preventDefault();
+  const cmd = $('console-input').value.trim();
+  if (!cmd) return;
+  consoleLine('> ' + cmd);
+  const c = cmd.toLowerCase();
+  if (c.startsWith('freerealestate')) S.freeLand = /\b(on|true)\b/.test(c);
+  send({ type: 'cheat', cmd });
+  $('console-input').value = '';
+};
+$('console-input').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeConsole(); e.stopPropagation(); });
+$('console-close').onclick = closeConsole;
+// Phones: tap the coins five times.
+let coinTaps = [];
+$('coins').addEventListener('click', () => {
+  const now = performance.now();
+  coinTaps = [...coinTaps.filter((t) => now - t < 2000), now];
+  if (coinTaps.length >= 5) { coinTaps = []; openConsole(); }
+});
+addEventListener('keydown', (e) => {
+  if (!S.me) return;
+  const combo = (e.ctrlKey || e.metaKey) && e.shiftKey && e.code === 'KeyC';
+  if (combo || (e.code === 'Backquote' && document.activeElement?.tagName !== 'INPUT')) {
+    e.preventDefault();
+    e.stopPropagation();
+    if ($('console').hidden) openConsole(); else closeConsole();
+  }
+}, true);
 
 // ---------- Input ----------
 const cv = $('game');
@@ -1032,6 +1171,11 @@ cv.addEventListener('pointerdown', (e) => {
   if (S.mode === 'build') {
     const q = pickLocal(e.clientX, e.clientY);
     if (q && ['wall', 'floor', 'roof'].includes(S.tool.kind)) drag = { start: S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q), cur: S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q) };
+    else if (['resize', 'merge', 'split'].includes(S.tool.kind)) {
+      const plot = myDef(), w = pickWorld(e.clientX, e.clientY);
+      const dist = w ? { west: Math.abs(w.x - plot.x), east: Math.abs(w.x - plot.x - plot.w), north: Math.abs(w.z - plot.y) } : null;
+      drag = { side: dist ? LAND_SIDES.reduce((a, b) => (dist[a] <= dist[b] ? a : b)) : 'east' };
+    }
     refreshPreview();
     return;
   }
@@ -1058,7 +1202,7 @@ cv.addEventListener('pointermove', (e) => {
   }
   if (S.mode === 'build') {
     hover = { cx: e.clientX, cy: e.clientY };
-    if (drag) {
+    if (drag && drag.start) {
       const q = pickLocal(e.clientX, e.clientY);
       if (q) drag.cur = S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q);
     }
@@ -1093,7 +1237,7 @@ cv.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && S.
 function onTap(cx, cy) {
   // Tap an NPC to talk.
   for (const n of S.npcs.values()) {
-    const p = view.toScreen(U(n.x), 1.0, U(n.y));
+    const p = view.toScreen(U(n.x), 0.8, U(n.y));
     if (Math.hypot(p.x - cx, p.y - cy) < 34) {
       if (Math.hypot(n.x - S.me.x, n.y - S.me.y) < TILE * 3.4) send({ type: 'npcOpen', npc: n.id });
       else toast(`Walk closer to ${n.name}`);
@@ -1134,7 +1278,7 @@ function plotOpts(id) {
   if (S.mode === 'build' && id === S.myPlot) return { ...base, cut: S.wallMode, maxLevel: S.level, roofs: S.wallMode === 'up' };
   // Walking inside a house: cut the walls away and hide what's above, Sims-style.
   if (S.me && plotIdAtPixel(world, S.me.x, S.me.y) === id) {
-    const def = world.plots[id];
+    const def = S.plots[id];
     const lx = Math.floor(U(S.me.x)) - def.x, ly = Math.floor(U(S.me.y)) - def.y;
     const f = S.plots[id].floor[key(lx, ly)];
     if (f && f !== 'soil' && f !== 'floor_stone') return { ...base, cut: 'cut', maxLevel: 0, roofs: false };
@@ -1147,10 +1291,9 @@ function syncPlots(force) {
   plotsDirty = false;
   lastPlotSync = now;
   const sNow = serverNow();
-  for (const def of world.plots) {
-    const st = S.plots[def.id];
+  for (const st of Object.values(S.plots)) {
     const crops = Object.values(st.obj).filter((o) => ITEMS[o.t]?.crop).map((o) => cropStage(o, sNow)).join('');
-    view.setPlot(def, st, { ...plotOpts(def.id), crops });
+    view.setPlot(st, { ...plotOpts(st.id), crops });
   }
 }
 
@@ -1215,17 +1358,16 @@ function drawOverlay(now) {
   octx.textBaseline = 'bottom';
   const W = innerWidth, H = innerHeight;
   const onScreen = (p) => p.x > -60 && p.y > -60 && p.x < W + 60 && p.y < H + 60;
-  for (const def of world.plots) {
-    const st = S.plots[def.id];
+  for (const st of Object.values(S.plots)) {
     if (!st.owner) continue;
-    const p = view.toScreen(def.x + def.w / 2, 0.9, def.y + 0.5);
+    const p = view.toScreen(st.x + st.w / 2, 0.9, st.y + 0.5);
     if (onScreen(p)) tag(`🏡 ${st.ownerName}`, p.x, p.y, 11, st.owner === S.me.id ? '#ffe08a' : '#fff');
   }
   const heads = [];
   for (const p of [...S.players.values(), S.me]) heads.push([p, p.name, p === S.me ? '#ffe08a' : '#fff']);
   for (const n of S.npcs.values()) { const d = NPCS[n.id]; heads.push([n, `${d.icon} ${d.name}`, '#bdf0a8']); }
   for (const [p, label, col] of heads) {
-    const s = view.toScreen(U(p.x), 2.35, U(p.y));
+    const s = view.toScreen(U(p.x), 1.95, U(p.y));
     if (!onScreen(s)) continue;
     tag(label, s.x, s.y, 11, col);
     if (p.bubble && performance.now() < p.bubbleUntil) bubble(p.bubble, s.x, s.y - 20, 13);
@@ -1315,7 +1457,8 @@ if (new URLSearchParams(location.search).has('debug')) {
   window.__tycoon = {
     S, view, world,
     // Screen position of a plot-local point (at floor height + h).
-    plotToClient: (lx, ly, h = 0, plotId = S.myPlot) => { const d = world.plots[plotId]; return view.toScreen(d.x + lx, S.level * LEVEL_H + h, d.y + ly); },
+    plotToClient: (lx, ly, h = 0, plotId = S.myPlot) => { const d = S.plots[plotId]; return view.toScreen(d.x + lx, S.level * LEVEL_H + h, d.y + ly); },
+    worldToClient: (x, z, h = 0) => view.toScreen(x, h, z),
     tileToClient: (tx, ty) => view.toScreen(tx + 0.5, 0, ty + 0.5),
     setLevel, cycleWalls, turnCamera, setMode, send,
   };

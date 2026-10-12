@@ -13,6 +13,12 @@ You can also befriend villagers whose personalities change based on how you trea
   Characters, NPCs, trees and crops are pixel sprites that always face the camera (the "HD-2D" look).
   - The camera is isometric. Turn it in 90° steps with ⟲ ⟳ or Q / E, and zoom with + −, the mouse wheel or a pinch.
   - Sunlight casts shadows. At night, lamps, fireplaces and windows light up.
+- **Land you can reshape.** Plots are 24×18 to start, laid out along roads with open land between them.
+  The fence runs around the edge, with a gate onto the road. In build mode, the **🗺️ Land** tab lets you:
+  - **Resize**: drag your west, east or north fence. Growing costs 🪙2 per new tile.
+  - **Merge**: join the empty plot next door to yours.
+  - **Split**: cut off an empty side, which goes up for sale as a new plot.
+  Your house keeps its place in the world while the fence moves around it.
 - **Sims-style build mode** on your own plot:
   - **Walls** sit on the grid lines between tiles. Drag to draw a wall, or use the **Room** tool to drag out four walls plus a floor at once. There are six wall materials.
   - **Doors and windows** go into walls: wood or French doors, archways, and normal or tall windows. Doors let people through; windows don't.
@@ -30,6 +36,13 @@ You can also befriend villagers whose personalities change based on how you trea
   - They remember facts about you, keep the last few lines of your conversation, and pass gossip to each other.
   - Their mood and how much they like you change their shop prices.
 - **Farming.** Till soil, plant seeds, harvest into your bag, then sell to Rosa.
+- **Cheat console.** Open it with **Ctrl/Cmd + Shift + C**, the **`** key, or by tapping your coins 5 times on a phone. Desktop Chrome may keep Ctrl/Cmd + Shift + C for DevTools.
+  Type `testingcheats true` first, then any of:
+  - `money 9999999` sets your coins.
+  - `motherlode` gives +50,000. `kaching` and `rosebud` give +1,000.
+  - `freerealestate on` makes land changes free.
+  - `bb.enablefreebuild` turns free building on or off.
+  The server setting `CHEATS` in `worker/wrangler.jsonc` controls who can use cheats: `all`, `admins` (only the usernames listed in `ADMINS`) or `off`.
 - **Accounts.** Sign up with email and password, and log in with either your username or email. Your plot follows you to any device.
   "Play now" starts you as a guest; signing up later keeps the guest's plot, coins and friendships.
 
@@ -94,6 +107,7 @@ Players can also change the server under **Server** on the join screen.
 | Camera          | Q / E to turn, mouse wheel to zoom            | ⟲ ⟳ + − buttons, pinch to zoom     |
 | Talk / interact | Enter, or click an NPC                        | tap the action button or the NPC   |
 | Build mode      | B · R rotate · V walls · PgUp/PgDn floors · WASD or right-drag to pan | two-finger drag to pan |
+| Cheat console   | Ctrl/Cmd + Shift + C, or `                     | tap the coins 5×                   |
 
 ## Ideas for next steps
 

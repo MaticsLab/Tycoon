@@ -3,7 +3,7 @@
 // Sims cutaway, gable roofs, furniture models and pixel-art cards for plants/crops.
 import * as THREE from 'three';
 import { ITEMS, cropStage } from '@shared/catalog.js';
-import { parseEdge, levelView, footprint, LEVELS } from '@shared/plot.js';
+import { parseEdge, levelView, footprint, gateTiles, LEVELS } from '@shared/plot.js';
 import { wallTex, floorTex, roofTex, woodTex, signTex, WALL_H } from './textures.js';
 import { Batch, boxAt, gableRoof } from './geom.js';
 import { makeItem, hasModel, BILLBOARD } from './models.js';
@@ -43,14 +43,35 @@ function lowered(plot, e, level, cut) {
   return !!view.floor[`${far[0]},${far[1]}`];
 }
 
+// The wooden fence around a plot, with a 2-tile gate in the middle of the south side.
+function fence(batch, plot) {
+  const wood = mat('fencewood', () => lambert({ map: woodTex() }));
+  const cap = mat('fencecap', () => lambert({ color: '#c99363' }));
+  const { x, y, w, h } = plot;
+  const [g0, g1] = gateTiles(plot);
+  const post = (px, pz, tall = false) => {
+    batch.add(wood, boxAt(px - 0.08, 0, pz - 0.08, 0.16, tall ? 1.05 : 0.78, 0.16));
+    batch.add(cap, boxAt(px - 0.1, tall ? 1.05 : 0.78, pz - 0.1, 0.2, 0.06, 0.2));
+  };
+  const railX = (x0, x1, z) => { for (const hh of [0.28, 0.56]) batch.add(wood, boxAt(x0, hh, z - 0.04, x1 - x0, 0.08, 0.08)); };
+  const railZ = (z0, z1, xx) => { for (const hh of [0.28, 0.56]) batch.add(wood, boxAt(xx - 0.04, hh, z0, 0.08, 0.08, z1 - z0)); };
+  for (let i = 0; i <= w; i++) { post(x + i, y); if (i < g0 || i > g1 + 1) post(x + i, y + h); }
+  for (let j = 1; j < h; j++) { post(x, y + j); post(x + w, y + j); }
+  post(x + g0, y + h, true); post(x + g1 + 1, y + h, true);
+  railX(x, x + w, y);
+  railX(x, x + g0, y + h); railX(x + g1 + 1, x + w, y + h);
+  railZ(y, y + h, x); railZ(y, y + h, x + w);
+}
+
 // opts: { cut: { mode: 'up'|'cut'|'down', fx, fz }, maxLevel, roofs: bool, cards: BillboardSet, now }
 // Returns { group, lights: [{ x, y, z, kind }] }.
-export function buildPlot(plot, def, opts) {
+export function buildPlot(plot, opts) {
   const group = new THREE.Group();
   const lights = [];
-  const ox = def.x, oz = def.y;
+  const ox = plot.x, oz = plot.y;
   const batch = new Batch();
   const maxLevel = opts.maxLevel ?? LEVELS - 1;
+  fence(batch, plot);
 
   // Floors
   for (let l = 0; l <= maxLevel; l++) {
@@ -172,7 +193,7 @@ export function buildPlot(plot, def, opts) {
 
   // "For sale" sign by the gate
   if (!plot.owner) {
-    const sx = def.gate[0] - 1.5, sz = oz + def.h + 0.3;
+    const sx = ox + gateTiles(plot)[0] - 1.5, sz = oz + plot.h + 0.3;
     const s = new Batch();
     s.add(doorMat(), boxAt(sx + 0.45, 0, sz, 0.1, 0.9, 0.1));
     s.build(group);

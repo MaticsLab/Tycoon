@@ -1,23 +1,38 @@
-// Plot rules shared by server and client: footprints, rotation, walls, levels,
-// placement and collision.
+// Plot rules shared by server and client: land, fences, footprints, rotation, walls,
+// levels, placement and collision.
 //
-// A plot is built Sims-style:
+// A plot is a rectangle of residential land: { id, x, y, w, h } in world tiles, plus
+// its owner and contents. Its south edge always lies on a road and has a 2-tile gate;
+// the other edges are fenced. Contents use plot-local tile coordinates (0..w-1, 0..h-1):
 //   floor / obj     level 0 (ground) floor tiles and objects, keyed "x,y"
 //   l1.floor/l1.obj level 1 (upstairs)
 //   walls           wall segments on tile *edges*, keyed "level:d:x:y" -> { m, f }
 //                   d = 'h' is the top edge of tile (x, y), 'v' its left edge.
-//                   m = wall material item, f = door/window feature item (optional)
 //   roofs           [{ x, y, w, h, l, m }] gable roofs over a rectangle at level l
 // Objects are stored once at their anchor (top-left) tile: obj["x,y"] = { t, r }.
 import { ITEMS } from './catalog.js';
-import { TILE, MAP_W, MAP_H, PLOT_W, PLOT_H, SOLID_TILES } from './world.js';
+import { TILE, MAP_W, MAP_H, SOLID_TILES, ZONES } from './world.js';
 
 export const LEVELS = 2;
+export const LAND_PRICE = 2; // coins per tile when growing a plot
+export const MIN_SIDE = 8;
+export const MAX_W = 60;
 export const key = (lx, ly) => `${lx},${ly}`;
 
-// Interior (buildable) tile coordinates exclude the fence ring.
-export const IN_MIN = 1, IN_MAX_X = PLOT_W - 2, IN_MAX_Y = PLOT_H - 2;
-export const inInterior = (lx, ly) => lx >= IN_MIN && ly >= IN_MIN && lx <= IN_MAX_X && ly <= IN_MAX_Y;
+export const inInterior = (plot, lx, ly) => Number.isInteger(lx) && Number.isInteger(ly) && lx >= 0 && ly >= 0 && lx < plot.w && ly < plot.h;
+export const gateTiles = (plot) => { const g = Math.floor(plot.w / 2) - 1; return [g, g + 1]; };
+export const plotList = (plots) => (Array.isArray(plots) ? plots.filter(Boolean) : Object.values(plots));
+
+// Fill world.plotAt (tile -> plot id) from the live plots.
+export function indexPlots(world, plots) {
+  world.plotAt.fill(-1);
+  for (const p of plotList(plots)) {
+    for (let y = p.y; y < p.y + p.h; y++) for (let x = p.x; x < p.x + p.w; x++) {
+      if (x >= 0 && y >= 0 && x < MAP_W && y < MAP_H) world.plotAt[y * MAP_W + x] = p.id;
+    }
+  }
+}
+const plotAtTile = (world, tx, ty) => (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H ? -1 : world.plotAt[ty * MAP_W + tx]);
 
 // ---------- levels ----------
 export function levelView(plot, level) {
@@ -70,11 +85,11 @@ export function parseEdge(k) {
   return { l: +l, d, x: +x, y: +y };
 }
 
-// Edges that lie inside or on the border of the buildable interior.
-export function edgeValid(d, x, y) {
+// Walls go on edges strictly inside the plot (its border is the fence).
+export function edgeValid(plot, d, x, y) {
   if (!Number.isInteger(x) || !Number.isInteger(y)) return false;
-  if (d === 'h') return x >= IN_MIN && x <= IN_MAX_X && y >= IN_MIN && y <= IN_MAX_Y + 1;
-  if (d === 'v') return x >= IN_MIN && x <= IN_MAX_X + 1 && y >= IN_MIN && y <= IN_MAX_Y;
+  if (d === 'h') return x >= 0 && x < plot.w && y >= 1 && y < plot.h;
+  if (d === 'v') return x >= 1 && x < plot.w && y >= 0 && y < plot.h;
   return false;
 }
 
@@ -117,7 +132,7 @@ export function placementError(plot, lx, ly, itemId, r = 0, level = 0) {
   if (!item) return 'Unknown item';
   const view = levelView(plot, level);
   if (item.layer === 'floor') {
-    if (!inInterior(lx, ly)) return 'Outside your plot';
+    if (!inInterior(plot, lx, ly)) return 'Outside your plot';
     if (level && itemId === 'soil') return 'Soil only works outdoors';
     const k = key(lx, ly);
     if (view.floor[k] === itemId) return 'Already there';
@@ -130,11 +145,10 @@ export function placementError(plot, lx, ly, itemId, r = 0, level = 0) {
   if (!canRotate(itemId) && r) return 'That item can’t be rotated';
   const tiles = tilesOf(itemId, r, lx, ly);
   for (const [tx, ty] of tiles) {
-    if (!inInterior(tx, ty)) return 'Doesn’t fit there';
+    if (!inInterior(plot, tx, ty)) return 'Doesn’t fit there';
     if (objAt(view, tx, ty)) return 'Tile is occupied';
     if (level && !view.floor[key(tx, ty)]) return 'Needs a floor underneath';
   }
-  // A big item can't straddle a wall.
   for (const [ax, ay] of tiles) for (const [bx, by] of tiles) {
     const e = edgeBetween(ax, ay, bx, by);
     if (e && wallAt(plot, level, ...e)) return 'A wall is in the way';
@@ -143,11 +157,9 @@ export function placementError(plot, lx, ly, itemId, r = 0, level = 0) {
   return null;
 }
 
-// Can a wall go on this edge? (Ignores cost.)
 export function wallError(plot, level, d, x, y) {
-  if (!edgeValid(d, x, y)) return 'Walls must stay inside your fence';
+  if (!edgeValid(plot, d, x, y)) return 'Walls must stay inside your fence';
   if (level < 0 || level >= LEVELS) return 'Unknown level';
-  // Don't cut through the middle of a multi-tile object.
   const view = levelView(plot, level);
   const [ax, ay, bx, by] = d === 'h' ? [x, y - 1, x, y] : [x - 1, y, x, y];
   const a = objAt(view, ax, ay), b = objAt(view, bx, by);
@@ -157,7 +169,7 @@ export function wallError(plot, level, d, x, y) {
 
 export function roofError(plot, x, y, w, h, level) {
   if (![x, y, w, h].every(Number.isInteger) || w < 1 || h < 1) return 'Bad roof size';
-  if (!inInterior(x, y) || !inInterior(x + w - 1, y + h - 1)) return 'Roofs must stay inside your fence';
+  if (!inInterior(plot, x, y) || !inInterior(plot, x + w - 1, y + h - 1)) return 'Roofs must stay inside your fence';
   if (level < 0 || level >= LEVELS) return 'Unknown level';
   for (const rf of plot.roofs || []) {
     if (rf.l === level && x < rf.x + rf.w && rf.x < x + w && y < rf.y + rf.h && rf.y < y + h) return 'Overlaps another roof';
@@ -169,43 +181,134 @@ export function roofAt(plot, lx, ly, level) {
   return (plot.roofs || []).findIndex((rf) => (level == null || rf.l === level) && lx >= rf.x && lx < rf.x + rf.w && ly >= rf.y && ly < rf.y + rf.h);
 }
 
-// ---------- collision (ground level) ----------
-// plotStates: array indexed by plot id.
-export function tileSolid(world, plotStates, tx, ty) {
+// ---------- land: resize, merge, split ----------
+export const zoneOf = (r) => ZONES.find((z) => r.x >= z.x && r.y >= z.y && r.x + r.w <= z.x + z.w && r.y + r.h <= z.y + z.h) || null;
+const overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+// Is `rect` a valid plot shape for plot `id` (null for a brand-new plot)?
+export function landError(plots, id, rect) {
+  const { x, y, w, h } = rect;
+  if (![x, y, w, h].every(Number.isInteger)) return 'Bad plot shape';
+  if (w < MIN_SIDE || h < MIN_SIDE) return `Plots must be at least ${MIN_SIDE}×${MIN_SIDE}`;
+  if (w > MAX_W) return `Plots can be at most ${MAX_W} wide`;
+  const z = zoneOf(rect);
+  if (!z) return 'Plots must stay on residential land';
+  if (y + h !== z.y + z.h) return 'Plots must reach the road';
+  for (const p of plotList(plots)) if (p.id !== id && overlaps(p, rect)) return 'Overlaps another plot';
+  return null;
+}
+
+// Every tile/edge the plot's contents touch, in local coordinates.
+function eachContent(plot, fn) {
+  for (const view of [plot, plot.l1 || { floor: {}, obj: {} }]) {
+    for (const k of Object.keys(view.floor)) { const [x, y] = k.split(',').map(Number); fn('tile', x, y); }
+    for (const [k, o] of Object.entries(view.obj)) {
+      const [x, y] = k.split(',').map(Number);
+      for (const [tx, ty] of tilesOf(o.t, o.r || 0, x, y)) fn('tile', tx, ty);
+    }
+  }
+  for (const k of Object.keys(plot.walls || {})) { const e = parseEdge(k); fn(e.d, e.x, e.y); }
+  for (const rf of plot.roofs || []) { fn('tile', rf.x, rf.y); fn('tile', rf.x + rf.w - 1, rf.y + rf.h - 1); }
+}
+
+// Would the contents still fit if the plot became `rect`? (Contents keep their world position.)
+export function contentFits(plot, rect) {
+  const dx = plot.x - rect.x, dy = plot.y - rect.y;
+  const shape = { w: rect.w, h: rect.h };
+  let ok = true;
+  eachContent(plot, (kind, x, y) => {
+    if (!ok) return;
+    if (kind === 'tile') ok = inInterior(shape, x + dx, y + dy);
+    else ok = edgeValid(shape, kind, x + dx, y + dy);
+  });
+  return ok;
+}
+
+export const hasContent = (plot) => { let any = false; eachContent(plot, () => { any = true; }); return any; };
+
+// Move contents by (dx, dy) local tiles (used when the plot's origin moves).
+export function shiftContent(plot, dx, dy) {
+  if (!dx && !dy) return;
+  const sk = (k) => { const [x, y] = k.split(',').map(Number); return key(x + dx, y + dy); };
+  const remap = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [sk(k), v]));
+  plot.floor = remap(plot.floor); plot.obj = remap(plot.obj);
+  if (plot.l1) plot.l1 = { floor: remap(plot.l1.floor), obj: remap(plot.l1.obj) };
+  plot.walls = Object.fromEntries(Object.entries(plot.walls || {}).map(([k, v]) => {
+    const e = parseEdge(k);
+    return [edgeKey(e.l, e.d, e.x + dx, e.y + dy), v];
+  }));
+  plot.roofs = (plot.roofs || []).map((rf) => ({ ...rf, x: rf.x + dx, y: rf.y + dy }));
+  occChanged(plot);
+}
+
+// Two plots side by side with the same depth merge into one rectangle.
+export function mergedRect(a, b) {
+  if (a.y !== b.y || a.h !== b.h) return null;
+  if (a.x + a.w === b.x || b.x + b.w === a.x) return { x: Math.min(a.x, b.x), y: a.y, w: a.w + b.w, h: a.h };
+  return null;
+}
+
+// Split a plot with a north-south line at world column `at`.
+export function splitRects(plot, at) {
+  if (!Number.isInteger(at) || at - plot.x < MIN_SIDE || plot.x + plot.w - at < MIN_SIDE) return null;
+  return [{ x: plot.x, y: plot.y, w: at - plot.x, h: plot.h }, { x: at, y: plot.y, w: plot.x + plot.w - at, h: plot.h }];
+}
+
+// ---------- collision ----------
+// plots: live plots (array or object keyed by id); world.plotAt must be indexed.
+const plotById = (plots, id) => (Array.isArray(plots) ? plots.find((p) => p && p.id === id) : plots[id]);
+
+export function tileSolid(world, plots, tx, ty) {
   if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) return true;
-  const i = ty * MAP_W + tx;
-  if (SOLID_TILES.has(world.tiles[i])) return true;
-  const pi = world.plotAt[i];
-  if (pi >= 0) {
-    const ps = plotStates[pi];
-    const p = world.plots[pi];
-    const hit = ps && objAt(ps, tx - p.x, ty - p.y);
+  if (SOLID_TILES.has(world.tiles[ty * MAP_W + tx])) return true;
+  const pid = plotAtTile(world, tx, ty);
+  if (pid >= 0) {
+    const p = plotById(plots, pid);
+    const hit = p && objAt(p, tx - p.x, ty - p.y);
     if (hit && ITEMS[hit.obj.t]?.solid) return true;
   }
   return false;
 }
 
-const WALL_HALF = 1.5; // wall thickness / 2 in world px
+// Is the horizontal edge on top of world tile (tx, ty) closed (fence or ground wall)?
+function hClosed(world, plots, tx, ty) {
+  const a = plotAtTile(world, tx, ty - 1), b = plotAtTile(world, tx, ty);
+  if (a === b) {
+    if (a < 0) return false;
+    const p = plotById(plots, a);
+    const w = p?.walls?.[edgeKey(0, 'h', tx - p.x, ty - p.y)];
+    return !!w && !passable(w);
+  }
+  // Plot boundary: fenced, except the gate on a plot's south edge.
+  if (a >= 0) {
+    const p = plotById(plots, a);
+    if (p && ty === p.y + p.h && gateTiles(p).includes(tx - p.x) && b < 0) return false;
+  }
+  return a >= 0 || b >= 0;
+}
 
-// Does the feet box [x0,x1] x [y0,y1] (world px) touch a closed ground-level wall?
-function hitsWall(world, plotStates, x0, y0, x1, y1) {
+function vClosed(world, plots, tx, ty) {
+  const a = plotAtTile(world, tx - 1, ty), b = plotAtTile(world, tx, ty);
+  if (a === b) {
+    if (a < 0) return false;
+    const p = plotById(plots, a);
+    const w = p?.walls?.[edgeKey(0, 'v', tx - p.x, ty - p.y)];
+    return !!w && !passable(w);
+  }
+  return a >= 0 || b >= 0;
+}
+
+const WALL_HALF = 1.5; // wall/fence thickness / 2 in world px
+
+function hitsEdges(world, plots, x0, y0, x1, y1) {
   const tx0 = Math.floor(x0 / TILE) - 1, tx1 = Math.floor(x1 / TILE) + 1;
   const ty0 = Math.floor(y0 / TILE) - 1, ty1 = Math.floor(y1 / TILE) + 1;
   for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
-    if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) continue;
-    const pi = world.plotAt[ty * MAP_W + tx];
-    if (pi < 0) continue;
-    const ps = plotStates[pi];
-    if (!ps?.walls) continue;
-    const p = world.plots[pi];
-    const lx = tx - p.x, ly = ty - p.y;
-    const h = ps.walls[edgeKey(0, 'h', lx, ly)];
-    if (h && !passable(h)) {
+    if (hClosed(world, plots, tx, ty)) {
       const wy = ty * TILE;
       if (x1 > tx * TILE && x0 < (tx + 1) * TILE && y1 > wy - WALL_HALF && y0 < wy + WALL_HALF) return true;
     }
-    const v = ps.walls[edgeKey(0, 'v', lx, ly)];
-    if (v && !passable(v)) {
+    if (vClosed(world, plots, tx, ty)) {
       const wx = tx * TILE;
       if (y1 > ty * TILE && y0 < (ty + 1) * TILE && x1 > wx - WALL_HALF && x0 < wx + WALL_HALF) return true;
     }
@@ -214,18 +317,17 @@ function hitsWall(world, plotStates, x0, y0, x1, y1) {
 }
 
 // (x, y) is the centre of the player's feet in world pixels.
-export function canStand(world, plotStates, x, y) {
+export function canStand(world, plots, x, y) {
   const pts = [[x - 5, y - 5], [x + 5, y - 5], [x - 5, y - 0.5], [x + 5, y - 0.5]];
   for (const [px, py] of pts) {
-    if (tileSolid(world, plotStates, Math.floor(px / TILE), Math.floor(py / TILE))) return false;
+    if (tileSolid(world, plots, Math.floor(px / TILE), Math.floor(py / TILE))) return false;
   }
-  return !hitsWall(world, plotStates, x - 5, y - 5, x + 5, y - 0.5);
+  return !hitsEdges(world, plots, x - 5, y - 5, x + 5, y - 0.5);
 }
 
-// Does a wall on this edge overlap a feet box at (x, y)? Used to refuse walls on players.
-export function wallTouchesFeet(world, plotId, d, lx, ly, x, y) {
-  const p = world.plots[plotId];
-  const tx = p.x + lx, ty = p.y + ly;
+// Does a wall on this local edge overlap a feet box at (x, y)? Used to refuse walls on players.
+export function wallTouchesFeet(plot, d, lx, ly, x, y) {
+  const tx = plot.x + lx, ty = plot.y + ly;
   const [x0, y0, x1, y1] = [x - 5, y - 5, x + 5, y - 0.5];
   if (d === 'h') return x1 > tx * TILE && x0 < (tx + 1) * TILE && y1 > ty * TILE - WALL_HALF && y0 < ty * TILE + WALL_HALF;
   return y1 > ty * TILE && y0 < (ty + 1) * TILE && x1 > tx * TILE - WALL_HALF && x0 < tx * TILE + WALL_HALF;

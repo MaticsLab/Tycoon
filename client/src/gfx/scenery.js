@@ -1,9 +1,10 @@
 // The static village in 3D: terrain (the pixel-art ground painted in sprites.js),
 // fences, rocks, trees, the fountain, plaza lamps and the two shops.
 import * as THREE from 'three';
-import { T, MAP_W, MAP_H, SHOPS, tileHash } from '@shared/world.js';
+import { T, MAP_W, MAP_H, SHOPS, SQUARE, FOUNTAIN, PLAZA_LAMPS, tileHash } from '@shared/world.js';
 import { renderGround, treeSprite, treeKind, r, px, disc } from '../sprites.js';
 import { canvasTex, paintTex, wallTex, roofTex, woodTex, stoneTex, signTex, WALL_H } from './textures.js';
+export { woodTex };
 import { Batch, boxAt, gableRoof } from './geom.js';
 import { makeItem } from './models.js';
 
@@ -21,40 +22,6 @@ export function buildTerrain(world) {
   const skirt = new THREE.Mesh(new THREE.PlaneGeometry(MAP_W + 80, MAP_H + 80).rotateX(-Math.PI / 2).translate(MAP_W / 2, -0.02, MAP_H / 2), lambert({ color: '#2f5a2a' }));
   const grp = new THREE.Group();
   grp.add(mesh, skirt);
-  return grp;
-}
-
-// Wooden plot fences: posts on every fence tile, rails between neighbours, taller gate posts.
-export function buildFences(world) {
-  const at = (x, y) => (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H ? -1 : world.tiles[y * MAP_W + x]);
-  const isF = (t) => t === T.FENCE;
-  const wood = lambert({ map: woodTex() });
-  const cap = lambert({ color: '#c99363' });
-  const b = new Batch();
-  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
-    const t = at(x, y);
-    if (t === T.GATE) {
-      const left = at(x - 1, y) === T.FENCE;
-      const gx = left ? x + 0.05 : x + 0.75;
-      b.add(wood, boxAt(gx, 0, y + 0.4, 0.2, 1.05, 0.2));
-      b.add(cap, boxAt(gx - 0.03, 1.05, y + 0.37, 0.26, 0.08, 0.26));
-      continue;
-    }
-    if (!isF(t)) continue;
-    b.add(wood, boxAt(x + 0.42, 0, y + 0.42, 0.16, 0.78, 0.16));
-    b.add(cap, boxAt(x + 0.4, 0.78, y + 0.4, 0.2, 0.06, 0.2));
-    for (const [dx, dy] of [[1, 0], [0, 1]]) {
-      const n = at(x + dx, y + dy);
-      if (!isF(n) && n !== T.GATE) continue;
-      const len = n === T.GATE ? 0.55 : 1;
-      for (const h of [0.28, 0.56]) {
-        if (dx) b.add(wood, boxAt(x + 0.5, h, y + 0.46, len, 0.08, 0.08));
-        else b.add(wood, boxAt(x + 0.46, h, y + 0.5, 0.08, 0.08, len));
-      }
-    }
-  }
-  const grp = new THREE.Group();
-  b.build(grp);
   return grp;
 }
 
@@ -80,19 +47,20 @@ export function treeCards(world, set) {
     if (world.tiles[y * MAP_W + x] !== T.TREE) continue;
     const v = tileHash(x * 3, y * 7);
     // The town square gets blossom trees.
-    const inSquare = x >= 24 && x < 60 && y >= 20 && y < 32;
+    const inSquare = x >= SQUARE.x && x < SQUARE.x + SQUARE.w && y >= SQUARE.y && y < SQUARE.y + SQUARE.h;
     const spr = treeSprite(v, inSquare ? 'blossom' : treeKind(v));
-    set.add(spr, 8, 14, x + 0.5, 0, y + 0.55, { shadow: 1.1 });
+    // Trees are drawn 1.5x so they tower over houses and villagers.
+    set.add(spr, 8, 14, x + 0.5, 0, y + 0.55, { shadow: 1.5, scale: 1.5 });
   }
 }
 
-// Fountain in the middle of the plaza (tiles 40..43 x 24..27).
+// Fountain in the middle of the plaza (4x4 tiles).
 export function buildFountain() {
   const grp = new THREE.Group();
   const stone = lambert({ map: stoneTex() });
   const light = lambert({ color: '#d3cdbf' });
   const water = lambert({ color: '#4aa2d6', emissive: '#12324a' });
-  const add = (geo, mat, y) => { const m = new THREE.Mesh(geo, mat); m.position.set(42, y, 26); m.castShadow = true; m.receiveShadow = true; grp.add(m); return m; };
+  const add = (geo, mat, y) => { const m = new THREE.Mesh(geo, mat); m.position.set(FOUNTAIN.cx, y, FOUNTAIN.cz); m.castShadow = true; m.receiveShadow = true; grp.add(m); return m; };
   add(new THREE.CylinderGeometry(1.85, 1.95, 0.45, 8), stone, 0.225);
   add(new THREE.CylinderGeometry(1.88, 1.88, 0.06, 8), light, 0.47);
   add(new THREE.CylinderGeometry(1.6, 1.6, 0.05, 8), water, 0.42);
@@ -114,14 +82,14 @@ export function fountainSpray() {
     const a = geo.attributes.position;
     for (let i = 0; i < N; i++) {
       const f = ((now / 1100) + i / N) % 1, ang = i * 2.39;
-      a.setXYZ(i, 42 + Math.cos(ang) * f * 0.7, 2.1 + Math.sin(f * Math.PI) * 0.5 - f * 0.6, 26 + Math.sin(ang) * f * 0.7);
+      a.setXYZ(i, FOUNTAIN.cx + Math.cos(ang) * f * 0.7, 2.1 + Math.sin(f * Math.PI) * 0.5 - f * 0.6, FOUNTAIN.cz + Math.sin(ang) * f * 0.7);
     }
     a.needsUpdate = true;
   };
   return pts;
 }
 
-export const PLAZA_LAMPS = [[38.5, 23.5], [45.5, 23.5], [38.5, 29.5], [45.5, 29.5]];
+export { PLAZA_LAMPS };
 export function buildPlazaLamps() {
   const grp = new THREE.Group();
   for (const [x, z] of PLAZA_LAMPS) grp.add(makeItem('lamppost', 0, x - 0.5, 0, z - 0.5));

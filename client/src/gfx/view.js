@@ -3,15 +3,18 @@
 // turns in 90° steps (Q/E or the ⟲ ⟳ buttons) and zooms; the sun casts blocky
 // shadows; at night lamps, fireplaces and windows light up.
 import * as THREE from 'three';
-import { MAP_W, MAP_H, SHOPS } from '@shared/world.js';
+import { MAP_W, MAP_H, SHOPS, FOUNTAIN } from '@shared/world.js';
 import { personSprite } from '../sprites.js';
 import { BillboardSet, texOf, blobMesh } from './billboards.js';
-import { buildTerrain, buildFences, buildRocks, treeCards, buildFountain, fountainSpray, buildPlazaLamps, PLAZA_LAMPS, buildShop } from './scenery.js';
+import { buildTerrain, buildRocks, treeCards, buildFountain, fountainSpray, buildPlazaLamps, PLAZA_LAMPS, buildShop } from './scenery.js';
 import { buildPlot, glassMat, LEVEL_H } from './houses.js';
 import { TEXEL } from './textures.js';
 
 const ELEV = 0.62; // camera pitch (radians)
 const DIR_VEC = [[0, 1], [0, -1], [-1, 0], [1, 0]]; // world dir 0..3 -> (x, z)
+// Villagers are drawn at 80% so they stand ~1.5 tiles tall: a bit shorter than a
+// doorway (2.05) and well under a wall (2.5), like a person in a Sims house.
+export const PERSON_SCALE = 0.8;
 
 export class View {
   constructor(canvas, world) {
@@ -26,7 +29,7 @@ export class View {
     this.camera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 300);
     this.rot = 0;
     this.zoom = 15; // world units visible across the shorter side
-    this.target = new THREE.Vector3(42, 0, 30);
+    this.target = new THREE.Vector3(FOUNTAIN.cx, 0, FOUNTAIN.cz + 4);
     this.goal = this.target.clone();
 
     // Lighting
@@ -46,7 +49,7 @@ export class View {
     });
 
     // Static scenery
-    this.scene.add(buildTerrain(world), buildFences(world), buildRocks(world), buildFountain(), buildPlazaLamps());
+    this.scene.add(buildTerrain(world), buildRocks(world), buildFountain(), buildPlazaLamps());
     for (const shop of SHOPS) this.scene.add(buildShop(shop));
     this.spray = fountainSpray();
     this.scene.add(this.spray);
@@ -89,7 +92,7 @@ export class View {
     for (const p of this.plots.values()) p.sig = null; // cutaway + cards depend on the angle
   }
 
-  zoomBy(f) { this.zoom = Math.max(6, Math.min(40, this.zoom * f)); this.resize(); }
+  zoomBy(f) { this.zoom = Math.max(6, Math.min(this.maxZoom || 40, this.zoom * f)); this.resize(); }
 
   setTarget(x, z, snap = false) {
     this.goal.set(x, 0, z);
@@ -139,19 +142,27 @@ export class View {
   }
 
   // ---------- plots ----------
-  // opts: { cut: 'up'|'cut'|'down', maxLevel, roofs, now, ghost }
-  setPlot(def, state, opts) {
+  // state: a live plot (with its own x, y, w, h). opts: { cut: 'up'|'cut'|'down', maxLevel, roofs, now }
+  setPlot(state, opts) {
     const g = this.ground();
     const sig = JSON.stringify([state, opts.cut, opts.maxLevel, opts.roofs, opts.crops, this.rot]);
-    let p = this.plots.get(def.id);
+    let p = this.plots.get(state.id);
     if (p && p.sig === sig) return;
-    if (p) { this.scene.remove(p.group, p.cards.group); disposeGroup(p.group); }
+    this.removePlot(state.id);
     const cards = new BillboardSet();
-    const built = buildPlot(state, def, { cut: { mode: opts.cut, fx: g.fx, fz: g.fz }, maxLevel: opts.maxLevel, roofs: opts.roofs, cards, now: opts.now });
+    const built = buildPlot(state, { cut: { mode: opts.cut, fx: g.fx, fz: g.fz }, maxLevel: opts.maxLevel, roofs: opts.roofs, cards, now: opts.now });
     cards.build(this.basis());
     p = { group: built.group, cards, lights: built.lights, sig };
-    this.plots.set(def.id, p);
+    this.plots.set(state.id, p);
     this.scene.add(p.group, p.cards.group);
+  }
+
+  removePlot(id) {
+    const p = this.plots.get(id);
+    if (!p) return;
+    this.scene.remove(p.group, p.cards.group);
+    disposeGroup(p.group);
+    this.plots.delete(id);
   }
 
   // ---------- actors (players and NPCs as pixel sprites) ----------
@@ -160,7 +171,7 @@ export class View {
     if (!a) {
       a = { sprite: new THREE.Sprite(), blob: null, vec: [0, 1], lx: x, lz: z };
       a.sprite.renderOrder = 1;
-      a.blob = blobMesh([[0, 0, 0, 0.42]]);
+      a.blob = blobMesh([[0, 0, 0, 0.36]]);
       this.scene.add(a.sprite);
       this.blobGroup.add(a.blob);
       this.actors.set(id, a);
@@ -182,7 +193,7 @@ export class View {
     if (a.sprite.material.map !== tex) {
       a.sprite.material = spriteMat(tex);
       a.sprite.center.set(-spr.dx / spr.cv.width, 1 + spr.dy / spr.cv.height);
-      a.sprite.scale.set(spr.cv.width / TEXEL, spr.cv.height / TEXEL, 1);
+      a.sprite.scale.set((spr.cv.width / TEXEL) * PERSON_SCALE, (spr.cv.height / TEXEL) * PERSON_SCALE, 1);
     }
     a.sprite.position.set(x, a.y ?? 0, z);
     a.blob.position.set(x, a.y ?? 0, z);

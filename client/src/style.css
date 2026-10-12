@@ -144,3 +144,12 @@ body.building #topbar { left: calc(186px + var(--sal)); }
 #items .seg2 { flex: none; display: flex; flex-direction: column; justify-content: center; gap: 4px; margin-right: 4px; }
 #items .seg2 button { width: auto; padding: 6px 12px; border: 2px solid var(--wood-light); border-radius: 8px; font-size: 13px; font-weight: bold; background: #f3e3b8; display: block; }
 #items .seg2 button.sel { background: var(--wood-light); color: #fff; border-color: var(--wood-light); }
+
+#coins { pointer-events: auto; cursor: default; }
+#console { position: fixed; top: calc(60px + var(--sat)); left: 50%; transform: translateX(-50%); width: min(560px, calc(100vw - 16px)); background: rgba(20, 24, 30, .9); border: 2px solid #5a6a7a; border-radius: 8px; padding: 6px 8px; z-index: 10; font-family: ui-monospace, Menlo, Consolas, monospace; color: #d8f0ff; }
+#console-log div { font-size: 13px; padding: 1px 2px; color: #bfe8a8; }
+#console-log div:first-child { margin-top: 2px; }
+.console-row { display: flex; align-items: center; gap: 6px; }
+.console-row .prompt { color: #7fd0f0; font-weight: bold; }
+#console-input { flex: 1; min-width: 0; font: inherit; font-size: 16px; background: transparent; border: 0; color: #fff; outline: none; padding: 6px 2px; }
+#console button { font: inherit; font-size: 13px; background: #2c3a48; color: #d8f0ff; border: 1px solid #5a6a7a; border-radius: 6px; padding: 4px 8px; }

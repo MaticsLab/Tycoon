@@ -47,6 +47,19 @@ export class Ghost {
     }
   }
 
+  // A rectangle of land in world tiles (the land tools' preview).
+  rect(x, y, w, h, ok) {
+    this.group.add(new THREE.Mesh(boxAt(x, 0.03, y, w, 0.04, h), ok ? TILE_OK : TILE_BAD));
+    for (const [bx, bz, bw, bd] of [[x, y - 0.06, w, 0.12], [x, y + h - 0.06, w, 0.12], [x - 0.06, y, 0.12, h], [x + w - 0.06, y, 0.12, h]]) {
+      this.group.add(new THREE.Mesh(boxAt(bx, 0, bz, bw, 1.1, bd), ok ? OK : BAD));
+    }
+  }
+
+  // A north-south cut line at world column x (the split tool).
+  cut(x, y, h) {
+    this.group.add(new THREE.Mesh(boxAt(x - 0.08, 0, y, 0.16, 1.4, h), BAD));
+  }
+
   // Outline box marking one tile (used by the sledgehammer).
   marker(def, lx, ly, level, height = 0.6) {
     this.group.add(new THREE.Mesh(boxAt(def.x + lx + 0.02, level * LEVEL_H, def.y + ly + 0.02, 0.96, height, 0.96), BAD));

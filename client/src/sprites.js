@@ -209,17 +209,24 @@ export function renderGround(world, opts = {}) {
   for (let ty = 0; ty < MAP_H; ty++) for (let tx = 0; tx < MAP_W; tx++) {
     const t = tile(tx, ty), x = tx * TILE, y = ty * TILE, hv = tileHash(tx, ty);
     if (t === T.FLOWERS) flowers(d, x, y, tx, ty);
-    else if (t === T.TALLGRASS) tuft(d, x + 3 + Math.floor(hv * 6), y + 12, hv);
+    else if (t === T.TALLGRASS && !opts.three) tuft(d, x + 3 + Math.floor(hv * 6), y + 12, hv);
     else if (t === T.ROCK) { if (!opts.three) rock(d, x, y, hv); }
     else if (t === T.FENCE) { if (!opts.three) fence(d, x, y, tile, tx, ty); }
     else if (t === T.GATE) { if (!opts.three) gatePost(d, x, y, tile(tx - 1, ty) === T.FENCE); }
-    else if (t === T.GRASS && hv < 0.18) tuft(d, x + Math.floor(hv * 60) % 12 + 2, y + 10 + Math.floor(hv * 30) % 5, hv * 5);
+    else if (t === T.GRASS && hv < 0.18 && !opts.three) tuft(d, x + Math.floor(hv * 60) % 12 + 2, y + 10 + Math.floor(hv * 30) % 5, hv * 5);
     else if (t === T.PATH && hv < 0.1) pebble(d, x + Math.floor(hv * 90) % 12 + 2, y + Math.floor(hv * 170) % 12 + 2);
     else if (t === T.WATER && hv > 0.9 && tile(tx, ty - 1) === T.WATER && tile(tx, ty + 1) === T.WATER) lilypad(d, x + 4, y + 5, hv);
   }
   if (!opts.three) fountain(d, 40 * TILE, 24 * TILE);
   outline(deco);
   c.drawImage(deco, 0, 0);
+  // In 3D, grass tufts are painted softly (no outline) and more sparsely.
+  if (opts.three) {
+    for (let ty = 0; ty < MAP_H; ty++) for (let tx = 0; tx < MAP_W; tx++) {
+      const t = tile(tx, ty), hv = tileHash(tx, ty);
+      if ((t === T.TALLGRASS && hv < 0.6) || (t === T.GRASS && hv < 0.05)) softTuft(c, tx * TILE + 3 + Math.floor(hv * 9), ty * TILE + 12, hv);
+    }
+  }
   return cv;
 }
 
@@ -241,6 +248,16 @@ function tuft(d, x, y, v) {
     r(d, x + bx, y - hh, 1, hh, g[1]);
     px(d, x + bx, y - hh, g[3]);
     r(d, x + bx + 1, y - hh + 2, 1, hh - 2, g[0]);
+  }
+}
+
+function softTuft(d, x, y, v) {
+  const g = ['#3f8a2e', '#4c9a35', '#6fb848', '#8fd05c'];
+  for (const [bx, bh] of [[-2, 3], [0, 5], [2, 4]]) {
+    const hh = bh + (Math.floor(v * 7) % 2);
+    r(d, x + bx, y - hh, 1, hh, g[1]);
+    px(d, x + bx, y - hh, g[3]);
+    r(d, x + bx + 1, y - hh + 1, 1, hh - 1, g[0]);
   }
 }
 

@@ -32,8 +32,8 @@ export class BillboardSet {
 
   // spr: a baked sprite { cv, dx, dy } (see sprites.js bake()). (ax, ay) is the ground
   // contact point in the sprite's local pixel coordinates; (x, y, z) its world position.
-  add(spr, ax, ay, x, y, z, { shadow = 0 } = {}) {
-    this.items.push({ spr, ax, ay, x, y, z });
+  add(spr, ax, ay, x, y, z, { shadow = 0, scale = 1 } = {}) {
+    this.items.push({ spr, ax, ay, x, y, z, scale });
     if (shadow) this.shadows.push([x, y, z, shadow]);
   }
 
@@ -55,7 +55,7 @@ export class BillboardSet {
         const cx = it.ax - it.spr.dx, cy = it.ay - it.spr.dy; // anchor in canvas pixels
         const corners = [[0, 0], [W, 0], [W, H], [0, H]];
         corners.forEach(([px, py], k) => {
-          const u = (px - cx) / TEXEL, v = (cy - py) / TEXEL;
+          const u = ((px - cx) / TEXEL) * it.scale, v = ((cy - py) / TEXEL) * it.scale;
           pos.set([it.x + R.x * u + U.x * v, it.y + R.y * u + U.y * v, it.z + R.z * u + U.z * v], i * 12 + k * 3);
           nor.set([B.x, B.y, B.z], i * 12 + k * 3);
           uv.set([px / W, 1 - py / H], i * 8 + k * 2);
