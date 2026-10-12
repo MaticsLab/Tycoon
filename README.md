@@ -11,7 +11,8 @@ You can also befriend villagers whose personalities change based on how you trea
 - **A 3D village that still looks like pixel art.** The world renders at low resolution and is scaled up with sharp pixels.
   Ground, walls, floors and roofs use hand-painted pixel textures.
   Characters, NPCs, trees and crops are pixel sprites that always face the camera (the "HD-2D" look).
-  - The camera is isometric. Turn it in 90° steps with ⟲ ⟳ or Q / E, and zoom with + −, the mouse wheel or a pinch.
+  - The camera orbits freely. Hold the **middle mouse button (scroll wheel) and drag** to rotate and tilt it, **right-drag** to move it anywhere, or turn in 90° steps with ⟲ ⟳ or Q / E. Zoom with + −, the mouse wheel or a pinch.
+  - Distant textures are mip-mapped and the camera snaps to whole pixels, so the zoomed-out view stays steady instead of shimmering.
   - Sunlight casts shadows. At night, lamps, fireplaces and windows light up.
 - **Land you can reshape.** Plots are 24×18 to start, laid out along roads with open land between them.
   The fence runs around the edge, with a gate onto the road. In build mode, the **🗺️ Land** tab lets you:
@@ -23,7 +24,7 @@ You can also befriend villagers whose personalities change based on how you trea
   - **Walls** sit on the grid lines between tiles. Drag to draw a wall, or use the **Room** tool to drag out four walls plus a floor at once. There are six wall materials.
   - **Doors and windows** go into walls: wood or French doors, archways, and normal or tall windows. Doors let people through; windows don't.
   - **Floors** are laid by dragging a rectangle. **Roofs** are gable roofs dragged over your rooms.
-  - **Two storeys.** Switch between *Ground floor* and *Upstairs* to build and furnish each one.
+  - **Two storeys and stairs.** Switch between *Ground floor* and *Upstairs* to build and furnish each one. Stairs (in **Walls & Stairs**) take up 1×3 tiles, can be rotated, and cut their own stairwell through the floor above. Walk onto them to go upstairs.
   - **Walls up / cutaway / down**, just like The Sims. When you walk inside a house, the walls cut away and the roof and upstairs hide automatically.
   - **Furniture** comes as small 3D models. Larger pieces span 2 or 4 tiles, and anything with a front can be rotated. Plants are pixel-art cards.
   - The **sledgehammer** removes anything with a full refund. Tap a door or window to remove just that.
@@ -104,14 +105,13 @@ Players can also change the server under **Server** on the join screen.
 |                 | Desktop                                       | Phone                              |
 |-----------------|-----------------------------------------------|------------------------------------|
 | Walk            | WASD / arrows (relative to the camera)        | drag anywhere (virtual joystick)   |
-| Camera          | Q / E to turn, mouse wheel to zoom            | ⟲ ⟳ + − buttons, pinch to zoom     |
+| Camera          | middle-drag to orbit, right-drag to pan, Q / E to turn, wheel to zoom | two-finger drag to pan, twist to rotate, pinch to zoom, ⟲ ⟳ + − buttons |
 | Talk / interact | Enter, or click an NPC                        | tap the action button or the NPC   |
 | Build mode      | B · R rotate · V walls · PgUp/PgDn floors · WASD or right-drag to pan | two-finger drag to pan |
 | Cheat console   | Ctrl/Cmd + Shift + C, or `                     | tap the coins 5×                   |
 
 ## Ideas for next steps
 
-- Stairs so avatars can walk upstairs (upper floors can already be built and furnished)
 - Wallpaper and paint on each side of a wall, and terrain tools
 - More villagers and seasonal events driven by NPC gossip
 - Several village shards once one fills up

@@ -27,7 +27,11 @@ export class View {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#2a4f2c');
     this.camera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 300);
-    this.rot = 0;
+    this.yaw = Math.PI / 4;   // camera heading (free orbit)
+    this.yawGoal = this.yaw;  // Q/E and the ⟲ ⟳ buttons glide here in 90° steps
+    this.pitch = ELEV;        // camera tilt
+    this.offset = new THREE.Vector3(); // free-look pan away from the followed point
+    this.basisVersion = 0; this.builtVersion = 0; this.lastCardBuild = 0;
     this.zoom = 15; // world units visible across the shorter side
     this.target = new THREE.Vector3(FOUNTAIN.cx, 0, FOUNTAIN.cz + 4);
     this.goal = this.target.clone();
@@ -71,9 +75,11 @@ export class View {
   }
 
   // ---------- camera ----------
-  get theta() { return Math.PI / 4 + (this.rot * Math.PI) / 2; }
+  get theta() { return this.yaw; }
+  // Which of the four diagonal views we're closest to (cutaway is decided per quadrant).
+  get quadrant() { return ((Math.round((this.yaw - Math.PI / 4) / (Math.PI / 2)) % 4) + 4) % 4; }
   basis() {
-    const t = this.theta, c = Math.cos(ELEV), s = Math.sin(ELEV);
+    const t = this.theta, c = Math.cos(this.pitch), s = Math.sin(this.pitch);
     return {
       right: new THREE.Vector3(Math.cos(t), 0, -Math.sin(t)),
       up: new THREE.Vector3(-Math.sin(t) * s, c, -Math.cos(t) * s),
@@ -86,16 +92,34 @@ export class View {
     return { fx: -Math.sin(t), fz: -Math.cos(t), rx: Math.cos(t), rz: -Math.sin(t) };
   }
 
+  // Glide to the next 90° view.
   rotate(d) {
-    this.rot = (this.rot + d + 4) % 4;
-    this.trees.build(this.basis());
-    for (const p of this.plots.values()) p.sig = null; // cutaway + cards depend on the angle
+    this.yawGoal = Math.round((this.yawGoal - Math.PI / 4) / (Math.PI / 2)) * (Math.PI / 2) + Math.PI / 4 + d * (Math.PI / 2);
+  }
+
+  // Free orbit (middle-mouse drag / two-finger twist): turn and tilt.
+  orbit(dYaw, dPitch) {
+    this.yaw += dYaw;
+    this.yawGoal = this.yaw;
+    this.pitch = Math.max(0.3, Math.min(1.3, this.pitch + dPitch));
+    this.basisVersion++;
+  }
+
+  // Pixel-art cards face the camera; rebuild them (throttled) when the view turns.
+  updateCards(now, force) {
+    if (this.builtVersion === this.basisVersion && !force) return;
+    if (!force && now - this.lastCardBuild < 90) return;
+    const b = this.basis();
+    this.trees.build(b);
+    for (const p of this.plots.values()) p.cards.build(b);
+    this.builtVersion = this.basisVersion;
+    this.lastCardBuild = now;
   }
 
   zoomBy(f) { this.zoom = Math.max(6, Math.min(this.maxZoom || 40, this.zoom * f)); this.resize(); }
 
-  setTarget(x, z, snap = false) {
-    this.goal.set(x, 0, z);
+  setTarget(x, z, snap = false, y = 0) {
+    this.goal.set(x, y, z);
     if (snap) this.target.copy(this.goal);
   }
 
@@ -115,9 +139,15 @@ export class View {
   }
 
   applyCamera(first) {
-    const { back } = this.basis();
-    this.camera.position.copy(this.target).addScaledVector(back, 80);
-    this.camera.lookAt(this.target);
+    const { back, right, up } = this.basis();
+    // Snap the view to whole low-res pixels so the world moves in clean pixel steps
+    // instead of crawling (which shimmers like static when zoomed out).
+    const unit = (this.camera.top - this.camera.bottom) / this.renderer.domElement.height;
+    const eye = this.target.clone();
+    const a = eye.dot(right), b = eye.dot(up);
+    eye.addScaledVector(right, Math.round(a / unit) * unit - a).addScaledVector(up, Math.round(b / unit) * unit - b);
+    this.camera.position.copy(eye).addScaledVector(back, 80);
+    this.camera.lookAt(eye);
     this.camera.updateMatrixWorld();
     if (first) this.trees.build(this.basis());
     this.sun.position.set(this.target.x - 14, 26, this.target.z + 8);
@@ -145,7 +175,7 @@ export class View {
   // state: a live plot (with its own x, y, w, h). opts: { cut: 'up'|'cut'|'down', maxLevel, roofs, now }
   setPlot(state, opts) {
     const g = this.ground();
-    const sig = JSON.stringify([state, opts.cut, opts.maxLevel, opts.roofs, opts.crops, this.rot]);
+    const sig = JSON.stringify([state, opts.cut, opts.maxLevel, opts.roofs, opts.crops, this.quadrant]);
     let p = this.plots.get(state.id);
     if (p && p.sig === sig) return;
     this.removePlot(state.id);
@@ -166,7 +196,7 @@ export class View {
   }
 
   // ---------- actors (players and NPCs as pixel sprites) ----------
-  actor(id, x, z, dirWorld, moving, shirt, look, now, vis = true) {
+  actor(id, x, z, dirWorld, moving, shirt, look, now, vis = true, y = 0) {
     let a = this.actors.get(id);
     if (!a) {
       a = { sprite: new THREE.Sprite(), blob: null, vec: [0, 1], lx: x, lz: z };
@@ -195,8 +225,8 @@ export class View {
       a.sprite.center.set(-spr.dx / spr.cv.width, 1 + spr.dy / spr.cv.height);
       a.sprite.scale.set((spr.cv.width / TEXEL) * PERSON_SCALE, (spr.cv.height / TEXEL) * PERSON_SCALE, 1);
     }
-    a.sprite.position.set(x, a.y ?? 0, z);
-    a.blob.position.set(x, a.y ?? 0, z);
+    a.sprite.position.set(x, y, z);
+    a.blob.position.set(x, y, z);
   }
 
   pruneActors() {
@@ -209,7 +239,9 @@ export class View {
   // ---------- frame ----------
   // dark: 0 (day) .. ~0.62 (night)
   render(now, dark, follow) {
-    this.target.lerp(this.goal, follow ? 0.18 : 0.25);
+    if (Math.abs(this.yawGoal - this.yaw) > 0.0005) { this.yaw += (this.yawGoal - this.yaw) * 0.2; this.basisVersion++; }
+    this.updateCards(now);
+    this.target.lerp(this.goal.clone().add(this.offset), follow ? 0.18 : 0.25);
     this.applyCamera(false);
     const night = Math.min(1, dark / 0.62);
     this.sun.intensity = 2.4 * (1 - night * 0.88);

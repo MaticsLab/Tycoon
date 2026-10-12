@@ -8,9 +8,10 @@
 //          'face' (has front/back/side art)
 //   solid: blocks movement     wall: tall wall piece     light: glows at night
 //   crop:  seed that must go on tilled soil
+//   stairs: walkable between floors; climbs away from its front (see plot.js)
 //   shop:  only sold by that NPC; bought into your bag, placed from the Bag tab
 export const CATEGORIES = [
-  { id: 'build', name: 'Walls' },
+  { id: 'build', name: 'Walls & Stairs' },
   { id: 'opening', name: 'Doors & Windows' },
   { id: 'floor', name: 'Floors' },
   { id: 'roof', name: 'Roofs' },
@@ -26,6 +27,8 @@ export const ITEMS = {
   wall_stone:    { name: 'Fieldstone',   cat: 'build', layer: 'wall', price: 18, color: '#a9a294' },
   wall_blue:     { name: 'Blue Siding',  cat: 'build', layer: 'wall', price: 14, color: '#7fa7c9' },
   wall_sage:     { name: 'Sage Siding',  cat: 'build', layer: 'wall', price: 14, color: '#9cb88a' },
+
+  stairs:        { name: 'Staircase',    cat: 'build', layer: 'obj', price: 120, size: [1, 3], rot: 'face', stairs: true },
 
   door:          { name: 'Wood Door',    cat: 'opening', layer: 'feature', price: 25, passable: true },
   door_glass:    { name: 'French Door',  cat: 'opening', layer: 'feature', price: 45, passable: true },

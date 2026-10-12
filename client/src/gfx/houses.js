@@ -3,13 +3,13 @@
 // Sims cutaway, gable roofs, furniture models and pixel-art cards for plants/crops.
 import * as THREE from 'three';
 import { ITEMS, cropStage } from '@shared/catalog.js';
-import { parseEdge, levelView, footprint, gateTiles, LEVELS } from '@shared/plot.js';
+import { parseEdge, levelView, footprint, gateTiles, LEVELS, LEVEL_H } from '@shared/plot.js';
 import { wallTex, floorTex, roofTex, woodTex, signTex, WALL_H } from './textures.js';
 import { Batch, boxAt, gableRoof } from './geom.js';
 import { makeItem, hasModel, BILLBOARD } from './models.js';
 import { objectSprite, cropSprite } from '../sprites.js';
 
-export const LEVEL_H = WALL_H + 0.15; // floor-to-floor height
+export { LEVEL_H }; // floor-to-floor height (shared with the game rules)
 export const LOW_H = 0.4; // cut-away wall height
 const THICK = 0.12;
 

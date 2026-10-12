@@ -6,6 +6,7 @@ import {
   canStand, inInterior, key, placementError, objAt, footprint, canRotate, levelView,
   LEVELS, wallError, lineEdges, rectEdges, roofError, roofAt, edgeKey,
   indexPlots, landError, contentFits, mergedRect, splitRects, hasContent, LAND_PRICE,
+  stepLevel, heightAt,
 } from '@shared/plot.js';
 import { ITEMS, GOODS, CATEGORIES, cropStage, itemName } from '@shared/catalog.js';
 import { NPCS } from '@shared/npcs.js';
@@ -108,7 +109,7 @@ function onMessage(m) {
       S.timeOffset = m.serverTime - Date.now();
       S.epoch = m.epoch;
       const first = $('hud').hidden;
-      S.me = { ...m.you, dir: 0, moving: false };
+      S.me = { ...m.you, dir: 0, moving: false, level: m.you.level || 0 };
       S.coins = m.you.coins;
       S.inv = m.you.inv || {};
       S.myPlot = m.you.plotId;
@@ -150,10 +151,10 @@ function onMessage(m) {
       break;
     }
     case 'state':
-      for (const [id, x, y, dir, moving] of m.p) {
+      for (const [id, x, y, dir, moving, level] of m.p) {
         const p = S.players.get(id);
         if (!p) continue;
-        p.tx = x; p.ty = y; p.dir = dir; p.moving = !!moving;
+        p.tx = x; p.ty = y; p.dir = dir; p.moving = !!moving; p.level = level || 0;
         if (Math.hypot(p.x - x, p.y - y) > 96) { p.x = x; p.y = y; }
       }
       for (const [id, x, y, dir, moving] of m.n || []) {
@@ -163,7 +164,7 @@ function onMessage(m) {
       }
       break;
     case 'pos':
-      S.me.x = m.x; S.me.y = m.y;
+      S.me.x = m.x; S.me.y = m.y; S.me.level = m.level || 0;
       break;
     case 'chat': {
       const who = m.id === S.me?.id ? S.me : S.players.get(m.id);
@@ -402,7 +403,7 @@ $('cam-left').onclick = () => turnCamera(-1);
 $('cam-right').onclick = () => turnCamera(1);
 $('zoom-in').onclick = () => view.zoomBy(1 / 1.25);
 $('zoom-out').onclick = () => view.zoomBy(1.25);
-function turnCamera(d) { view.rotate(d); plotsDirty = true; }
+function turnCamera(d) { view.rotate(d); }
 
 function openChat() {
   $('chatform').hidden = false;
@@ -1143,16 +1144,20 @@ addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 addEventListener('blur', () => keys.clear());
 cv.addEventListener('wheel', (e) => { e.preventDefault(); view.zoomBy(e.deltaY > 0 ? 1.12 : 1 / 1.12); }, { passive: false });
 cv.addEventListener('contextmenu', (e) => e.preventDefault());
+cv.addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); }); // no autoscroll
 
 const pointers = new Map();
 const stick = { id: null, sx: 0, sy: 0, x: 0, y: 0, active: false, moved: false, t: 0 };
 let gesture = null; // two-finger pan/pinch, or right-mouse pan
 
+// Drag the view: in build mode the camera itself moves; while walking it looks away
+// from your villager and drifts back once you start moving.
 function panBy(dx, dy) {
   const k = (view.camera.top - view.camera.bottom) / cv.clientHeight;
   const g = view.ground();
-  view.goal.x += (-g.rx * dx + g.fx * dy / Math.sin(0.62)) * k;
-  view.goal.z += (-g.rz * dx + g.fz * dy / Math.sin(0.62)) * k;
+  const target = S.mode === 'build' ? view.goal : view.offset;
+  target.x += (-g.rx * dx + g.fx * dy / Math.sin(view.pitch)) * k;
+  target.z += (-g.rz * dx + g.fz * dy / Math.sin(view.pitch)) * k;
 }
 
 cv.addEventListener('pointerdown', (e) => {
@@ -1160,9 +1165,14 @@ cv.addEventListener('pointerdown', (e) => {
   cv.setPointerCapture(e.pointerId);
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pointers.size === 2 || e.button === 1 || e.button === 2) {
-    // Second finger (or right/middle mouse): camera gesture instead of a tool/joystick.
+    // Middle mouse orbits, right mouse pans, two fingers pan / pinch-zoom / twist-rotate.
+    e.preventDefault();
     const pts = [...pointers.values()];
-    gesture = { cx: e.clientX, cy: e.clientY, dist: pts.length === 2 ? Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) : 0 };
+    gesture = {
+      kind: e.button === 1 ? 'orbit' : 'pan', cx: e.clientX, cy: e.clientY,
+      dist: pts.length === 2 ? Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) : 0,
+      ang: pts.length === 2 ? Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x) : 0,
+    };
     drag = null; stick.id = null; stick.active = false;
     refreshPreview();
     return;
@@ -1191,10 +1201,17 @@ cv.addEventListener('pointermove', (e) => {
     const pts = [...pointers.values()];
     if (pts.length === 2) {
       const cx = (pts[0].x + pts[1].x) / 2, cy = (pts[0].y + pts[1].y) / 2, dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      if (S.mode === 'build') panBy(cx - gesture.cx, cy - gesture.cy);
+      const ang = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
+      panBy(cx - gesture.cx, cy - gesture.cy);
       if (gesture.dist > 0 && dist > 0) view.zoomBy(gesture.dist / dist);
-      Object.assign(gesture, { cx, cy, dist });
-    } else if (S.mode === 'build') {
+      let da = ang - gesture.ang;
+      if (da > Math.PI) da -= Math.PI * 2; else if (da < -Math.PI) da += Math.PI * 2;
+      if (Math.abs(da) < 0.5) view.orbit(-da, 0);
+      Object.assign(gesture, { cx, cy, dist, ang });
+    } else if (gesture.kind === 'orbit') {
+      view.orbit(-(e.clientX - gesture.cx) * 0.008, (e.clientY - gesture.cy) * 0.004);
+      Object.assign(gesture, { cx: e.clientX, cy: e.clientY });
+    } else {
       panBy(e.clientX - gesture.cx, e.clientY - gesture.cy);
       Object.assign(gesture, { cx: e.clientX, cy: e.clientY });
     }
@@ -1278,6 +1295,8 @@ function plotOpts(id) {
   if (S.mode === 'build' && id === S.myPlot) return { ...base, cut: S.wallMode, maxLevel: S.level, roofs: S.wallMode === 'up' };
   // Walking inside a house: cut the walls away and hide what's above, Sims-style.
   if (S.me && plotIdAtPixel(world, S.me.x, S.me.y) === id) {
+    // Upstairs (or climbing): show both floors, cut away, no roof.
+    if (heightAt(world, S.plots, S.me.x, S.me.y, S.me.level) > 0.4) return { ...base, cut: 'cut', maxLevel: 1, roofs: false };
     const def = S.plots[id];
     const lx = Math.floor(U(S.me.x)) - def.x, ly = Math.floor(U(S.me.y)) - def.y;
     const f = S.plots[id].floor[key(lx, ly)];
@@ -1298,18 +1317,23 @@ function syncPlots(force) {
 }
 
 // ---------- Update ----------
-let sendAcc = 0, lastSent = '';
+let sendAcc = 0, lastSent = '', lastQuadrant = -1;
 function update(dt) {
   const me = S.me;
   const v = S.mode === 'walk' ? inputVector() : { x: 0, y: 0 };
   me.moving = Math.hypot(v.x, v.y) > 0.1;
+  if (me.moving) view.offset.multiplyScalar(Math.max(0, 1 - dt * 3));
+  if (view.quadrant !== lastQuadrant) { lastQuadrant = view.quadrant; plotsDirty = true; }
   if (me.moving) {
     const g = view.ground();
     const wx = g.rx * v.x - g.fx * v.y, wz = g.rz * v.x - g.fz * v.y;
     const sp = PLAYER_SPEED * dt;
     const nx = me.x + wx * sp, ny = me.y + wz * sp;
-    if (canStand(world, S.plots, nx, me.y)) me.x = nx;
-    if (canStand(world, S.plots, me.x, ny)) me.y = ny;
+    // Each axis separately, so you slide along walls; stairs change your level.
+    let l = stepLevel(world, S.plots, nx, me.y, me.level);
+    if (l >= 0) { me.x = nx; me.level = l; }
+    l = stepLevel(world, S.plots, me.x, ny, me.level);
+    if (l >= 0) { me.y = ny; me.level = l; }
     me.dir = Math.abs(wx) > Math.abs(wz) ? (wx < 0 ? 2 : 3) : (wz < 0 ? 1 : 0);
     if (S.talk) { const n = S.npcs.get(S.talk.npc); if (n && Math.hypot(n.x - me.x, n.y - me.y) > TILE * 4) closeTalk(); }
   }
@@ -1337,14 +1361,16 @@ function update(dt) {
 
 // ---------- Render ----------
 function render(now) {
-  if (S.mode !== 'build' || !S.me) view.setTarget(U(S.me.x), U(S.me.y));
+  const hOf = (p) => heightAt(world, S.plots, p.x, p.y, p.level || 0);
+  const myH = hOf(S.me);
+  if (S.mode !== 'build' || !S.me) view.setTarget(U(S.me.x), U(S.me.y), false, myH);
   const sNow = serverNow();
-  for (const p of S.players.values()) view.actor(p.id, U(p.x), U(p.y), p.dir, p.moving, p.color, null, now);
+  for (const p of S.players.values()) view.actor(p.id, U(p.x), U(p.y), p.dir, p.moving, p.color, null, now, true, hOf(p));
   for (const n of S.npcs.values()) {
     const d = NPCS[n.id];
     view.actor(`npc:${n.id}`, U(n.x), U(n.y), n.dir, n.moving, d.look.shirt, d.look, now);
   }
-  view.actor(S.me.id, U(S.me.x), U(S.me.y), S.me.dir, S.me.moving, S.me.color, null, now);
+  view.actor(S.me.id, U(S.me.x), U(S.me.y), S.me.dir, S.me.moving, S.me.color, null, now, true, myH);
   view.pruneActors();
   view.render(now, darkness(worldClock(sNow, S.epoch).hours), S.mode !== 'build');
   drawOverlay(now);
@@ -1367,7 +1393,7 @@ function drawOverlay(now) {
   for (const p of [...S.players.values(), S.me]) heads.push([p, p.name, p === S.me ? '#ffe08a' : '#fff']);
   for (const n of S.npcs.values()) { const d = NPCS[n.id]; heads.push([n, `${d.icon} ${d.name}`, '#bdf0a8']); }
   for (const [p, label, col] of heads) {
-    const s = view.toScreen(U(p.x), 1.95, U(p.y));
+    const s = view.toScreen(U(p.x), 1.95 + heightAt(world, S.plots, p.x, p.y, p.level || 0), U(p.y));
     if (!onScreen(s)) continue;
     tag(label, s.x, s.y, 11, col);
     if (p.bubble && performance.now() < p.bubbleUntil) bubble(p.bubble, s.x, s.y - 20, 13);

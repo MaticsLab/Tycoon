@@ -3,7 +3,7 @@ import { ITEMS, GOODS, CROPS, START_COINS, cropStage, itemName } from '../../sha
 import {
   key, inInterior, tilesOf, objAt, occChanged, placementError, canStand, levelView,
   edgeKey, wallError, wallTouchesFeet, roofError, roofAt, gateTiles, indexPlots,
-  landError, contentFits, shiftContent, mergedRect, splitRects, hasContent, LAND_PRICE,
+  landError, contentFits, shiftContent, mergedRect, splitRects, hasContent, LAND_PRICE, stepLevel,
 } from '../../shared/plot.js';
 import { NPCS } from '../../shared/npcs.js';
 import { Npc, parseAiReply, REPLY_SCHEMA } from './npc.js';
@@ -96,7 +96,7 @@ export class Game {
 
   publicPlayer(s) {
     const p = s.profile;
-    return { id: p.id, name: p.name, color: p.color, x: s.x, y: s.y, dir: s.dir, moving: s.moving };
+    return { id: p.id, name: p.name, color: p.color, x: s.x, y: s.y, dir: s.dir, moving: s.moving, level: s.level };
   }
 
   // identity: { userId, name, username, isAnonymous } — verified by the host.
@@ -210,16 +210,18 @@ export class Game {
     if (old) { this.leave(old); old.conn.close(); }
 
     s.profile = profile;
-    const ok = profile.x != null && canStand(this.world, this.plots, profile.x, profile.y);
+    const lvl = profile.level || 0;
+    const ok = profile.x != null && canStand(this.world, this.plots, profile.x, profile.y, lvl);
     s.x = ok ? profile.x : this.world.spawn.x;
     s.y = ok ? profile.y : this.world.spawn.y;
+    s.level = ok ? lvl : 0;
     s.dir = 0; s.moving = false; s.lastMove = this.now();
     s.greeted = {};
     this.sessions.set(profile.id, s);
 
     s.send({
       type: 'welcome', worldVersion: WORLD_VERSION, serverTime: this.now(), epoch: this.epoch,
-      you: { id: profile.id, name: profile.name, color: profile.color, coins: profile.coins, plotId: profile.plotId, x: s.x, y: s.y, inv: profile.inv, username: s.identity.username || null, guest: !!s.identity.isAnonymous },
+      you: { id: profile.id, name: profile.name, color: profile.color, coins: profile.coins, plotId: profile.plotId, x: s.x, y: s.y, level: s.level, inv: profile.inv, username: s.identity.username || null, guest: !!s.identity.isAnonymous },
       players: [...this.sessions.values()].filter((o) => o !== s).map((o) => this.publicPlayer(o)),
       npcs: Object.values(this.npcs).map((n) => ({ id: n.id, x: n.x, y: n.y, dir: n.dir })),
       plots: Object.values(this.plots),
@@ -231,7 +233,7 @@ export class Game {
   leave(s) {
     if (!s.profile || this.sessions.get(s.profile.id) !== s) return;
     this.sessions.delete(s.profile.id);
-    s.profile.x = s.x; s.profile.y = s.y;
+    s.profile.x = s.x; s.profile.y = s.y; s.profile.level = s.level;
     this.markProfile(s.profile);
     for (const n of Object.values(this.npcs)) if (n.talkingTo === s.profile.id) n.talkingTo = null;
     this.broadcast({ type: 'leave', id: s.profile.id });
@@ -243,11 +245,12 @@ export class Game {
     const now = this.now();
     const dt = Math.min(1, (now - s.lastMove) / 1000);
     const dist = Math.hypot(x - s.x, y - s.y);
-    if (dist > PLAYER_SPEED * dt * 1.6 + 12 || !canStand(this.world, this.plots, x, y)) {
-      s.send({ type: 'pos', x: s.x, y: s.y });
+    const level = dist > PLAYER_SPEED * dt * 1.6 + 12 ? -1 : stepLevel(this.world, this.plots, x, y, s.level);
+    if (level < 0) {
+      s.send({ type: 'pos', x: s.x, y: s.y, level: s.level });
       return;
     }
-    s.x = x; s.y = y; s.lastMove = now;
+    s.x = x; s.y = y; s.level = level; s.lastMove = now;
     s.dir = [0, 1, 2, 3].includes(d) ? d : s.dir;
     s.moving = !!m;
   }
@@ -286,6 +289,10 @@ export class Game {
     occChanged(plot);
     this.mark(`plot:${plot.id}`);
     this.broadcast({ type: 'plot', plot });
+    // Removed stairs or floors can leave someone with nothing to stand on.
+    for (const o of this.sessions.values()) {
+      if (o.level && !canStand(this.world, this.plots, o.x, o.y, o.level)) this.home(o);
+    }
   }
 
   claim(s, { plotId }) {
@@ -330,6 +337,14 @@ export class Game {
       if (!free) this.coins(s, refund - def.price);
     } else {
       view.obj[k] = def.crop ? { t: item, p: this.now() } : r ? { t: item, r } : { t: item };
+      if (def.stairs) {
+        // Cut a stairwell through the floor above (refunding those tiles).
+        const up = levelView(plot, 1);
+        for (const [tx, ty] of tilesOf(item, r, lx, ly)) {
+          const f = up.floor[key(tx, ty)];
+          if (f) { delete up.floor[key(tx, ty)]; if (!free) this.coins(s, ITEMS[f].price); }
+        }
+      }
       if (free) { /* bb.enablefreebuild */ } else if (def.shop) this.bag(s, item, -1);
       else this.coins(s, -def.price);
     }
@@ -480,7 +495,7 @@ export class Game {
     this.mark('meta');
     // Anyone now standing inside a new fence line gets moved out to the road.
     for (const o of this.sessions.values()) {
-      if (!canStand(this.world, this.plots, o.x, o.y)) this.home(o);
+      if (!canStand(this.world, this.plots, o.x, o.y, o.level || 0)) this.home(o);
     }
   }
 
@@ -609,8 +624,8 @@ export class Game {
     const id = s.profile.plotId;
     const p = id != null ? this.plots[id] : null;
     const target = p ? { x: (p.x + gateTiles(p)[1]) * TILE, y: (p.y + p.h) * TILE + 12 } : this.world.spawn;
-    s.x = target.x; s.y = target.y; s.lastMove = this.now();
-    s.send({ type: 'pos', x: s.x, y: s.y });
+    s.x = target.x; s.y = target.y; s.level = 0; s.lastMove = this.now();
+    s.send({ type: 'pos', x: s.x, y: s.y, level: 0 });
   }
 
   // ---------- NPCs & shops ----------
@@ -763,7 +778,7 @@ export class Game {
       }
     }
     const p = [];
-    for (const s of this.sessions.values()) p.push([s.profile.id, Math.round(s.x * 10) / 10, Math.round(s.y * 10) / 10, s.dir, s.moving ? 1 : 0]);
+    for (const s of this.sessions.values()) p.push([s.profile.id, Math.round(s.x * 10) / 10, Math.round(s.y * 10) / 10, s.dir, s.moving ? 1 : 0, s.level || 0]);
     const npcs = Object.values(this.npcs).map((n) => [n.id, Math.round(n.x * 10) / 10, Math.round(n.y * 10) / 10, n.dir, n.moving ? 1 : 0]);
     this.broadcast({ type: 'state', t: now, p, n: npcs });
   }

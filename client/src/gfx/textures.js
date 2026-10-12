@@ -8,11 +8,14 @@ import { ITEMS } from '@shared/catalog.js';
 
 export const TEXEL = 16; // texels per world unit (one tile)
 
+// Magnified texels stay crisp (nearest); minified ones are mip-mapped so a zoomed-out,
+// moving camera doesn't turn fine pixel detail into shimmering "static".
 export function canvasTex(cv, repeat = false) {
   const t = new THREE.CanvasTexture(cv);
   t.magFilter = THREE.NearestFilter;
-  t.minFilter = THREE.NearestFilter;
-  t.generateMipmaps = false;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  t.anisotropy = 4;
   t.colorSpace = THREE.SRGBColorSpace;
   if (repeat) { t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.RepeatWrapping; }
   return t;

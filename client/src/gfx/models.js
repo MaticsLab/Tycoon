@@ -4,7 +4,7 @@
 // glowing parts like lamp shades), and a dithered grain texture keeps the pixel look.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { footprint } from '@shared/plot.js';
+import { footprint, LEVEL_H } from '@shared/plot.js';
 import { grainTex } from './textures.js';
 
 const WOOD = '#a8703f', WOOD_D = '#6b4424', WOOD_L = '#c99363', METAL = '#2f3542', WHITE = '#f4f6f7';
@@ -131,6 +131,21 @@ const MODELS = {
     [0.08, 0.6, 0.18, 1.84, 0.1, 0.64, '#e6d39a'], [0.4, 0.7, 0.4, 0.05, 0.4, 0.05, '#2d8a3c'], [1.5, 0.7, 0.3, 0.05, 0.5, 0.05, '#2d8a3c'],
     [0.7, 0.95, 0.5, 0.14, 0.08, 0.05, '#f39c12'], [1.2, 1.1, 0.4, 0.12, 0.07, 0.05, '#e74c3c'], [0.05, 1.32, 0.15, 1.9, 0.05, 0.7, '#2c3036'],
   ],
+  // 1x3, climbs north (away from its front): 12 solid steps, side stringers, handrails.
+  stairs: () => {
+    const out = [];
+    const n = 12, run = 3 / n, rise = LEVEL_H / n;
+    for (let i = 0; i < n; i++) {
+      const z = 3 - (i + 1) * run, top = (i + 1) * rise;
+      out.push([0.1, 0, z, 0.8, top - 0.04, run, WOOD]);
+      out.push([0.08, top - 0.05, z - 0.02, 0.84, 0.05, run + 0.02, i % 2 ? WOOD_L : '#d6a26d']);
+      out.push([0, 0, z, 0.1, top + 0.08, run, WOOD_D], [0.9, 0, z, 0.1, top + 0.08, run, WOOD_D]);
+      // Handrail: short segments following the slope, posts every few steps.
+      for (const x of [0.02, 0.92]) out.push([x, top + 0.82, z, 0.06, 0.06, run, WOOD_L]);
+      if (i % 4 === 0 || i === n - 1) for (const x of [0.03, 0.93]) out.push([x, top, z + run / 2 - 0.03, 0.04, 0.84, 0.06, WOOD_D]);
+    }
+    return out;
+  },
   grandclock: () => [
     [0.2, 0, 0.25, 0.6, 2.1, 0.5, WOOD_D], [0.15, 2.1, 0.2, 0.7, 0.14, 0.6, WOOD], [0.3, 2.24, 0.3, 0.4, 0.1, 0.4, WOOD_L],
     [0.3, 1.58, 0.76, 0.4, 0.38, 0.02, '#f4f1ea'], [0.49, 1.66, 0.78, 0.02, 0.16, 0.01, '#2a1a12'],

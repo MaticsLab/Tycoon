@@ -14,6 +14,7 @@ import { ITEMS } from './catalog.js';
 import { TILE, MAP_W, MAP_H, SOLID_TILES, ZONES } from './world.js';
 
 export const LEVELS = 2;
+export const LEVEL_H = 2.65; // floor-to-floor height in tiles (the 3D view uses the same)
 export const LAND_PRICE = 2; // coins per tile when growing a plot
 export const MIN_SIDE = 8;
 export const MAX_W = 60;
@@ -134,6 +135,7 @@ export function placementError(plot, lx, ly, itemId, r = 0, level = 0) {
   if (item.layer === 'floor') {
     if (!inInterior(plot, lx, ly)) return 'Outside your plot';
     if (level && itemId === 'soil') return 'Soil only works outdoors';
+    if (level && isStairTile(plot, lx, ly)) return 'That’s the stairwell';
     const k = key(lx, ly);
     if (view.floor[k] === itemId) return 'Already there';
     const here = objAt(view, lx, ly);
@@ -143,11 +145,14 @@ export function placementError(plot, lx, ly, itemId, r = 0, level = 0) {
   }
   if (item.layer !== 'obj') return 'Use the wall tools for that';
   if (!canRotate(itemId) && r) return 'That item can’t be rotated';
+  if (item.stairs && level) return 'Stairs go on the ground floor';
   const tiles = tilesOf(itemId, r, lx, ly);
   for (const [tx, ty] of tiles) {
     if (!inInterior(plot, tx, ty)) return 'Doesn’t fit there';
     if (objAt(view, tx, ty)) return 'Tile is occupied';
     if (level && !view.floor[key(tx, ty)]) return 'Needs a floor underneath';
+    if (level && isStairTile(plot, tx, ty)) return 'That’s the stairwell';
+    if (item.stairs && objAt(levelView(plot, 1), tx, ty)) return 'Clear the furniture upstairs first';
   }
   for (const [ax, ay] of tiles) for (const [bx, by] of tiles) {
     const e = edgeBetween(ax, ay, bx, by);
@@ -254,6 +259,61 @@ export function splitRects(plot, at) {
   return [{ x: plot.x, y: plot.y, w: at - plot.x, h: plot.h }, { x: at, y: plot.y, w: plot.x + plot.w - at, h: plot.h }];
 }
 
+// ---------- stairs ----------
+const isStairTile = (plot, lx, ly) => { const h = objAt(plot, lx, ly); return !!(h && ITEMS[h.obj.t]?.stairs); };
+
+// Stairs climb away from their front: r 0 climbs north, 1 east, 2 south, 3 west.
+// Returns the stair under world pixel (px, py) with t = 0 at the bottom .. 1 at the top.
+function stairInfo(plot, k, o, px, py) {
+  const [ax, ay] = k.split(',').map(Number);
+  const r = o.r || 0;
+  const [w, h] = footprint(o.t, r);
+  const x0 = (plot.x + ax) * TILE, y0 = (plot.y + ay) * TILE, x1 = x0 + w * TILE, y1 = y0 + h * TILE;
+  const t = r === 0 ? (y1 - py) / (y1 - y0) : r === 2 ? (py - y0) / (y1 - y0) : r === 1 ? (px - x0) / (x1 - x0) : (x1 - px) / (x1 - x0);
+  return { plot, key: k, r, x0, y0, x1, y1, t: Math.max(0, Math.min(1, t)) };
+}
+
+export function stairsAt(world, plots, px, py) {
+  const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
+  const pid = plotAtTile(world, tx, ty);
+  if (pid < 0) return null;
+  const p = plotById(plots, pid);
+  const hit = p && objAt(p, tx - p.x, ty - p.y);
+  return hit && ITEMS[hit.obj.t]?.stairs ? stairInfo(p, hit.key, hit.obj, px, py) : null;
+}
+
+// Height (tiles) of feet at (x, y) for someone on `level`; stairs blend between floors.
+export function heightAt(world, plots, x, y, level = 0) {
+  const st = stairsAt(world, plots, x, y - 2.5);
+  return st ? st.t * LEVEL_H : level * LEVEL_H;
+}
+
+// On stairs your level is whichever floor you're closer to.
+export function resolveLevel(world, plots, x, y, level) {
+  const st = stairsAt(world, plots, x, y - 2.5);
+  return st ? (st.t >= 0.5 ? 1 : 0) : level;
+}
+
+// Is a stair edge between tiles a and b closed? null = not a stair edge.
+// Sides are always closed; the top end only opens upstairs and the bottom end only
+// opens downstairs.
+function stairEdge(world, plots, ax, ay, bx, by, level) {
+  const sa = stairsAt(world, plots, (ax + 0.5) * TILE, (ay + 0.5) * TILE);
+  const sb = stairsAt(world, plots, (bx + 0.5) * TILE, (by + 0.5) * TILE);
+  if (sa && sb && sa.key === sb.key && sa.plot === sb.plot) return null;
+  let res = null;
+  for (const [st, sx, sy, ox, oy] of [[sa, ax, ay, bx, by], [sb, bx, by, ax, ay]]) {
+    if (!st) continue;
+    // Direction from the stair tile to the other tile, vs the climbing direction.
+    const dx = ox - sx, dy = oy - sy;
+    const up = [[0, -1], [1, 0], [0, 1], [-1, 0]][st.r];
+    if (dx === up[0] && dy === up[1]) res = res || level === 0; // top end
+    else if (dx === -up[0] && dy === -up[1]) res = res || level === 1; // bottom end: from the ground only
+    else res = true; // sides
+  }
+  return res;
+}
+
 // ---------- collision ----------
 // plots: live plots (array or object keyed by id); world.plotAt must be indexed.
 const plotById = (plots, id) => (Array.isArray(plots) ? plots.find((p) => p && p.id === id) : plots[id]);
@@ -270,15 +330,30 @@ export function tileSolid(world, plots, tx, ty) {
   return false;
 }
 
-// Is the horizontal edge on top of world tile (tx, ty) closed (fence or ground wall)?
-function hClosed(world, plots, tx, ty) {
+// Can a point be stood on at this level? Upstairs you need a floor under your feet.
+function pointOK(world, plots, px, py, level) {
+  if (stairsAt(world, plots, px, py)) return true;
+  const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
+  if (!level) return !tileSolid(world, plots, tx, ty);
+  const pid = plotAtTile(world, tx, ty);
+  const p = pid >= 0 && plotById(plots, pid);
+  if (!p?.l1?.floor[key(tx - p.x, ty - p.y)]) return false;
+  const hit = objAt(p.l1, tx - p.x, ty - p.y);
+  return !(hit && ITEMS[hit.obj.t]?.solid);
+}
+
+// Is the horizontal edge on top of world tile (tx, ty) closed on this level?
+function hClosed(world, plots, tx, ty, level) {
+  const st = stairEdge(world, plots, tx, ty - 1, tx, ty, level);
+  if (st !== null) return st;
   const a = plotAtTile(world, tx, ty - 1), b = plotAtTile(world, tx, ty);
   if (a === b) {
     if (a < 0) return false;
     const p = plotById(plots, a);
-    const w = p?.walls?.[edgeKey(0, 'h', tx - p.x, ty - p.y)];
+    const w = p?.walls?.[edgeKey(level, 'h', tx - p.x, ty - p.y)];
     return !!w && !passable(w);
   }
+  if (level) return false; // upstairs, floors already keep you inside
   // Plot boundary: fenced, except the gate on a plot's south edge.
   if (a >= 0) {
     const p = plotById(plots, a);
@@ -287,28 +362,31 @@ function hClosed(world, plots, tx, ty) {
   return a >= 0 || b >= 0;
 }
 
-function vClosed(world, plots, tx, ty) {
+function vClosed(world, plots, tx, ty, level) {
+  const st = stairEdge(world, plots, tx - 1, ty, tx, ty, level);
+  if (st !== null) return st;
   const a = plotAtTile(world, tx - 1, ty), b = plotAtTile(world, tx, ty);
   if (a === b) {
     if (a < 0) return false;
     const p = plotById(plots, a);
-    const w = p?.walls?.[edgeKey(0, 'v', tx - p.x, ty - p.y)];
+    const w = p?.walls?.[edgeKey(level, 'v', tx - p.x, ty - p.y)];
     return !!w && !passable(w);
   }
+  if (level) return false;
   return a >= 0 || b >= 0;
 }
 
 const WALL_HALF = 1.5; // wall/fence thickness / 2 in world px
 
-function hitsEdges(world, plots, x0, y0, x1, y1) {
+function hitsEdges(world, plots, x0, y0, x1, y1, level) {
   const tx0 = Math.floor(x0 / TILE) - 1, tx1 = Math.floor(x1 / TILE) + 1;
   const ty0 = Math.floor(y0 / TILE) - 1, ty1 = Math.floor(y1 / TILE) + 1;
   for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
-    if (hClosed(world, plots, tx, ty)) {
+    if (hClosed(world, plots, tx, ty, level)) {
       const wy = ty * TILE;
       if (x1 > tx * TILE && x0 < (tx + 1) * TILE && y1 > wy - WALL_HALF && y0 < wy + WALL_HALF) return true;
     }
-    if (vClosed(world, plots, tx, ty)) {
+    if (vClosed(world, plots, tx, ty, level)) {
       const wx = tx * TILE;
       if (y1 > ty * TILE && y0 < (ty + 1) * TILE && x1 > wx - WALL_HALF && x0 < wx + WALL_HALF) return true;
     }
@@ -317,12 +395,20 @@ function hitsEdges(world, plots, x0, y0, x1, y1) {
 }
 
 // (x, y) is the centre of the player's feet in world pixels.
-export function canStand(world, plots, x, y) {
+export function canStand(world, plots, x, y, level = 0) {
   const pts = [[x - 5, y - 5], [x + 5, y - 5], [x - 5, y - 0.5], [x + 5, y - 0.5]];
-  for (const [px, py] of pts) {
-    if (tileSolid(world, plots, Math.floor(px / TILE), Math.floor(py / TILE))) return false;
-  }
-  return !hitsEdges(world, plots, x - 5, y - 5, x + 5, y - 0.5);
+  for (const [px, py] of pts) if (!pointOK(world, plots, px, py, level)) return false;
+  return !hitsEdges(world, plots, x - 5, y - 5, x + 5, y - 0.5, level);
+}
+
+// One step of movement for someone on `level`: the level they end up on, or -1 if the
+// step is blocked. Changing floors is only possible along stairs, so the step must be
+// valid on both the old and the new level.
+export function stepLevel(world, plots, x, y, level) {
+  const nl = resolveLevel(world, plots, x, y, level);
+  if (!canStand(world, plots, x, y, nl)) return -1;
+  if (nl !== level && !canStand(world, plots, x, y, level)) return -1;
+  return nl;
 }
 
 // Does a wall on this local edge overlap a feet box at (x, y)? Used to refuse walls on players.

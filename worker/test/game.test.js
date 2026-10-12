@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Game } from '../src/game.js';
 import { generateWorld, TILE, T, MAP_W, STARTER_PLOTS, WORLD_VERSION } from '../../shared/world.js';
-import { canStand, objAt, rectEdges, edgeKey, levelView, gateTiles, LAND_PRICE } from '../../shared/plot.js';
+import { canStand, objAt, rectEdges, edgeKey, levelView, gateTiles, LAND_PRICE, heightAt, LEVEL_H } from '../../shared/plot.js';
 import { START_COINS, ITEMS } from '../../shared/catalog.js';
 import { NPCS } from '../../shared/npcs.js';
 
@@ -485,4 +485,67 @@ test('cheat console: testingcheats gate, money, motherlode, free build, free rea
   await h.onMessage(JSON.stringify({ type: 'hello', name: 'X' }));
   await h.onMessage(JSON.stringify({ type: 'cheat', cmd: 'testingcheats true' }));
   assert.match(inbox.at(-1).text, /off/);
+});
+
+test('stairs: climb to the upper floor, walk around up there, come back down', async () => {
+  const { game, join, advance } = setup();
+  const a = await join({ name: 'Ana' });
+  a.send({ type: 'cheat', cmd: 'testingcheats true' });
+  a.send({ type: 'cheat', cmd: 'motherlode' });
+  a.send({ type: 'claim', plotId: 0 });
+  const p = game.plots[0];
+  const s = a.session();
+  s.x = game.world.spawn.x; s.y = game.world.spawn.y;
+  // Upstairs floor first; the staircase then cuts its own stairwell.
+  a.send({ type: 'floorRect', plotId: 0, x: 8, y: 2, w: 5, h: 6, item: 'floor_wood', level: 1 });
+  assert.equal(levelView(p, 1).floor['10,6'], 'floor_wood');
+  a.send({ type: 'place', plotId: 0, lx: 10, ly: 5, item: 'stairs' }); // climbs north: bottom at ly 7, top at ly 5
+  assert.equal(p.obj['10,5'].t, 'stairs');
+  assert.equal(levelView(p, 1).floor['10,6'], undefined, 'stairwell cut');
+  a.send({ type: 'place', plotId: 0, lx: 10, ly: 6, item: 'floor_blue', level: 1 });
+  assert.match(a.last('error').msg, /stairwell/);
+
+  const X = (p.x + 10.5) * TILE;
+  // Walk north from the ground up the stairs and onto the landing (ly 4) upstairs.
+  const walk = (tx, ty) => {
+    for (let i = 0; i < 200; i++) {
+      const dx = tx - s.x, dy = ty - s.y, d = Math.hypot(dx, dy);
+      if (d < 0.5) return true;
+      const st = Math.min(d, 6);
+      const before = [s.x, s.y];
+      advance(100);
+      a.send({ type: 'move', x: s.x + (dx / d) * st, y: s.y + (dy / d) * st, d: 1, m: 1 });
+      if (s.x === before[0] && s.y === before[1]) return false; // blocked
+    }
+    return false;
+  };
+  s.x = X; s.y = (p.y + 9) * TILE; s.level = 0;
+  assert.ok(walk(X, (p.y + 6.5) * TILE));
+  assert.ok(heightAt(game.world, game.plots, s.x, s.y, s.level) > 0.3 * LEVEL_H, 'halfway up');
+  assert.ok(walk(X, (p.y + 4.6) * TILE), 'reached the landing');
+  assert.equal(s.level, 1);
+  // Upstairs you can walk on the floor but not off its edge.
+  assert.ok(walk((p.x + 8.6) * TILE, (p.y + 3.5) * TILE));
+  assert.ok(!walk((p.x + 8.6) * TILE, (p.y + 0.8) * TILE), 'no floor beyond y=2');
+  // Back down the stairs.
+  assert.ok(walk(X, (p.y + 4.6) * TILE));
+  assert.ok(walk(X, (p.y + 9) * TILE));
+  assert.equal(s.level, 0);
+
+  // From the ground you can't walk into the top of the stairs (it's above you)...
+  s.x = X; s.y = (p.y + 4.5) * TILE; s.level = 0;
+  assert.ok(!walk(X, (p.y + 6) * TILE));
+  assert.equal(s.level, 0);
+  // ...or step onto them from the side.
+  s.x = (p.x + 11.6) * TILE; s.y = (p.y + 6.5) * TILE;
+  assert.ok(!walk((p.x + 10.5) * TILE, (p.y + 6.5) * TILE));
+
+  // Removing the stairs while someone is upstairs sends them home safely.
+  s.x = X; s.y = (p.y + 3.5) * TILE; s.level = 1;
+  a.send({ type: 'floorRect', plotId: 0, x: 10, y: 3, w: 1, h: 1, item: 'floor_wood', level: 1 });
+  a.send({ type: 'remove', plotId: 0, lx: 10, ly: 3, level: 1 });
+  assert.equal(s.level, 0);
+  // Stairs only go on the ground floor.
+  a.send({ type: 'place', plotId: 0, lx: 9, ly: 2, item: 'stairs', level: 1 });
+  assert.match(a.last('error').msg, /ground floor/);
 });
