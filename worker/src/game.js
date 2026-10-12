@@ -132,10 +132,12 @@ export class Game {
     if (s.profile) return;
     const id = s.identity;
     if (!id?.userId) return s.send({ type: 'error', msg: 'Not signed in' });
-    const name = clean(msg.name, 16) || clean(id.name, 16) || 'Villager';
+    // An existing profile keeps its name unless the client explicitly sends a new one.
+    const asked = clean(msg.name, 16);
     const color = COLORS.includes(msg.color) ? msg.color : null;
     let profile = this.profiles[id.userId];
-    if (!profile) profile = this.newProfile(id.userId, name, color || COLORS[Math.floor(Math.random() * COLORS.length)]);
+    if (!profile) profile = this.newProfile(id.userId, asked || clean(id.name, 16) || 'Villager', color || COLORS[Math.floor(Math.random() * COLORS.length)]);
+    const name = asked || profile.name;
     if (name !== profile.name) {
       profile.name = name;
       if (profile.plotId != null) { this.plots[profile.plotId].ownerName = name; this.mark(`plot:${profile.plotId}`); }

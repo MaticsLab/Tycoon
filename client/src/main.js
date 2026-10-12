@@ -5,7 +5,7 @@ import {
 import { canStand, inInterior, key, placementError, objAt, footprint, canRotate } from '@shared/plot.js';
 import { ITEMS, GOODS, CATEGORIES, cropStage, itemName } from '@shared/catalog.js';
 import { NPCS } from '@shared/npcs.js';
-import { renderGround, drawTree, drawFloor, drawObject, drawPlayer, drawShop, itemIcon } from './sprites.js';
+import { renderGround, drawTree, drawFloor, drawObject, drawPlayer, drawShop, itemIcon, shopSignY } from './sprites.js';
 import { httpBase, signInGuest, signIn, signUp, getSession, signOut } from './auth.js';
 
 const $ = (id) => document.getElementById(id);
@@ -938,7 +938,8 @@ function render(now) {
       const px = (p.x + lx) * TILE, py = (p.y + ly) * TILE;
       const bottom = py + footprint(o.t, o.r || 0)[1] * TILE;
       const sortY = def.flat || def.crop ? py - 1000 : def.solid ? bottom : bottom - 12;
-      drawables.push({ y: sortY, draw: () => drawObject(ctx, o, px, py, sNow, { short }) });
+      const nb = def.wall ? { l: ITEMS[objAt(st, lx - 1, ly)?.obj.t]?.wall, r: ITEMS[objAt(st, lx + 1, ly)?.obj.t]?.wall } : undefined;
+      drawables.push({ y: sortY, draw: () => drawObject(ctx, o, px, py, sNow, { short, nb }) });
     }
     if (!st.owner) {
       const sx = (p.gate[0] - 2) * TILE, sy = (p.gateY + 1) * TILE;
@@ -979,9 +980,9 @@ function render(now) {
   }
   for (const shop of SHOPS) {
     if (!visible(shop.x + shop.w / 2, shop.y)) continue;
-    ctx.font = `bold ${Math.round(4.6 * scale)}px ui-rounded, 'Trebuchet MS', sans-serif`;
+    ctx.font = `bold ${Math.round(4.2 * scale)}px ui-rounded, 'Trebuchet MS', sans-serif`;
     ctx.fillStyle = '#3a2716';
-    ctx.fillText(shop.name, (shop.x + shop.w / 2) * TILE * scale + offX, (shop.y * TILE + 4) * scale + offY);
+    ctx.fillText(shop.name, (shop.x + shop.w / 2) * TILE * scale + offX, shopSignY(shop) * scale + offY);
   }
   for (const p of [...S.players.values(), S.me]) {
     const sx = p.x * scale + offX, sy = (p.y - 24) * scale + offY;

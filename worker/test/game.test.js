@@ -178,7 +178,8 @@ test('players get their profile back from any device with the same account', asy
   const user = { userId: 'u-ana', name: 'Ana', username: 'ana' };
   const laptop = await join({ name: 'Ana' }, user);
   laptop.send({ type: 'claim', plotId: 7 });
-  const phone = await join({}, user); // replaces the laptop connection
+  const phone = await join({}, { ...user, name: 'ana' }); // replaces the laptop connection
+  assert.equal(phone.welcome.you.name, 'Ana', 'logging in elsewhere keeps the chosen name');
   assert.equal(phone.welcome.you.id, laptop.welcome.you.id);
   assert.equal(phone.welcome.you.plotId, 7);
   assert.equal(phone.welcome.you.username, 'ana');
