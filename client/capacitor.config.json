@@ -1,0 +1,12 @@
+{
+  "appId": "com.tycoon.village",
+  "appName": "Tycoon Village",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

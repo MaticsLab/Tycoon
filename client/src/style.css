@@ -1,0 +1,68 @@
+:root {
+  --wood: #6b4a2b;
+  --wood-light: #a8703f;
+  --cream: #fbf3dc;
+  --ink: #3a2a1a;
+  --green: #4f9e3a;
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #2d5a3d; font-family: ui-rounded, 'Trebuchet MS', system-ui, sans-serif; color: var(--ink); user-select: none; -webkit-user-select: none; }
+canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; display: block; touch-action: none; image-rendering: pixelated; }
+[hidden] { display: none !important; }
+button { font: inherit; cursor: pointer; }
+
+.panel-screen { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; background: rgba(20, 40, 25, 0.45); overflow: auto; }
+.card { width: min(380px, 100%); background: var(--cream); border: 4px solid var(--wood); border-radius: 14px; padding: 20px; box-shadow: 0 6px 0 #3e2a17, 0 12px 30px rgba(0,0,0,.35); }
+.card h1 { margin: 0 0 4px; font-size: 28px; color: var(--wood); letter-spacing: 1px; text-align: center; }
+.card .sub { margin: 0 0 16px; font-size: 14px; text-align: center; opacity: .8; }
+.card label, .card .label { display: block; font-weight: bold; font-size: 14px; margin: 10px 0 6px; }
+.card input { width: 100%; font: inherit; font-size: 16px; padding: 10px 12px; border: 3px solid var(--wood-light); border-radius: 8px; background: #fffaf0; color: var(--ink); }
+.card details { margin: 12px 0; font-size: 13px; }
+.card details summary { cursor: pointer; opacity: .7; margin-bottom: 6px; }
+#colors { display: flex; flex-wrap: wrap; gap: 8px; }
+#colors button { width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(0,0,0,.2); }
+#colors button.sel { border-color: var(--ink); transform: scale(1.12); }
+.primary { display: block; width: 100%; margin-top: 14px; padding: 12px; font-size: 18px; font-weight: bold; color: #fff; background: var(--green); border: 3px solid #2f6b22; border-radius: 10px; box-shadow: 0 4px 0 #2f6b22; }
+.primary:active { transform: translateY(3px); box-shadow: 0 1px 0 #2f6b22; }
+#joinerr { color: #b33b44; font-size: 14px; margin-top: 10px; text-align: center; min-height: 1em; }
+
+#topbar { position: fixed; top: calc(8px + var(--sat)); left: calc(8px + var(--sal)); right: calc(80px + var(--sar)); display: flex; flex-wrap: wrap; gap: 6px; pointer-events: none; }
+.pill { background: var(--cream); border: 3px solid var(--wood); border-radius: 999px; padding: 4px 12px; font-weight: bold; font-size: 14px; box-shadow: 0 3px 0 rgba(0,0,0,.25); }
+.pill:empty { display: none; }
+
+#side { position: fixed; top: calc(8px + var(--sat)); right: calc(8px + var(--sar)); display: flex; flex-direction: column; gap: 8px; }
+#side button { width: 62px; height: 62px; font-size: 24px; line-height: 1; background: var(--cream); border: 3px solid var(--wood); border-radius: 12px; box-shadow: 0 3px 0 rgba(0,0,0,.3); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--ink); }
+#side button small { font-size: 11px; font-weight: bold; }
+#side button:disabled { opacity: .45; }
+#side button.on { background: #ffe9a8; }
+
+#action { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(24px + var(--sab)); padding: 12px 22px; font-size: 18px; font-weight: bold; color: #fff; background: #d98a2b; border: 3px solid #8f5512; border-radius: 12px; box-shadow: 0 4px 0 #8f5512; animation: pulse 1.6s infinite; white-space: nowrap; }
+@keyframes pulse { 50% { transform: translateX(-50%) scale(1.06); } }
+
+#chatlog { position: fixed; left: calc(8px + var(--sal)); bottom: calc(70px + var(--sab)); width: min(360px, 60vw); display: flex; flex-direction: column; gap: 3px; pointer-events: none; }
+#chatlog div { background: rgba(30, 22, 12, .62); color: #fff; padding: 3px 8px; border-radius: 6px; font-size: 13px; transition: opacity 1s; overflow-wrap: anywhere; }
+#chatlog div b { color: #ffe08a; }
+#chatlog div.sys { color: #bdf0a8; }
+#chatlog div.old { opacity: 0; }
+#chatform { position: fixed; left: calc(8px + var(--sal)); right: calc(80px + var(--sar)); bottom: calc(10px + var(--sab)); display: flex; gap: 6px; }
+#chatform input { flex: 1; font: inherit; font-size: 16px; padding: 10px; border: 3px solid var(--wood); border-radius: 10px; background: var(--cream); }
+#chatform button { padding: 0 16px; font-weight: bold; border: 3px solid var(--wood); border-radius: 10px; background: #ffe9a8; }
+
+#tray { position: fixed; left: 0; right: 0; bottom: 0; background: var(--cream); border-top: 4px solid var(--wood); padding: 6px calc(8px + var(--sar)) calc(6px + var(--sab)) calc(8px + var(--sal)); display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; gap: 6px; box-shadow: 0 -4px 14px rgba(0,0,0,.25); }
+#tabs { grid-column: 1; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+#tabs button { flex: none; padding: 5px 10px; border: 2px solid var(--wood-light); border-radius: 8px; background: #f3e3b8; font-weight: bold; font-size: 13px; color: var(--ink); }
+#tabs button.sel { background: var(--wood-light); color: #fff; }
+#items { grid-column: 1 / span 2; display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+#items button { flex: none; width: 74px; padding: 4px 2px; border: 3px solid transparent; border-radius: 10px; background: #f6ead0; display: flex; flex-direction: column; align-items: center; font-size: 11px; line-height: 1.15; color: var(--ink); }
+#items button canvas { width: 44px; height: 44px; image-rendering: pixelated; }
+#items button.sel { border-color: var(--green); background: #e3f4d6; }
+#items button.poor { opacity: .5; }
+#items button .price { font-weight: bold; color: #8f5512; }
+#btn-done { grid-column: 2; grid-row: 1; width: auto; margin: 0; padding: 4px 18px; font-size: 15px; box-shadow: 0 3px 0 #2f6b22; }
+
+#toast { position: fixed; top: calc(60px + var(--sat)); left: 50%; transform: translateX(-50%); background: rgba(30, 22, 12, .85); color: #fff; padding: 8px 16px; border-radius: 10px; font-weight: bold; opacity: 0; transition: opacity .3s; pointer-events: none; text-align: center; max-width: 80vw; }
+#toast.show { opacity: 1; }
