@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { MAP_W, MAP_H, SHOPS, FOUNTAIN } from '@shared/world.js';
 import { personSprite } from '../people.js';
+import { petSprite } from '../pets.js';
 import { sanitizeLook } from '@shared/look.js';
 import { BillboardSet, texOf, blobMesh } from './billboards.js';
 import { buildTerrain, buildRocks, treeCards, buildFountain, fountainSpray, buildPlazaLamps, PLAZA_LAMPS, buildShop, buildDecor, buildCityHall } from './scenery.js';
@@ -210,13 +211,14 @@ export class View {
     this.plots.delete(id);
   }
 
-  // ---------- actors (players and NPCs as pixel sprites) ----------
-  actor(id, x, z, dirWorld, moving, look, now, vis = true, y = 0) {
+  // ---------- actors (players, NPCs and pets as pixel sprites) ----------
+  // pet: { idx, sit } draws a pet instead of a villager.
+  actor(id, x, z, dirWorld, moving, look, now, vis = true, y = 0, pet = null) {
     let a = this.actors.get(id);
     if (!a) {
       a = { sprite: new THREE.Sprite(), blob: null, vec: [0, 1], lx: x, lz: z, lookRef: null, look: null };
       a.sprite.renderOrder = 1;
-      a.blob = blobMesh([[0, 0, 0, 0.36]]);
+      a.blob = blobMesh([[0, 0, 0, pet ? 0.26 : 0.36]]);
       this.scene.add(a.sprite);
       this.blobGroup.add(a.blob);
       this.actors.set(id, a);
@@ -232,9 +234,13 @@ export class View {
     const g = this.ground();
     const along = a.vec[0] * g.rx + a.vec[1] * g.rz, away = a.vec[0] * g.fx + a.vec[1] * g.fz;
     const dir = Math.abs(along) > Math.abs(away) * 1.05 ? (along > 0 ? 3 : 2) : away > 0 ? 1 : 0;
-    const frame = moving ? Math.floor(now / 130) % 4 : 0;
-    if (a.lookRef !== look) { a.lookRef = look; a.look = sanitizeLook(look); }
-    const spr = personSprite(a.look, dir, frame);
+    const frame = moving ? Math.floor(now / (pet ? 100 : 130)) % 4 : 0;
+    let spr;
+    if (pet) spr = petSprite(pet.idx, dir, frame, pet.sit);
+    else {
+      if (a.lookRef !== look) { a.lookRef = look; a.look = sanitizeLook(look); }
+      spr = personSprite(a.look, dir, frame);
+    }
     const tex = texOf(spr.cv);
     if (a.sprite.material.map !== tex) {
       a.sprite.material = spriteMat(tex);

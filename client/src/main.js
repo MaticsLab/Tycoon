@@ -16,6 +16,7 @@ import { Ghost } from './gfx/ghost.js';
 import { openCreator, closeCreator } from './creator.js';
 import { renderCity } from './cityui.js';
 import { drawLook } from './people.js';
+import { sanitizeLook, PETS } from '@shared/look.js';
 import { httpBase, signInGuest, signIn, signUp, getSession, signOut } from './auth.js';
 
 const $ = (id) => document.getElementById(id);
@@ -406,6 +407,7 @@ function updateContext() {
   const npc = nearestNpc();
   if (S.mode !== 'walk' || S.talk) action = '';
   else if (npc) action = `talk:${npc.id}`;
+  else if (nearMyPet()) action = 'pet';
   else if (plot && !plot.owner && S.myPlot == null) action = 'claim';
   else if (here === S.myPlot && here >= 0) {
     const ripe = Object.values(plot.obj).filter((o) => ITEMS[o.t]?.crop && cropStage(o, serverNow()) === 3).length;
@@ -418,6 +420,7 @@ function updateContext() {
     if (action === 'claim') btn.textContent = '🏡 Claim this plot';
     else if (action.startsWith('harvest')) btn.textContent = `🌾 Harvest (${action.split(':')[1]})`;
     else if (action.startsWith('talk')) btn.textContent = `💬 Talk to ${NPCS[action.split(':')[1]].name}`;
+    else if (action === 'pet') btn.textContent = `🐾 Pet your ${PETS[petOf(S.me)].kind}`;
   }
   syncPlots();
 }
@@ -425,6 +428,7 @@ $('action').onclick = () => {
   if (lastAction === 'claim') send({ type: 'claim', plotId: plotIdAtPixel(world, S.me.x, S.me.y) });
   else if (lastAction.startsWith('harvest')) send({ type: 'harvest', plotId: S.myPlot });
   else if (lastAction.startsWith('talk')) send({ type: 'npcOpen', npc: lastAction.split(':')[1] });
+  else if (lastAction === 'pet') { const p = nearMyPet(); if (p) { p.heartUntil = performance.now() + 2200; p.idle = 2; } }
 };
 
 $('btn-build').onclick = () => setMode(S.mode === 'build' ? 'walk' : 'build');
@@ -1470,7 +1474,51 @@ function update(dt) {
   const k = Math.min(1, dt * 10);
   for (const p of S.players.values()) { p.x += (p.tx - p.x) * k; p.y += (p.ty - p.y) * k; }
   for (const n of S.npcs.values()) { n.x += (n.tx - n.x) * k; n.y += (n.ty - n.y) * k; }
+  updatePets(dt);
   if (plotsDirty) syncPlots();
+}
+
+// ---------- Pets ----------
+// Every villager's pet follows them around. Pets are cosmetic, so each client runs
+// them locally from their owner's position.
+const pets = new Map(); // owner id -> { x, y, dir, moving, idle, level, stuck, heartUntil }
+const PET_SPEED = PLAYER_SPEED * 1.25;
+const BEHIND = [[0, -1], [0, 1], [1, 0], [-1, 0]]; // owner dir -> where "behind" is
+function petOf(owner) {
+  const idx = sanitizeLook(owner.look).pet;
+  return idx >= 0 ? idx : null;
+}
+function updatePets(dt) {
+  const owners = [S.me, ...S.players.values()];
+  const seen = new Set();
+  for (const o of owners) {
+    if (!o || petOf(o) == null) continue;
+    seen.add(o.id);
+    const [bx, by] = BEHIND[o.dir || 0];
+    const tx = o.x + bx * 14 + (o.dir < 2 ? 8 : 0), ty = o.y + by * 10 + (o.dir >= 2 ? 6 : 0);
+    let p = pets.get(o.id);
+    if (!p) { p = { x: tx, y: ty, dir: 0, moving: false, idle: 0, level: o.level || 0, stuck: 0, heartUntil: 0 }; pets.set(o.id, p); }
+    const dx = tx - p.x, dy = ty - p.y, dist = Math.hypot(dx, dy);
+    const lvl = o.level || 0;
+    if (dist > 160 || p.level !== lvl && dist > 24) { Object.assign(p, { x: tx, y: ty, level: lvl, stuck: 0 }); continue; }
+    p.moving = false;
+    if (dist > (o.moving ? 6 : 14)) {
+      const sp = Math.min(PET_SPEED * (dist > 60 ? 1.4 : 1), dist * 4) * dt;
+      const nx = p.x + (dx / dist) * sp, ny = p.y + (dy / dist) * sp;
+      let moved = false;
+      if (canStand(world, S.plots, nx, p.y, lvl)) { p.x = nx; moved = true; }
+      if (canStand(world, S.plots, p.x, ny, lvl)) { p.y = ny; moved = true; }
+      if (moved) { p.moving = true; p.stuck = 0; p.dir = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 2 : 3) : (dy < 0 ? 1 : 0); }
+      else if ((p.stuck += dt) > 1.2) Object.assign(p, { x: o.x, y: o.y + 2, stuck: 0 });
+      p.level = lvl;
+    }
+    p.idle = p.moving ? 0 : p.idle + dt;
+  }
+  for (const id of pets.keys()) if (!seen.has(id)) pets.delete(id);
+}
+function nearMyPet() {
+  const p = pets.get(S.me?.id);
+  return p && Math.hypot(p.x - S.me.x, p.y - S.me.y) < TILE * 1.8 ? p : null;
 }
 
 // ---------- Render ----------
@@ -1485,6 +1533,12 @@ function render(now) {
     view.actor(`npc:${n.id}`, U(n.x), U(n.y), n.dir, n.moving, d.look, now);
   }
   view.actor(S.me.id, U(S.me.x), U(S.me.y), S.me.dir, S.me.moving, S.me.look, now, true, myH);
+  for (const [id, p] of pets) {
+    const owner = id === S.me.id ? S.me : S.players.get(id);
+    if (!owner) continue;
+    const sit = !p.moving && (p.idle > 1.2 || p.heartUntil > now);
+    view.actor(`pet:${id}`, U(p.x), U(p.y), p.dir, p.moving, null, now, true, heightAt(world, S.plots, p.x, p.y, p.level), { idx: petOf(owner), sit });
+  }
   view.pruneActors();
   view.render(now, darkness(worldClock(sNow, S.epoch).hours), S.mode !== 'build');
   drawOverlay(now);
@@ -1511,6 +1565,16 @@ function drawOverlay(now) {
     if (!onScreen(s)) continue;
     tag(label, s.x, s.y, 11, col);
     if (p.bubble && performance.now() < p.bubbleUntil) bubble(p.bubble, s.x, s.y - 20, 13);
+  }
+  // Hearts over a pet that was just petted.
+  for (const p of pets.values()) {
+    if (p.heartUntil < now) continue;
+    const t = 1 - (p.heartUntil - now) / 2200;
+    const s = view.toScreen(U(p.x), 1.1 + t * 0.5 + heightAt(world, S.plots, p.x, p.y, p.level), U(p.y));
+    octx.globalAlpha = Math.min(1, (1 - t) * 3);
+    octx.font = '16px sans-serif';
+    octx.fillText('❤️', s.x - 6, s.y); octx.fillText('❤️', s.x + 8, s.y - 8 - t * 6);
+    octx.globalAlpha = 1;
   }
   if (stick.active && S.mode === 'walk') {
     octx.globalAlpha = 0.35;

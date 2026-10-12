@@ -58,9 +58,10 @@ You can also befriend villagers whose personalities change based on how you trea
   - `bb.enablefreebuild` turns free building on or off.
   - `tp cityhall`, `tp park`, `tp fair` or `tp square` teleports you.
   The server setting `CHEATS` in `worker/wrangler.jsonc` controls who can use cheats: `all`, `admins` (only the usernames listed in `ADMINS`) or `off`.
-- **Character creator** in the Stardew style: roll the dice, turn the preview, pick a build, then skin, hair (16 styles), shirt (20 designs) and accessory (glasses, beards, hats and more) with the arrows.
+- **Character creator** in the Stardew style: roll the dice, turn the preview, pick a build, then skin, hair (22 styles, from swept spikes and emo fringes to curls and long waves), shirt (20 designs) and accessory (glasses, beards, hats and more) with the arrows.
   Sliders set eye, hair and pants colour, and you name yourself, your farm and your favourite thing. Change your look later from **👤 Me → Change look**.
-  Villagers and players are cute chibi pixel sprites with four walking directions, and NPCs show a portrait when you talk to them.
+  Choose a cat or a dog under **Animal Preference** (tap it again for another breed). Your pet follows you everywhere, sits when you stop, and loves being petted.
+  Villagers and players are Stardew-style pixel sprites with four walking directions, and NPCs show a portrait when you talk to them.
 - **Accounts.** Sign up with email and password, and log in with either your username or email. Your plot follows you to any device.
   "Play now" starts you as a guest; signing up later keeps the guest's plot, coins and friendships.
 

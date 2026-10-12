@@ -1,7 +1,8 @@
 // Stardew-style character creator: dice, rotating preview, body choice, arrow pickers
 // for skin / hair / shirt / accessory, HSV sliders for eyes, hair and pants, and the
 // name, farm name and favourite thing fields.
-import { SKINS, HAIR, SHIRTS, ACCESSORIES, hsvHex, sanitizeLook, randomLook } from '@shared/look.js';
+import { SKINS, HAIR, SHIRTS, ACCESSORIES, PETS, hsvHex, sanitizeLook, randomLook } from '@shared/look.js';
+import { drawPet } from './pets.js';
 import { drawLook } from './people.js';
 
 const $ = (id) => document.getElementById(id);
@@ -116,6 +117,17 @@ function build() {
       wrap.appendChild(line);
     }
   }
+  // Animal preference: tap cat or dog; tap the chosen one again for another breed.
+  for (const b of document.querySelectorAll('#creator .sv-petbtns button')) {
+    b.onclick = () => {
+      const kind = b.dataset.kind;
+      const breeds = PETS.map((p, i) => [p, i]).filter(([p]) => p.kind === kind).map(([, i]) => i);
+      const cur = state.look.pet;
+      state.look.pet = PETS[cur]?.kind === kind ? breeds[(breeds.indexOf(cur) + 1) % breeds.length] : (state.lastPet?.[kind] ?? breeds[0]);
+      (state.lastPet ||= {})[kind] = state.look.pet;
+      render();
+    };
+  }
   $('cr-dice').onclick = () => { state.look = randomLook(); render(); };
   $('cr-ok').onclick = () => {
     const name = $('cr-name').value.trim();
@@ -139,6 +151,14 @@ function render() {
   const l = state.look;
   drawLook($('cr-preview'), l, { dir: [0, 3, 1, 2][state.dir] });
   for (const b of document.querySelectorAll('#creator .sv-body button')) b.classList.toggle('sel', +b.dataset.body === l.body);
+  for (const b of document.querySelectorAll('#creator .sv-petbtns button')) {
+    const kind = b.dataset.kind;
+    const mine = PETS[l.pet]?.kind === kind;
+    const idx = mine ? l.pet : (state.lastPet?.[kind] ?? PETS.findIndex((p) => p.kind === kind));
+    drawPet(b.querySelector('canvas'), idx, { sit: true });
+    b.classList.toggle('sel', mine);
+  }
+  $('cr-petname').textContent = PETS[l.pet] ? PETS[l.pet].name : 'No pet';
   for (const row of document.querySelectorAll('#creator .sv-pick')) {
     const key = row.dataset.key;
     const span = row.querySelector('span');

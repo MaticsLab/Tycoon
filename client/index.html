@@ -72,6 +72,13 @@
         <label class="sv-field"><span>Name</span><input id="cr-name" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Villager" /></label>
         <label class="sv-field"><span>Farm Name</span><input id="cr-farm" maxlength="16" autocomplete="off" spellcheck="false" /><em>Farm</em></label>
         <label class="sv-field"><span>Favorite Thing</span><input id="cr-fav" maxlength="20" autocomplete="off" spellcheck="false" /></label>
+        <div class="sv-field sv-pets"><span>Animal Preference</span>
+          <div class="sv-petbtns">
+            <button type="button" data-kind="cat" aria-label="Cat"><canvas width="48" height="48"></canvas></button>
+            <button type="button" data-kind="dog" aria-label="Dog"><canvas width="48" height="48"></canvas></button>
+            <small id="cr-petname"></small>
+          </div>
+        </div>
         <div class="sv-colors">
           <div class="sv-color" data-key="eyes"><span>Eye Color:</span><div class="sv-sliders"></div></div>
           <div class="sv-color" data-key="hairColor"><span>Hair Color:</span><div class="sv-sliders"></div></div>

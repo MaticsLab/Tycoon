@@ -8,6 +8,7 @@
 //   shirt  index into SHIRTS (design + colours)
 //   acc    index into ACCESSORIES
 //   eyes, hairColor, pants   [hue, saturation, value], each 0..100
+//   pet    index into PETS (a cat or dog that follows you around), -1 for none
 
 export const SKINS = [
   '#ffe0c8', '#fbd3b4', '#f6c7a0', '#f2c79a', '#ecb98c', '#e8b48a', '#dea47a', '#d9a679',
@@ -15,25 +16,31 @@ export const SKINS = [
   '#f3d1c4', '#e6bfae', '#d8ab90', '#bfe0a8', '#a9c9ef', '#d8b8ec', '#9a9a9a', '#f5eedc',
 ];
 
-// vol: extra height on top · fringe: front hair · len: 0 ears, 1 chin, 2 shoulders, 3 long
-// extra: bun, pony, pigtails, curly, spiky
+// Hair styles. vol: extra height on top · fringe: how the front falls ·
+// len: 0 above the ears, 1 chin, 2 shoulders, 3 long · sides: 'full' or 'fade' (short) · extra
 export const HAIR = [
-  { name: 'Tousled', vol: 1, fringe: 'side', len: 0 },
-  { name: 'Neat part', vol: 1, fringe: 'part', len: 0 },
-  { name: 'Shaggy', vol: 1, fringe: 'full', len: 1 },
-  { name: 'Spiky', vol: 2, fringe: 'spiky', len: 0, extra: 'spiky' },
-  { name: 'Buzz', vol: 0, fringe: 'none', len: 0 },
-  { name: 'Bob', vol: 1, fringe: 'full', len: 1 },
-  { name: 'Shoulder', vol: 1, fringe: 'side', len: 2 },
-  { name: 'Long', vol: 1, fringe: 'part', len: 3 },
-  { name: 'Ponytail', vol: 1, fringe: 'side', len: 0, extra: 'pony' },
-  { name: 'Bun', vol: 1, fringe: 'part', len: 0, extra: 'bun' },
-  { name: 'Pigtails', vol: 1, fringe: 'full', len: 0, extra: 'pigtails' },
-  { name: 'Curly', vol: 2, fringe: 'full', len: 1, extra: 'curly' },
-  { name: 'Wavy long', vol: 2, fringe: 'side', len: 3, extra: 'curly' },
-  { name: 'Swoop', vol: 2, fringe: 'swoop', len: 0 },
-  { name: 'Mohawk', vol: 2, fringe: 'none', len: 0, extra: 'mohawk' },
-  { name: 'Bald', vol: 0, fringe: 'bald', len: 0 },
+  { name: 'Swept spikes', vol: 2, fringe: 'swept', len: 0, sides: 'full' },
+  { name: 'Neat crop', vol: 1, fringe: 'crop', len: 0, sides: 'full' },
+  { name: 'Emo fringe', vol: 1, fringe: 'emo', len: 1, sides: 'full' },
+  { name: 'Super spiky', vol: 3, fringe: 'spiky', len: 0, sides: 'full', extra: 'spikes' },
+  { name: 'Messy curls', vol: 2, fringe: 'curls', len: 0, sides: 'full', extra: 'curly' },
+  { name: 'Long flowing', vol: 1, fringe: 'side', len: 3, sides: 'full' },
+  { name: 'Buzz cut', vol: 0, fringe: 'none', len: 0, sides: 'fade' },
+  { name: 'Side part', vol: 1, fringe: 'part', len: 0, sides: 'full' },
+  { name: 'Quiff', vol: 2, fringe: 'quiff', len: 0, sides: 'fade' },
+  { name: 'Undercut', vol: 1, fringe: 'undercut', len: 0, sides: 'fade' },
+  { name: 'Man bun', vol: 1, fringe: 'slick', len: 0, sides: 'full', extra: 'manbun' },
+  { name: 'Mohawk', vol: 2, fringe: 'none', len: 0, sides: 'fade', extra: 'mohawk' },
+  { name: 'Bald', vol: 0, fringe: 'bald', len: 0, sides: 'fade' },
+  { name: 'Bob', vol: 1, fringe: 'full', len: 1, sides: 'full' },
+  { name: 'Shoulder length', vol: 1, fringe: 'side', len: 2, sides: 'full' },
+  { name: 'Long straight', vol: 1, fringe: 'part', len: 3, sides: 'full' },
+  { name: 'Ponytail', vol: 1, fringe: 'side', len: 0, sides: 'full', extra: 'pony' },
+  { name: 'Bun', vol: 1, fringe: 'part', len: 0, sides: 'full', extra: 'bun' },
+  { name: 'Pigtails', vol: 1, fringe: 'full', len: 0, sides: 'full', extra: 'pigtails' },
+  { name: 'Curly long', vol: 2, fringe: 'curls', len: 2, sides: 'full', extra: 'curly' },
+  { name: 'Wavy long', vol: 2, fringe: 'side', len: 3, sides: 'full', extra: 'curly' },
+  { name: 'Pixie', vol: 1, fringe: 'pixie', len: 0, sides: 'full' },
 ];
 
 // kind decides the pattern; a is the main colour, b the second one.
@@ -81,10 +88,19 @@ export const ACCESSORIES = [
   { name: 'Bandana', kind: 'bandana', color: '#c0392b' },
 ];
 
+export const PETS = [
+  { kind: 'cat', name: 'Orange tabby', a: '#e8913a', b: '#fff1dc', pattern: 'tabby' },
+  { kind: 'cat', name: 'Grey cat', a: '#8d939b', b: '#eceef2', pattern: 'plain' },
+  { kind: 'cat', name: 'Tuxedo cat', a: '#2e2e36', b: '#f4f4f4', pattern: 'tux' },
+  { kind: 'dog', name: 'Golden pup', a: '#d9a24c', b: '#f6dca8', pattern: 'plain' },
+  { kind: 'dog', name: 'Spotted pup', a: '#f2efe6', b: '#5a3a22', pattern: 'spots' },
+  { kind: 'dog', name: 'Husky', a: '#4a5260', b: '#f4f4f4', pattern: 'mask' },
+];
+
 const clampInt = (v, lo, hi, d) => (Number.isInteger(v) && v >= lo && v <= hi ? v : d);
 const hsv3 = (v, d) => (Array.isArray(v) && v.length === 3 ? v.map((x, i) => clampInt(Math.round(x), 0, 100, d[i])) : d);
 
-export const DEFAULT_LOOK = Object.freeze({ body: 0, skin: 3, hair: 0, shirt: 0, acc: 0, eyes: [55, 60, 55], hairColor: [6, 70, 45], pants: [62, 55, 40] });
+export const DEFAULT_LOOK = Object.freeze({ body: 0, skin: 3, hair: 1, shirt: 0, acc: 0, pet: 0, eyes: [55, 60, 55], hairColor: [6, 70, 45], pants: [62, 55, 40] });
 
 // Any untrusted object -> a valid look (missing or bad fields fall back to the default).
 export function sanitizeLook(l) {
@@ -96,6 +112,7 @@ export function sanitizeLook(l) {
     hair: clampInt(l.hair, 0, HAIR.length - 1, d.hair),
     shirt: clampInt(l.shirt, 0, SHIRTS.length - 1, d.shirt),
     acc: clampInt(l.acc, 0, ACCESSORIES.length - 1, d.acc),
+    pet: clampInt(l.pet, -1, PETS.length - 1, d.pet),
     eyes: hsv3(l.eyes, d.eyes),
     hairColor: hsv3(l.hairColor, d.hairColor),
     pants: hsv3(l.pants, d.pants),
@@ -107,8 +124,9 @@ export function randomLook(rand = Math.random) {
   const pick = (n) => Math.floor(rand() * n);
   const r100 = () => pick(101);
   return sanitizeLook({
-    body: pick(2), skin: pick(16), hair: pick(HAIR.length - 1), shirt: pick(SHIRTS.length),
+    body: pick(2), skin: pick(16), hair: (() => { let h; do h = pick(HAIR.length); while (HAIR[h].fringe === 'bald'); return h; })(), shirt: pick(SHIRTS.length),
     acc: rand() < 0.4 ? 0 : pick(ACCESSORIES.length),
+    pet: pick(PETS.length),
     eyes: [r100(), 40 + pick(50), 35 + pick(50)],
     hairColor: rand() < 0.75 ? NATURAL_HAIR[pick(NATURAL_HAIR.length)] : [r100(), 50 + pick(50), 50 + pick(50)],
     pants: [r100(), 20 + pick(70), 20 + pick(60)],
