@@ -399,6 +399,7 @@ $('btn-home').onclick = () => { setMode('walk'); closeTalk(); send({ type: 'home
 $('btn-chat').onclick = () => openChat();
 $('btn-bag').onclick = () => (modalKind === 'bag' ? closeModal() : showBag());
 $('btn-me').onclick = () => (modalKind === 'me' ? closeModal() : showMe());
+$('btn-settings').onclick = () => (modalKind === 'settings' ? closeModal() : showSettings());
 $('cam-left').onclick = () => turnCamera(-1);
 $('cam-right').onclick = () => turnCamera(1);
 $('zoom-in').onclick = () => view.zoomBy(1 / 1.25);
@@ -1059,48 +1060,68 @@ function commit(h) {
   }
 }
 
-// ---------- Cheat console (Ctrl/Cmd + Shift + C, or the ` key) ----------
-function openConsole() {
-  $('console').hidden = false;
-  $('console-input').focus();
+// ---------- Settings (cheat console + controls) ----------
+// The console form lives in index.html and is moved into the settings sheet when it opens.
+const consoleForm = $('console');
+const consoleLog = $('console-log');
+const consoleInput = $('console-input');
+consoleForm.remove();
+const CHEAT_CHIPS = ['testingcheats true', 'motherlode', 'kaching', 'freerealestate on', 'bb.enablefreebuild', 'help'];
+
+function showSettings() {
+  const body = openModal('settings', '⚙️ Settings');
+  body.insertAdjacentHTML('beforeend', `
+    <h3>🧪 Cheats</h3>
+    <p class="muted">Type <b>testingcheats true</b> first, then <b>money 5000</b>, <b>motherlode</b> (+50,000), <b>kaching</b> or <b>rosebud</b> (+1,000), <b>freerealestate on</b> or <b>bb.enablefreebuild</b>.</p>`);
+  body.appendChild(consoleForm);
+  const chips = document.createElement('div');
+  chips.className = 'chips';
+  for (const cmd of CHEAT_CHIPS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chip';
+    b.textContent = cmd;
+    b.onclick = () => runCheat(cmd);
+    chips.appendChild(b);
+  }
+  body.appendChild(chips);
+  body.insertAdjacentHTML('beforeend', `
+    <h3>🎮 Controls</h3>
+    <div class="keys">
+      <span>Walk</span><span>WASD / arrows · drag on a phone</span>
+      <span>Rotate camera</span><span>hold the scroll wheel and drag · Q / E · two-finger twist</span>
+      <span>Move camera</span><span>right-drag · two-finger drag</span>
+      <span>Zoom</span><span>mouse wheel · pinch</span>
+      <span>Talk</span><span>Enter, or click a villager</span>
+      <span>Build mode</span><span>B · R rotate · V walls · PgUp/PgDn floors</span>
+    </div>`);
+  consoleLog.scrollTop = consoleLog.scrollHeight;
+  if (matchMedia('(pointer: fine)').matches) consoleInput.focus();
 }
-function closeConsole() { $('console').hidden = true; $('console-input').blur(); }
-function consoleLine(text) {
+
+function consoleLine(text, mine = false) {
   const d = document.createElement('div');
   d.textContent = text;
-  const log = $('console-log');
-  log.appendChild(d);
-  while (log.children.length > 5) log.firstChild.remove();
-  $('console').hidden = false;
+  if (mine) d.className = 'mine';
+  consoleLog.appendChild(d);
+  while (consoleLog.children.length > 40) consoleLog.firstChild.remove();
+  consoleLog.scrollTop = consoleLog.scrollHeight;
+  if (!mine && modalKind !== 'settings') toast(text);
 }
-$('console').onsubmit = (e) => {
-  e.preventDefault();
-  const cmd = $('console-input').value.trim();
+function runCheat(cmd) {
+  cmd = cmd.trim();
   if (!cmd) return;
-  consoleLine('> ' + cmd);
+  consoleLine('> ' + cmd, true);
   const c = cmd.toLowerCase();
   if (c.startsWith('freerealestate')) S.freeLand = /\b(on|true)\b/.test(c);
   send({ type: 'cheat', cmd });
-  $('console-input').value = '';
+}
+consoleForm.onsubmit = (e) => {
+  e.preventDefault();
+  runCheat(consoleInput.value);
+  consoleInput.value = '';
 };
-$('console-input').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeConsole(); e.stopPropagation(); });
-$('console-close').onclick = closeConsole;
-// Phones: tap the coins five times.
-let coinTaps = [];
-$('coins').addEventListener('click', () => {
-  const now = performance.now();
-  coinTaps = [...coinTaps.filter((t) => now - t < 2000), now];
-  if (coinTaps.length >= 5) { coinTaps = []; openConsole(); }
-});
-addEventListener('keydown', (e) => {
-  if (!S.me) return;
-  const combo = (e.ctrlKey || e.metaKey) && e.shiftKey && e.code === 'KeyC';
-  if (combo || (e.code === 'Backquote' && document.activeElement?.tagName !== 'INPUT')) {
-    e.preventDefault();
-    e.stopPropagation();
-    if ($('console').hidden) openConsole(); else closeConsole();
-  }
-}, true);
+consoleInput.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); e.stopPropagation(); });
 
 // ---------- Input ----------
 const cv = $('game');

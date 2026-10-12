@@ -37,7 +37,7 @@ You can also befriend villagers whose personalities change based on how you trea
   - They remember facts about you, keep the last few lines of your conversation, and pass gossip to each other.
   - Their mood and how much they like you change their shop prices.
 - **Farming.** Till soil, plant seeds, harvest into your bag, then sell to Rosa.
-- **Cheat console.** Open it with **Ctrl/Cmd + Shift + C**, the **`** key, or by tapping your coins 5 times on a phone. Desktop Chrome may keep Ctrl/Cmd + Shift + C for DevTools.
+- **Cheat console** in **⚙️ Settings → Cheats** (the same on desktop and phones). Type a command or tap one of the shortcut chips.
   Type `testingcheats true` first, then any of:
   - `money 9999999` sets your coins.
   - `motherlode` gives +50,000. `kaching` and `rosebud` give +1,000.
@@ -108,7 +108,7 @@ Players can also change the server under **Server** on the join screen.
 | Camera          | middle-drag to orbit, right-drag to pan, Q / E to turn, wheel to zoom | two-finger drag to pan, twist to rotate, pinch to zoom, ⟲ ⟳ + − buttons |
 | Talk / interact | Enter, or click an NPC                        | tap the action button or the NPC   |
 | Build mode      | B · R rotate · V walls · PgUp/PgDn floors · WASD or right-drag to pan | two-finger drag to pan |
-| Cheat console   | Ctrl/Cmd + Shift + C, or `                     | tap the coins 5×                   |
+| Cheat console   | ⚙️ Settings → Cheats                           | ⚙️ Settings → Cheats               |
 
 ## Ideas for next steps
 

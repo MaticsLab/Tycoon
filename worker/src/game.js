@@ -557,7 +557,7 @@ export class Game {
     this.landChanged([plot, fresh]);
   }
 
-  // ----- cheat console (Ctrl/Cmd + Shift + C) -----
+  // ----- cheat console (Settings → Cheats) -----
   cheat(s, { cmd }) {
     const say = (text) => s.send({ type: 'console', text });
     if (this.cheatsMode === 'off') return say('Cheats are turned off on this server.');
