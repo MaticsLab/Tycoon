@@ -1,0 +1,18 @@
+<!doctype html><html><body style="background:#5a8a3a;margin:0">
+<!-- Dev-only sprite sheet: run `npx vite` in client/ and open /lookbook.html#npc (or #hair, #shirt, #acc, #pets). Not part of the build. -->
+<div id="out" style="display:flex;flex-wrap:wrap;gap:6px;padding:6px"></div>
+<script type="module">
+import { drawLook } from './src/people.js';
+import { drawPet } from './src/pets.js';
+import { HAIR, SHIRTS, ACCESSORIES, DEFAULT_LOOK, randomLook } from '@shared/look.js';
+import { NPCS } from '@shared/npcs.js';
+const out = document.getElementById('out');
+const add = (look, opts = {}) => { const cv = document.createElement('canvas'); cv.width = +(new URLSearchParams(location.search).get("w") || 72); cv.height = cv.width * 5 / 3; cv.style.background = '#8fc0e8'; drawLook(cv, look, opts); out.appendChild(cv); };
+const mode = location.hash.slice(1);
+if (mode === 'pets') { for (let i = 0; i < 6; i++) for (const [d, sit, f] of [[0, false, 0], [3, false, 0], [3, false, 1], [1, false, 0], [0, true, 0]]) { const cv = document.createElement('canvas'); cv.width = cv.height = 96; cv.style.background = '#7fbf5a'; drawPet(cv, i, { dir: d, sit }); out.appendChild(cv); } }
+else if (mode.startsWith('pick')) { for (const i of mode.split(':')[1].split('.').map(Number)) for (const d of [0, 3, 1]) add({ ...DEFAULT_LOOK, hair: i, hairColor: [[8, 75, 40], [75, 45, 35], [70, 50, 25], [13, 80, 95], [6, 65, 45], [9, 70, 75]][i % 6], shirt: [1, 4, 4, 1, 13, 3][i % 6] }, { dir: d }); }
+else if (mode === 'hair') HAIR.forEach((_, i) => { add({ ...DEFAULT_LOOK, hair: i }); add({ ...DEFAULT_LOOK, hair: i, body: 1, hairColor: [95, 40, 80] }, { dir: 1 }); add({ ...DEFAULT_LOOK, hair: i }, { dir: 3 }); });
+else if (mode === 'shirt') SHIRTS.forEach((_, i) => { add({ ...DEFAULT_LOOK, shirt: i, hair: i % 16, body: i % 2 }); add({ ...DEFAULT_LOOK, shirt: i, body: i % 2 }, { dir: 3, frame: 1 }); });
+else if (mode === 'acc') ACCESSORIES.forEach((_, i) => { add({ ...DEFAULT_LOOK, acc: i, hair: 6 }); add({ ...DEFAULT_LOOK, acc: i, hair: 6 }, { dir: 3 }); });
+else { for (const n of Object.values(NPCS)) for (const d of [0, 3, 1]) add(n.look, { dir: d }); let s = 7; const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647); for (let i = 0; i < 12; i++) add(randomLook(rnd)); for (const f of [0,1,2,3]) add(NPCS.rosa.look, { frame: f }); for (const f of [0,1,2,3]) add(NPCS.rosa.look, { dir: 2, frame: f }); }
+</script></body></html>
