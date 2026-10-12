@@ -292,9 +292,30 @@ export class View {
 }
 
 const spriteMats = new Map();
+// Villager and pet sprites face the camera, so on their own they lean back toward
+// whatever stands behind them and a wall behind you slices through your head. Each
+// pixel instead gets the depth it would have on an upright figure standing at the feet:
+// walls behind you stay behind, while a bed or wall really in front still hides the
+// parts of you it should.
+function feetDepth(shader) {
+  shader.vertexShader = shader.vertexShader.replace(
+    'gl_Position = projectionMatrix * mvPosition;',
+    `gl_Position = projectionMatrix * mvPosition;
+    vec3 upView = normalize( modelViewMatrix[ 1 ].xyz );
+    vec4 upright = mvPosition;
+    upright.z += rotatedPosition.y * upView.z / max( upView.y, 0.05 );
+    vec4 uprightClip = projectionMatrix * upright;
+    gl_Position.z = ( uprightClip.z / uprightClip.w - 0.001 ) * gl_Position.w;`,
+  );
+}
 function spriteMat(tex) {
   let m = spriteMats.get(tex);
-  if (!m) { m = new THREE.SpriteMaterial({ map: tex, alphaTest: 0.5 }); spriteMats.set(tex, m); }
+  if (!m) {
+    m = new THREE.SpriteMaterial({ map: tex, alphaTest: 0.5 });
+    m.onBeforeCompile = feetDepth;
+    m.customProgramCacheKey = () => 'feet-depth';
+    spriteMats.set(tex, m);
+  }
   return m;
 }
 

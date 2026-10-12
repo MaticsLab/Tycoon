@@ -1480,37 +1480,41 @@ function update(dt) {
 
 // ---------- Pets ----------
 // Every villager's pet follows them around. Pets are cosmetic, so each client runs
-// them locally from their owner's position.
-const pets = new Map(); // owner id -> { x, y, dir, moving, idle, level, stuck, heartUntil }
-const PET_SPEED = PLAYER_SPEED * 1.25;
-const BEHIND = [[0, -1], [0, 1], [1, 0], [-1, 0]]; // owner dir -> where "behind" is
+// them locally: a pet walks the path its owner actually took (through doors and up
+// the stairs), staying a couple of steps behind.
+const pets = new Map(); // owner id -> { x, y, level, dir, moving, idle, path: [{x, y, level}], heartUntil }
+const PET_SPEED = PLAYER_SPEED * 1.3;
+const PET_GAP = 18;    // px of path to stay behind the owner
 function petOf(owner) {
   const idx = sanitizeLook(owner.look).pet;
   return idx >= 0 ? idx : null;
 }
 function updatePets(dt) {
-  const owners = [S.me, ...S.players.values()];
   const seen = new Set();
-  for (const o of owners) {
+  for (const o of [S.me, ...S.players.values()]) {
     if (!o || petOf(o) == null) continue;
     seen.add(o.id);
-    const [bx, by] = BEHIND[o.dir || 0];
-    const tx = o.x + bx * 14 + (o.dir < 2 ? 8 : 0), ty = o.y + by * 10 + (o.dir >= 2 ? 6 : 0);
-    let p = pets.get(o.id);
-    if (!p) { p = { x: tx, y: ty, dir: 0, moving: false, idle: 0, level: o.level || 0, stuck: 0, heartUntil: 0 }; pets.set(o.id, p); }
-    const dx = tx - p.x, dy = ty - p.y, dist = Math.hypot(dx, dy);
     const lvl = o.level || 0;
-    if (dist > 160 || p.level !== lvl && dist > 24) { Object.assign(p, { x: tx, y: ty, level: lvl, stuck: 0 }); continue; }
+    let p = pets.get(o.id);
+    if (!p) { p = { x: o.x, y: o.y + 4, level: lvl, dir: 0, moving: false, idle: 0, path: [], heartUntil: 0 }; pets.set(o.id, p); }
+    // Record the owner's trail; a big jump (home, teleport) means start over beside them.
+    const last = p.path[p.path.length - 1] || p;
+    const jump = Math.hypot(o.x - last.x, o.y - last.y);
+    if (jump > 64) { Object.assign(p, { x: o.x, y: o.y + 4, level: lvl, path: [] }); continue; }
+    if (jump > 3 || last.level !== lvl) p.path.push({ x: o.x, y: o.y, level: lvl });
+    if (p.path.length > 240) Object.assign(p, p.path[p.path.length - 40], { path: p.path.slice(-40) });
+    // How much trail is left between pet and owner?
+    let left = 0, px0 = p.x, py0 = p.y;
+    for (const q of p.path) { left += Math.hypot(q.x - px0, q.y - py0); px0 = q.x; py0 = q.y; }
     p.moving = false;
-    if (dist > (o.moving ? 6 : 14)) {
-      const sp = Math.min(PET_SPEED * (dist > 60 ? 1.4 : 1), dist * 4) * dt;
-      const nx = p.x + (dx / dist) * sp, ny = p.y + (dy / dist) * sp;
-      let moved = false;
-      if (canStand(world, S.plots, nx, p.y, lvl)) { p.x = nx; moved = true; }
-      if (canStand(world, S.plots, p.x, ny, lvl)) { p.y = ny; moved = true; }
-      if (moved) { p.moving = true; p.stuck = 0; p.dir = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 2 : 3) : (dy < 0 ? 1 : 0); }
-      else if ((p.stuck += dt) > 1.2) Object.assign(p, { x: o.x, y: o.y + 2, stuck: 0 });
-      p.level = lvl;
+    let budget = left > PET_GAP ? Math.min(left - PET_GAP, PET_SPEED * (left > 80 ? 1.6 : 1) * dt) : 0;
+    while (budget > 0.01 && p.path.length) {
+      const q = p.path[0];
+      const dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy);
+      if (d > 0.01) p.dir = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 2 : 3) : (dy < 0 ? 1 : 0);
+      if (d <= budget) { p.x = q.x; p.y = q.y; p.level = q.level; p.path.shift(); budget -= d; }
+      else { p.x += (dx / d) * budget; p.y += (dy / d) * budget; budget = 0; }
+      p.moving = true;
     }
     p.idle = p.moving ? 0 : p.idle + dt;
   }
@@ -1659,7 +1663,7 @@ requestAnimationFrame(frame);
 // Test hook: ?debug exposes state and helpers for automated playtests.
 if (new URLSearchParams(location.search).has('debug')) {
   window.__tycoon = {
-    S, view, world,
+    S, view, world, pets,
     // Screen position of a plot-local point (at floor height + h).
     plotToClient: (lx, ly, h = 0, plotId = S.myPlot) => { const d = S.plots[plotId]; return view.toScreen(d.x + lx, S.level * LEVEL_H + h, d.y + ly); },
     worldToClient: (x, z, h = 0) => view.toScreen(x, h, z),
