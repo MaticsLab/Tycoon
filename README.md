@@ -22,7 +22,8 @@ You can also befriend villagers whose personalities change based on how you trea
   - **Split**: cut off an empty side, which goes up for sale as a new plot.
   - **Pave road / Dig up road**: move a road that crosses your land. Every end of the road must stay connected. To close a road completely, ask City Hall.
   Your house keeps its place in the world while the plot's edges move around it.
-  In build mode your plot is outlined, nearby plots show faintly, and public road tiles on your land are shaded.
+  In build mode your plot is outlined with a tile grid, nearby plots show faintly, and public road tiles on your land are shaded.
+  Everything you place is previewed in its real colours (red if it can't go there), with a label at the cursor giving the price and the reason.
 - **Public places:** the Town Square, City Hall, Willow Park (a lake, a gazebo and benches) and the Harvest Fair (a pumpkin patch, corn rows and market stalls).
 - **Seasons follow the real calendar.** From September to November the trees turn red and gold, leaves cover the ground and pumpkins fill the fair.
   In October the village decorates for Halloween with jack-o'-lanterns, hay bales, bubbling cauldrons and a spooky graveyard. Fall decorations are also for sale in build mode.
@@ -127,7 +128,7 @@ Players can also change the server under **Server** on the join screen.
 | Run             | hold Shift while walking                      | drag the joystick far out          |
 | Camera          | middle-drag to orbit, right-drag to pan, Q / E to turn, wheel to zoom | two-finger drag to pan, twist to rotate, pinch to zoom, ⟲ ⟳ + − buttons |
 | Talk / interact | Enter, or click an NPC                        | tap the action button or the NPC   |
-| Build mode      | B · R rotate · V walls · PgUp/PgDn floors · WASD or right-drag to pan | two-finger drag to pan |
+| Build mode      | B · R or right-click rotate · V walls · PgUp/PgDn floors · Ctrl/Cmd+Z undo · Alt+click eyedropper · Delete sledgehammer · WASD or right-drag to pan | two-finger drag to pan, ↶ Undo button |
 | Cheat console   | ⚙️ Settings → Cheats                           | ⚙️ Settings → Cheats               |
 
 ## Ideas for next steps

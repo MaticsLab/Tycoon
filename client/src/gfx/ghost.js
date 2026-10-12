@@ -2,12 +2,37 @@
 import * as THREE from 'three';
 import { footprint } from '@shared/plot.js';
 import { boxAt } from './geom.js';
-import { makeItem } from './models.js';
-import { WALL_H } from './textures.js';
+import { makeItem, hasModel } from './models.js';
+import { WALL_H, wallTex, floorTex, roofTex } from './textures.js';
+import { objectSprite } from '../sprites.js';
+import { texOf } from './billboards.js';
 import { LEVEL_H } from './houses.js';
 
 const mk = (color) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.45, depthWrite: false });
 const OK = mk('#7dff8a'), BAD = mk('#ff5a5a'), TILE_OK = mk('#a6ffb0'), TILE_BAD = mk('#ff8a8a');
+
+// See-through copies of real materials for previews: true colours when it fits,
+// tinted red when it doesn't.
+const previewCache = new Map();
+function preview(mat, ok) {
+  const k = `${mat.uuid}|${ok}`;
+  let m = previewCache.get(k);
+  if (!m) {
+    m = mat.clone();
+    m.transparent = true; m.opacity = ok ? 0.82 : 0.6; m.depthWrite = false;
+    // A soft glow keeps previews readable at night.
+    if (!ok) { m.color = new THREE.Color('#ff7070'); if (m.emissive) m.emissive = new THREE.Color('#5a0000'); }
+    else if (m.emissive) m.emissive = new THREE.Color('#4a4a40');
+    previewCache.set(k, m);
+  }
+  return m;
+}
+const texPreview = (key, tex, ok) => {
+  const k = `tex|${key}`;
+  let base = previewCache.get(k);
+  if (!base) { base = new THREE.MeshLambertMaterial({ map: tex }); previewCache.set(k, base); }
+  return preview(base, ok);
+};
 
 export class Ghost {
   constructor(scene) {
@@ -22,12 +47,21 @@ export class Ghost {
   }
 
   // edges: [[d, x, y]] in plot-local coordinates
-  walls(edges, def, level, ok, low = false) {
+  // m: a wall material id to preview in its real texture (else a plain highlight).
+  walls(edges, def, level, ok, low = false, m = null) {
     const y = level * LEVEL_H, h = low ? 0.4 : WALL_H;
+    const mat = m ? texPreview(`wall|${m}`, wallTex(m), ok) : ok ? OK : BAD;
     for (const [d, x, z] of edges) {
-      const g = d === 'h' ? boxAt(def.x + x, y, def.y + z - 0.08, 1, h, 0.16) : boxAt(def.x + x - 0.08, y, def.y + z, 0.16, h, 1);
-      this.group.add(new THREE.Mesh(g, ok ? OK : BAD));
+      const g = d === 'h' ? boxAt(def.x + x, y, def.y + z - 0.07, 1, h, 0.14) : boxAt(def.x + x - 0.07, y, def.y + z, 0.14, h, 1);
+      this.group.add(new THREE.Mesh(g, mat));
     }
+  }
+
+  // Floor (or roof) tiles in their real texture.
+  texturedTiles(tiles, def, level, ok, kind, id, height = 0.04) {
+    const y = level * LEVEL_H;
+    const mat = kind === 'roof' ? texPreview(`roof|${id}`, roofTex(id), ok) : texPreview(`floor|${id}`, floorTex(id), ok);
+    for (const [x, z] of tiles) this.group.add(new THREE.Mesh(boxAt(def.x + x, y + 0.01, def.y + z, 1, height, 1), mat));
   }
 
   tiles(tiles, def, level, ok, height = 0.04) {
@@ -35,15 +69,27 @@ export class Ghost {
     for (const [x, z] of tiles) this.group.add(new THREE.Mesh(boxAt(def.x + x + 0.04, y + 0.02, def.y + z + 0.04, 0.92, height, 0.92), ok ? TILE_OK : TILE_BAD));
   }
 
+  // The item itself, in its real colours (red-tinted if it can't go there), over its footprint.
   item(t, r, def, lx, ly, level, ok) {
     const [w, h] = footprint(t, r);
     const tiles = [];
     for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) tiles.push([lx + i, ly + j]);
-    this.tiles(tiles, def, level, ok);
-    if (ok) {
-      const m = makeItem(t, r, def.x + lx, level * LEVEL_H, def.y + ly);
-      m.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.material = OK; } });
+    this.tiles(tiles, def, level, ok, 0.03);
+    const y = level * LEVEL_H;
+    if (hasModel(t)) {
+      const m = makeItem(t, r, def.x + lx, y, def.y + ly);
+      m.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.material = preview(o.material, ok); } });
       this.group.add(m);
+    } else {
+      // Pixel-art plants and crops: a card anchored at its base, like in the house view.
+      const spr = objectSprite(t, 0, 0);
+      let base = previewCache.get(`spr|${t}`);
+      if (!base) { base = new THREE.SpriteMaterial({ map: texOf(spr.cv), alphaTest: 0.3 }); previewCache.set(`spr|${t}`, base); }
+      const sp = new THREE.Sprite(preview(base, ok));
+      sp.center.set((8 - spr.dx) / spr.cv.width, 1 - (14 - spr.dy) / spr.cv.height);
+      sp.scale.set(spr.cv.width / 16, spr.cv.height / 16, 1);
+      sp.position.set(def.x + lx + w / 2, y, def.y + ly + h - 0.35);
+      this.group.add(sp);
     }
   }
 
@@ -71,6 +117,7 @@ export class Ghost {
 const LINE = new THREE.MeshBasicMaterial({ color: '#ffe36e', transparent: true, opacity: 0.95, depthWrite: false });
 const POST = new THREE.MeshBasicMaterial({ color: '#fff3b0' });
 const OTHER = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.35, depthWrite: false });
+const GRID = new THREE.LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.16, depthWrite: false });
 const ROAD = new THREE.MeshBasicMaterial({ color: '#ff7a4a', transparent: true, opacity: 0.28, depthWrite: false });
 
 export class Outline {
@@ -105,5 +152,12 @@ export class Outline {
       this.group.add(new THREE.Mesh(boxAt(px - 0.07, y, pz - 0.07, 0.14, 0.7, 0.14), POST));
     }
     for (const [tx, tz] of roads) this.group.add(new THREE.Mesh(boxAt(tx + 0.03, y, tz + 0.03, 0.94, 0.02, 0.94), ROAD));
+    // A faint tile grid over your land, to line things up by.
+    const pts = [];
+    for (let i = 1; i < plot.w; i++) pts.push(plot.x + i, y + 0.01, plot.y, plot.x + i, y + 0.01, plot.y + plot.h);
+    for (let j = 1; j < plot.h; j++) pts.push(plot.x, y + 0.01, plot.y + j, plot.x + plot.w, y + 0.01, plot.y + j);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    this.group.add(new THREE.LineSegments(g, GRID));
   }
 }
