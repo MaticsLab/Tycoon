@@ -29,7 +29,8 @@ export function roomTiles(plot, level, lx, ly) {
     const [x, y] = stack.pop();
     for (const [dx, dy, d, ex, ey] of [[1, 0, 'v', x + 1, y], [-1, 0, 'v', x, y], [0, 1, 'h', x, y + 1], [0, -1, 'h', x, y]]) {
       const nx = x + dx, ny = y + dy, k = key(nx, ny);
-      if (seen.has(k) || !view.floor[k] || plot.walls?.[edgeKey(level, d, ex, ey)]) continue;
+      const wall = plot.walls?.[edgeKey(level, d, ex, ey)];
+      if (seen.has(k) || !view.floor[k] || (wall && !ITEMS[wall.m]?.fence)) continue;
       seen.add(k);
       stack.push([nx, ny]);
     }

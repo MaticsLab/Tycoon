@@ -23,6 +23,10 @@ function mats() {
     FILL_OK: mk('#7dff8a', 0.18), FILL_BAD: mk('#ff5a5a', 0.25),
     WIRE: basic({ color: '#ffffff', transparent: true, opacity: 0.95, depthTest: false, lines: true }),
     ROOM_FILL: mk('#ffffff', 0.12),
+    // The wall cursor: a white pole with a pointed tip (red when you can't build there).
+    POLE: basic({ color: '#ffffff', transparent: true, opacity: 0.92, depthWrite: false }),
+    POLE_BAD: basic({ color: '#ff6a6a', transparent: true, opacity: 0.92, depthWrite: false }),
+    POLE_CAP: basic({ color: '#fff3a0' }),
   };
   return M;
 }
@@ -66,12 +70,30 @@ export class Ghost {
   // edges: [[d, x, y]] in plot-local coordinates
   // m: a wall material id to preview in its real texture (else a plain highlight).
   walls(edges, def, level, ok, low = false, m = null) {
-    const y = level * LEVEL_H, h = low ? 0.4 : WALL_H;
+    const y = level * LEVEL_H, h = low === 'fence' ? 0.95 : low ? 0.4 : WALL_H;
     const mat = m ? texPreview(`wall|${m}`, wallTex(m), ok) : ok ? mats().OK : mats().BAD;
     for (const [d, x, z] of edges) {
       const g = d === 'h' ? boxAt(def.x + x, y, def.y + z - 0.07, 1, h, 0.14) : boxAt(def.x + x - 0.07, y, def.y + z, 0.14, h, 1);
       this.add(g, mat);
     }
+  }
+
+  // The Sims wall cursor at grid corner (cx, cz) (plot-local): a tall white pole standing on
+  // the corner, a cone pointing down at the exact spot, a glowing cap and a ring on the floor.
+  wallCursor(cx, cz, def, level, ok = true) {
+    const m = mats(), mat = ok ? m.POLE : m.POLE_BAD;
+    const x = def.x + cx, z = def.y + cz, y = level * LEVEL_H, top = y + WALL_H + 0.7;
+    const parts = [boxAt(x - 0.035, y + 0.32, z - 0.035, 0.07, top - y - 0.32, 0.07)];
+    // the cone: stepped boxes narrowing to the tip
+    for (let i = 0; i < 6; i++) {
+      const r = 0.03 + i * 0.022;
+      parts.push(boxAt(x - r, y + 0.02 + i * 0.05, z - r, r * 2, 0.05, r * 2));
+    }
+    // a collar where the cone meets the pole, and a ring round the corner on the floor
+    parts.push(boxAt(x - 0.1, y + 0.32, z - 0.1, 0.2, 0.04, 0.2));
+    for (const [bx, bz, bw, bd] of [[-0.24, -0.24, 0.48, 0.04], [-0.24, 0.2, 0.48, 0.04], [-0.24, -0.2, 0.04, 0.4], [0.2, -0.2, 0.04, 0.4]]) parts.push(boxAt(x + bx, y + 0.03, z + bz, bw, 0.01, bd));
+    this.add(merge(parts), mat, 7);
+    this.add(boxAt(x - 0.09, top, z - 0.09, 0.18, 0.12, 0.18), m.POLE_CAP, 7);
   }
 
   // Floor (or roof) tiles in their real texture.
@@ -191,7 +213,11 @@ function omats() {
     LINE: basic({ color: '#ffe36e', transparent: true, opacity: 0.95, depthWrite: false }),
     POST: basic({ color: '#fff3b0' }),
     OTHER: basic({ color: '#ffffff', transparent: true, opacity: 0.35, depthWrite: false }),
-    GRID: basic({ color: '#ffffff', transparent: true, opacity: 0.16, depthWrite: false, lines: true }),
+    // The Sims-style build grid: crisp white lines over grass and floors alike, a little
+    // brighter every 4 tiles, and a dashed white line round the edge of the lot.
+    GRID: basic({ color: '#ffffff', transparent: true, opacity: 0.42, depthWrite: false }),
+    GRID4: basic({ color: '#ffffff', transparent: true, opacity: 0.62, depthWrite: false }),
+    DASH: basic({ color: '#ffffff', transparent: true, opacity: 0.9, depthWrite: false }),
     ROAD: basic({ color: '#ff7a4a', transparent: true, opacity: 0.28, depthWrite: false }),
   });
 }
@@ -213,7 +239,7 @@ export class Outline {
     if (sig === this.sig) return;
     this.clear();
     this.sig = sig;
-    const { LINE, POST, OTHER, GRID, ROAD } = omats();
+    const { LINE, POST, OTHER, GRID, GRID4, DASH, ROAD } = omats();
     const y = level * LEVEL_H + 0.03;
     // Everything of one material goes into one mesh.
     const parts = new Map();
@@ -224,16 +250,25 @@ export class Outline {
       }
     };
     for (const o of others) frame(o, OTHER, 0.06, 0.03);
-    frame(plot, LINE, 0.12, 0.05);
+    // The lot edge: a soft gold band with white dashes on it, and little corner posts.
+    frame(plot, LINE, 0.1, 0.012);
+    const dash = (x0, z0, len, horiz) => {
+      for (let t = 0.1; t < len - 0.05; t += 0.5) {
+        const l = Math.min(0.3, len - t);
+        add(DASH, horiz ? boxAt(x0 + t, y + 0.014, z0 - 0.03, l, 0.006, 0.06) : boxAt(x0 - 0.03, y + 0.014, z0 + t, 0.06, 0.006, l));
+      }
+    };
+    dash(plot.x, plot.y, plot.w, true); dash(plot.x, plot.y + plot.h, plot.w, true);
+    dash(plot.x, plot.y, plot.h, false); dash(plot.x + plot.w, plot.y, plot.h, false);
     for (const [px, pz] of [[plot.x, plot.y], [plot.x + plot.w, plot.y], [plot.x, plot.y + plot.h], [plot.x + plot.w, plot.y + plot.h]]) {
-      add(POST, boxAt(px - 0.07, y, pz - 0.07, 0.14, 0.7, 0.14));
+      add(POST, boxAt(px - 0.07, y, pz - 0.07, 0.14, 0.5, 0.14));
     }
     for (const [tx, tz] of roads) add(ROAD, boxAt(tx + 0.03, y, tz + 0.03, 0.94, 0.02, 0.94));
+    // A tile grid over your land, to line things up by: thin flat strips (lines would be
+    // a single pixel wide at any zoom), brighter every 4 tiles.
+    const t = 0.028;
+    for (let i = 1; i < plot.w; i++) add(i % 4 ? GRID : GRID4, boxAt(plot.x + i - t / 2, y + 0.01, plot.y, t, 0.004, plot.h));
+    for (let j = 1; j < plot.h; j++) add(j % 4 ? GRID : GRID4, boxAt(plot.x, y + 0.01, plot.y + j - t / 2, plot.w, 0.004, t));
     for (const [mat, list] of parts) toMesh(merge(list), mat, { parent: this.group, alphaIndex: 4 });
-    // A faint tile grid over your land, to line things up by.
-    const pts = [];
-    for (let i = 1; i < plot.w; i++) pts.push(plot.x + i, y + 0.01, plot.y, plot.x + i, y + 0.01, plot.y + plot.h);
-    for (let j = 1; j < plot.h; j++) pts.push(plot.x, y + 0.01, plot.y + j, plot.x + plot.w, y + 0.01, plot.y + j);
-    if (pts.length) toMesh(new Geo(pts, [], [], pts.map((_, i) => i).slice(0, pts.length / 3)), GRID, { parent: this.group, alphaIndex: 4 });
   }
 }

@@ -230,7 +230,8 @@ export function rectEdges(x, y, w, h) {
   return out;
 }
 
-const passable = (w) => !!(w && w.f && ITEMS[w.f]?.passable);
+const passable = (w) => !!(w && ((w.f && ITEMS[w.f]?.passable) || ITEMS[w.m]?.gate));
+export const isFence = (w) => !!ITEMS[w?.m]?.fence;
 
 // ---------- placement ----------
 // Returns null when OK, or a short reason string.
@@ -467,7 +468,7 @@ function hClosed(world, plots, tx, ty, level) {
   return edgeClosed(plots, 'h', tx, ty, level, plotAtTile(world, tx, ty - 1), plotAtTile(world, tx, ty));
 }
 
-// A world edge is closed by a (non-door) wall of either plot it borders. No fences.
+// A world edge is closed by a wall or fence (not a doorway or gate) of either plot it borders.
 function edgeClosed(plots, d, tx, ty, level, a, b) {
   for (const id of a === b ? [a] : [a, b]) {
     if (id < 0) continue;

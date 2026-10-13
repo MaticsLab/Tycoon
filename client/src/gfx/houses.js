@@ -10,6 +10,7 @@ import { Geo, box, quad, toMesh, node, lambert as mkLambert, basic as mkBasic } 
 import { objectSprite, cropSprite, treeSprite } from '../sprites.js';
 import { treeStage } from '@shared/nature.js';
 import { goodsBoxes } from './goods.js';
+import { FENCE_MODELS } from './models-fences.js';
 
 export { LEVEL_H }; // floor-to-floor height (shared with the game rules)
 export const LOW_H = 0.4; // cut-away wall height
@@ -231,6 +232,15 @@ export function buildPlot(plot, opts) {
   for (const [k, w] of Object.entries(plot.walls || {})) {
     const e = parseEdge(k);
     if (e.l > maxLevel || !ITEMS[w.m]) continue;
+    // Fences: a model per segment, along the grid line (turned for the north-south ones).
+    if (ITEMS[w.m].fence) {
+      if (FENCE_MODELS[w.m]) {
+        const boxes = FENCE_MODELS[w.m]();
+        if (e.d === 'h') itemInto(batch, w.m, 0, ox + e.x, e.l * LEVEL_H, oz + e.y - 0.5, 0, boxes);
+        else itemInto(batch, w.m, 1, ox + e.x - 0.5, e.l * LEVEL_H, oz + e.y, 0, boxes);
+      }
+      continue;
+    }
     const base = e.l * LEVEL_H;
     const low = lowered(plot, e, e.l, opts.cut);
     const H = low ? LOW_H : WALL_H;

@@ -22,7 +22,7 @@ You can also befriend villagers whose personalities change based on how you trea
   - **Split**: cut off an empty side, which goes up for sale as a new plot.
   - **Pave road / Dig up road**: move a road that crosses your land. Every end of the road must stay connected. To close a road completely, ask City Hall.
   Your house keeps its place in the world while the plot's edges move around it.
-  In build mode your plot is outlined with a tile grid, nearby plots show faintly, and public road tiles on your land are shaded.
+  In build mode your plot gets a Sims-style build grid: crisp white lines over grass and floors alike, with a dashed white border round the lot. Nearby plots show faintly, and public road tiles on your land are shaded. The wall and fence tools show a tall white pole with a pointer that snaps to the grid corners, so you can see exactly where a wall will start and end (it turns red where you can't build).
   Everything you place is previewed in its real colours (red if it can't go there), with a label at the cursor giving the price and the reason.
 - **Public places:** the Town Square, City Hall, Willow Park (a lake, a gazebo and benches) and the Harvest Fair (a pumpkin patch, corn rows and market stalls).
 - **Seasons follow the real calendar.** From September to November the trees turn red and gold, leaves cover the ground and pumpkins fill the fair.
@@ -47,7 +47,8 @@ You can also befriend villagers whose personalities change based on how you trea
     - **Each side paints separately:** the **🖌 Paint** wall tool paints one side of a wall, so the outside and inside can differ.
     - **Shift+click** paints a whole room's inside, or the whole outside of that building.
   - **Floors** are laid by dragging a rectangle. **Roofs** are gable roofs dragged over your rooms.
-  - **Two storeys and stairs.** Switch between *Ground floor* and *Upstairs* to build and furnish each one. Stairs (in **Walls & Stairs**) take up 1×3 tiles, can be rotated, and cut their own stairwell through the floor above. Walk onto them to go upstairs.
+  - **Two storeys and stairs.** Switch between *Ground floor* and *Upstairs* to build and furnish each one. Stairs (in **Walls & Stairs**) come in six styles: oak with a banister, painted box stairs, carpet-runner stairs, floating treads on a steel spine, stone steps and iron stairs. Each shows up as itself in the catalog. They take up 1×3 tiles, can be rotated, and cut their own stairwell through the floor above. Walk onto them to go upstairs.
+  - **Fences** have their own tab and build along the grid lines just like walls (drag a line or a whole pen, with the same pole cursor): white picket, ranch rail, woven willow, porch railing, wrought iron, dry-stone wall and box hedge. **Gates** (picket or iron) let people through. Fences block the way like walls but never close off a room, and they also work upstairs as balcony railings.
   - **Walls up / cutaway / down**, just like The Sims. When you walk inside a house, the walls cut away and the roof and upstairs hide automatically.
   - **Furniture** comes as small 3D models. Larger pieces span 2 or 4 tiles, and anything with a front can be rotated. Plants are pixel-art cards.
   - The **sledgehammer** removes anything with a full refund. Tap a door or window to remove just that, or drag a box to clear a whole area at once.

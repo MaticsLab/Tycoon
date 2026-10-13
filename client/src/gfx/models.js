@@ -6,6 +6,7 @@ import { footprint, LEVEL_H } from '@shared/plot.js';
 import { grainTex } from './textures.js';
 import { box, merge, toMesh, node, lambert, basic, linearRGB, rgbToHSL, hslToRGB, hexFromLinear, s2l, ctx } from './bjs.js';
 import { EXTRA_MODELS } from './models-extra.js';
+import { STAIR_MODELS } from './models-stairs.js';
 
 const WOOD = '#a8703f', WOOD_D = '#6b4424', WOOD_L = '#c99363', METAL = '#2f3542', WHITE = '#f4f6f7';
 // WOOD and WOOD_L carry the big surfaces (they stay readable under warm night light);
@@ -479,26 +480,6 @@ const MODELS = {
     [0.08, 0.6, 0.18, 1.84, 0.1, 0.64, '#e6d39a'], [0.4, 0.7, 0.4, 0.05, 0.4, 0.05, '#2d8a3c'], [1.5, 0.7, 0.3, 0.05, 0.5, 0.05, '#2d8a3c'],
     [0.7, 0.95, 0.5, 0.14, 0.08, 0.05, '#f39c12'], [1.2, 1.1, 0.4, 0.12, 0.07, 0.05, '#e74c3c'], [0.05, 1.32, 0.15, 1.9, 0.05, 0.7, '#2c3036'],
   ],
-  // 1x3, climbs north (away from its front): 12 solid steps, side stringers, handrails.
-  stairs: () => {
-    const out = [];
-    const n = 12, run = 3 / n, rise = LEVEL_H / n;
-    for (let i = 0; i < n; i++) {
-      const z = 3 - (i + 1) * run, top = (i + 1) * rise;
-      out.push([0.1, 0, z, 0.8, top - 0.04, run, WOOD]);
-      out.push([0.08, top - 0.05, z - 0.02, 0.84, 0.05, run + 0.02, i % 2 ? WOOD_L : '#d6a26d']);
-      out.push([0, 0, z, 0.1, top + 0.08, run, WOOD_D], [0.9, 0, z, 0.1, top + 0.08, run, WOOD_D]);
-      // Banister: a handrail following the slope with a spindle on every step.
-      for (const x of [0.01, 0.91]) out.push([x, top + 0.8, z - 0.01, 0.08, 0.07, run + 0.02, WOOD_L]);
-      for (const x of [0.03, 0.93]) out.push([x, top, z + run / 2 - 0.02, 0.04, 0.8, 0.04, '#e8dcc4']);
-    }
-    // Chunky newel posts at the bottom and the top.
-    for (const x of [0, 0.9]) {
-      out.push([x, 0, 2.86, 0.1, rise + 1.0, 0.1, WOOD_D], [x - 0.01, rise + 1.0, 2.85, 0.12, 0.06, 0.12, WOOD_L]);
-      out.push([x, LEVEL_H - 0.1, 0, 0.1, 1.0, 0.1, WOOD_D]);
-    }
-    return out;
-  },
   // ---------- fall & Halloween ----------
   pumpkin_deco: () => pumpkin(0.5, 0.36, false),
   jackolantern: () => pumpkin(0.72, 0.5, true),
@@ -580,7 +561,7 @@ const MODELS = {
   ],
 };
 
-Object.assign(MODELS, EXTRA_MODELS);
+Object.assign(MODELS, EXTRA_MODELS, STAIR_MODELS);
 
 // Items shown as camera-facing pixel-art cards instead of boxes.
 export const BILLBOARD = new Set(['houseplant', 'bush', 'sapling', 'scarecrow', 'statue', 'telescope', 'flowerbed']);

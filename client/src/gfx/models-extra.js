@@ -751,21 +751,21 @@ export const EXTRA_MODELS = {
   // ---------- more displays (slots in DISPLAY_SLOTS at the end of this file) ----------
   // Wall shelving: two bays of three shelves, surfaces y 1.28 / 0.74 / 0.2.
   wallshelf: () => {
-    const P = '#c9675a', PD = '#a84f44', T = '#d6a26d';
+    const P = '#c9675a', BK = '#efe6d6', BKD = '#d9cfbd', T = '#d6a26d';
     const out = [
       // plinth, kick board, sides, centre divider (light front edges)
       [0.04, 0, 0.1, 1.92, 0.12, 0.74, WOOD_D], [0.1, 0.02, 0.84, 1.8, 0.1, 0.02, WOOD],
       [0.02, 0, 0.04, 0.08, 1.88, 0.84, WOOD], [1.9, 0, 0.04, 0.08, 1.88, 0.84, WOOD], [0.96, 0.12, 0.08, 0.08, 1.74, 0.76, WOOD],
       [0.03, 0.02, 0.88, 0.06, 1.84, 0.006, WOOD_L], [1.91, 0.02, 0.88, 0.06, 1.84, 0.006, WOOD_L], [0.97, 0.14, 0.84, 0.06, 1.7, 0.006, WOOD_L],
-      // painted tongue-and-groove back boards
-      [0.1, 0.12, 0.04, 0.86, 1.74, 0.06, P], [1.04, 0.12, 0.04, 0.86, 1.74, 0.06, P],
+      // cream tongue-and-groove back boards
+      [0.1, 0.12, 0.04, 0.86, 1.74, 0.06, BK], [1.04, 0.12, 0.04, 0.86, 1.74, 0.06, BK],
       // crown: cornice, painted crest with blank name plates, warm lamps under the lip
       [0, 1.86, 0.02, 2, 0.06, 0.88, WOOD_L], [0.04, 1.92, 0.04, 1.92, 0.16, 0.06, P], [0.02, 2.08, 0.02, 1.96, 0.04, 0.1, WOOD_L],
       [0.28, 1.95, 0.1, 0.44, 0.1, 0.006, CREAM], [1.28, 1.95, 0.1, 0.44, 0.1, 0.006, CREAM], [0.94, 1.94, 0.1, 0.12, 0.12, 0.01, BRASS],
       [0.3, 1.82, 0.74, 0.4, 0.04, 0.06, '#fff1c4', true], [1.3, 1.82, 0.74, 0.4, 0.04, 0.06, '#fff1c4', true],
     ];
     for (const x0 of [0.1, 1.04]) {
-      for (let k = 1; k < 5; k++) out.push([x0 + k * 0.172 - 0.005, 0.12, 0.1, 0.01, 1.74, 0.004, PD]);
+      for (let k = 1; k < 5; k++) out.push([x0 + k * 0.172 - 0.005, 0.12, 0.1, 0.01, 1.74, 0.004, BKD]);
       for (const y of [1.28, 0.74, 0.2]) {
         out.push([x0, y - 0.04, 0.1, 0.86, 0.04, 0.74, WOOD_L], [x0, y - 0.05, 0.84, 0.86, 0.07, 0.02, T]);
         for (const tx of [x0 + 0.12, x0 + 0.56]) out.push([tx, y - 0.04, 0.86, 0.12, 0.05, 0.006, WHITE], [tx + 0.02, y - 0.02, 0.866, 0.06, 0.012, 0.004, '#d9534f']);
@@ -1095,7 +1095,7 @@ export const EXTRA_MODELS = {
     out.push([0.38, 0.68, 0.736, 0.06, 0.05, 0.004, WHITE], [0.48, 0.72, 0.736, 0.06, 0.05, 0.004, WHITE]);
     return out;
   },
-  // Market parasol: weighted base, wooden pole, a big square canopy striped down each face.
+  // Market parasol: weighted base, wooden pole, a big square canopy in eight striped panels.
   parasol: () => {
     const A = '#d9443a', B = CREAM, out = [
       [0.24, 0, 0.24, 0.52, 0.06, 0.52, METAL], ...disc(0.5, 0.5, 0.06, 0.08, 0.4, '#3a3e46'), ...disc(0.5, 0.5, 0.14, 0.04, 0.2, METAL),
@@ -1106,25 +1106,25 @@ export const EXTRA_MODELS = {
       [0.44, 1.6, 0.44, 0.12, 0.1, 0.12, WOOD], [0.49, 1.66, -0.16, 0.02, 0.03, 1.32, WOOD_D], [-0.16, 1.66, 0.49, 1.32, 0.03, 0.02, WOOD_D],
       [0.46, 2.12, 0.46, 0.08, 0.06, 0.08, BRASS], [0.475, 2.18, 0.475, 0.05, 0.04, 0.05, '#e6c46a'],
     ];
-    // square pyramid canopy: shrinking layers, each face striped from apex to hem
-    const L = 5, H0 = 0.78, y0 = 1.72, dy = 0.08, sw = 0.26;
-    const seg = (a0, a1, fn) => {
-      for (let a = a0; a < a1 - 1e-6;) {
-        let n = Math.floor(a / sw - 0.5) + 1;
-        if ((n + 0.5) * sw - a < 1e-6) n++;
-        const b = Math.min(a1, (n + 0.5) * sw);
-        fn(a, b, Math.round((a + b) / 2 / sw) & 1 ? B : A);
-        a = b;
-      }
-    };
+    // square pyramid canopy in eight alternating panels (two per face), finer steps near the top
+    const L = 7, H0 = 0.8, y0 = 1.72, dy = 0.058;
     for (let k = 0; k < L; k++) {
-      const h = H0 * (1 - k / L), hn = H0 * (1 - (k + 1) / L), y = y0 + k * dy;
-      seg(-h, h, (a, b, c) => out.push([0.5 + a, y, 0.5 + hn, b - a, dy, h - hn, c], [0.5 + a, y, 0.5 - h, b - a, dy, h - hn, c]));
-      seg(-hn, hn, (a, b, c) => out.push([0.5 - h, y, 0.5 + a, h - hn, dy, b - a, c], [0.5 + hn, y, 0.5 + a, h - hn, dy, b - a, c]));
+      const h = H0 * (1 - k / L), hn = H0 * (1 - (k + 1) / L), y = y0 + k * dy, t = h - hn;
+      out.push(
+        [0.5 - h, y, 0.5 + hn, h, dy, t, A], [0.5, y, 0.5 + hn, h, dy, t, B], // front: left, right
+        [0.5 - h, y, 0.5 - h, h, dy, t, B], [0.5, y, 0.5 - h, h, dy, t, A], // back: left, right
+      );
+      if (hn > 0) out.push(
+        [0.5 - h, y, 0.5 - hn, t, dy, hn, A], [0.5 - h, y, 0.5, t, dy, hn, B], // west: back, front
+        [0.5 + hn, y, 0.5 - hn, t, dy, hn, B], [0.5 + hn, y, 0.5, t, dy, hn, A], // east: back, front
+      );
     }
-    // scalloped hem on all four sides
-    seg(-H0, H0, (a, b, c) => out.push([0.5 + a + 0.015, y0 - 0.08, 0.5 + H0 - 0.02, b - a - 0.03, 0.08, 0.02, c], [0.5 + a + 0.015, y0 - 0.08, 0.5 - H0, b - a - 0.03, 0.08, 0.02, c],
-      [0.5 + H0 - 0.02, y0 - 0.08, 0.5 + a + 0.015, 0.02, 0.08, b - a - 0.03, c], [0.5 - H0, y0 - 0.08, 0.5 + a + 0.015, 0.02, 0.08, b - a - 0.03, c]));
+    // scalloped hem: three tongues per panel
+    for (let i = 0; i < 6; i++) {
+      const a = -H0 + (i * 2 * H0) / 6 + 0.02, w = (2 * H0) / 6 - 0.04, front = i < 3 ? A : B, back = i < 3 ? B : A, west = i < 3 ? A : B, east = i < 3 ? B : A;
+      out.push([0.5 + a, y0 - 0.09, 0.5 + H0 - 0.02, w, 0.09, 0.02, front], [0.5 + a, y0 - 0.09, 0.5 - H0, w, 0.09, 0.02, back],
+        [0.5 - H0, y0 - 0.09, 0.5 + a, 0.02, 0.09, w, west], [0.5 + H0 - 0.02, y0 - 0.09, 0.5 + a, 0.02, 0.09, w, east]);
+    }
     return out;
   },
   // Weighing scale: brass balance with two hanging pans on a little wooden stand.

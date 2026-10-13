@@ -13,6 +13,7 @@
 //   cat 'public': props for the village's public places, never for sale
 export const CATEGORIES = [
   { id: 'build', name: 'Walls & Stairs' },
+  { id: 'fence', name: 'Fences' },
   { id: 'opening', name: 'Doors & Windows' },
   { id: 'floor', name: 'Floors' },
   { id: 'roof', name: 'Roofs' },
@@ -45,7 +46,23 @@ export const ITEMS = {
   wall_paper:    { name: 'Floral Wallpaper', cat: 'build', layer: 'wall', price: 14, color: '#e8c3c9' },
   wall_wainscot: { name: 'Wainscoting',   cat: 'build', layer: 'wall', price: 17, color: '#c9dcc4' },
 
-  stairs:        { name: 'Staircase',    cat: 'build', layer: 'obj', price: 120, size: [1, 3], rot: 'face', stairs: true },
+  stairs:        { name: 'Oak Staircase', cat: 'build', layer: 'obj', price: 120, size: [1, 3], rot: 'face', stairs: true },
+  stairs_box:    { name: 'Painted Box Stairs', cat: 'build', layer: 'obj', price: 110, size: [1, 3], rot: 'face', stairs: true },
+  stairs_runner: { name: 'Runner Stairs', cat: 'build', layer: 'obj', price: 140, size: [1, 3], rot: 'face', stairs: true },
+  stairs_float:  { name: 'Floating Stairs', cat: 'build', layer: 'obj', price: 180, size: [1, 3], rot: 'face', stairs: true },
+  stairs_stone:  { name: 'Stone Steps',   cat: 'build', layer: 'obj', price: 150, size: [1, 3], rot: 'face', stairs: true },
+  stairs_iron:   { name: 'Iron Stairs',   cat: 'build', layer: 'obj', price: 130, size: [1, 3], rot: 'face', stairs: true },
+
+  // Fences: built along grid lines like walls (fence: true); gates can be walked through.
+  fence_picket:  { name: 'White Picket',  cat: 'fence', layer: 'wall', price: 6, fence: true, color: '#f4f6f7' },
+  fence_ranch:   { name: 'Ranch Rail',    cat: 'fence', layer: 'wall', price: 5, fence: true, color: '#a8703f' },
+  fence_wattle:  { name: 'Woven Willow',  cat: 'fence', layer: 'wall', price: 6, fence: true, color: '#a88a5a' },
+  fence_porch:   { name: 'Porch Railing', cat: 'fence', layer: 'wall', price: 9, fence: true, color: '#9db8d6' },
+  fence_iron:    { name: 'Wrought Iron',  cat: 'fence', layer: 'wall', price: 10, fence: true, color: '#23262b' },
+  fence_stone:   { name: 'Dry-Stone Wall', cat: 'fence', layer: 'wall', price: 11, fence: true, color: '#9a9384' },
+  fence_hedge:   { name: 'Box Hedge',     cat: 'fence', layer: 'wall', price: 9, fence: true, color: '#3f8a35' },
+  fence_gate:    { name: 'Picket Gate',   cat: 'fence', layer: 'wall', price: 18, fence: true, gate: true, color: '#f4f6f7' },
+  fence_irongate: { name: 'Iron Gate',    cat: 'fence', layer: 'wall', price: 25, fence: true, gate: true, color: '#23262b' },
 
   door:          { name: 'Wood Door',    cat: 'opening', layer: 'feature', price: 25, passable: true },
   door_glass:    { name: 'French Door',  cat: 'opening', layer: 'feature', price: 45, passable: true },

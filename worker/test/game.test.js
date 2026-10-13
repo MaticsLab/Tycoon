@@ -1713,3 +1713,31 @@ test('nature: chop trees and break rocks, land clears when claimed, regrowth, pl
   assert.equal(w.tiles[(plan.y + 5) * MW + plan.x + 1], TT.PATH);
   assert.ok(game.city.roadBuilt(plan));
 });
+
+test('fences go along the grid like walls: they block the way, gates open, and a fenced patio is no room', async () => {
+  const { crossesWall } = await import('../../shared/plot.js');
+  const { roomRegion } = await import('../../shared/blueprint.js');
+  const { game, join } = setup();
+  const a = await join({ name: 'Ana' });
+  a.send({ type: 'cheat', cmd: 'testingcheats true' });
+  a.send({ type: 'cheat', cmd: 'motherlode' });
+  a.send({ type: 'claim', plotId: 0 });
+  const plot = game.plots[0];
+  stand(game, a, 0, 1, 1);
+  // A 3x3 pen of picket fence round a patio floor, with a gate on the south side.
+  const segs = [];
+  for (let i = 0; i < 3; i++) segs.push(['h', 4 + i, 4], ['h', 4 + i, 7], ['v', 4, 4 + i], ['v', 7, 4 + i]);
+  a.send({ type: 'walls', plotId: 0, segs, m: 'fence_picket' });
+  assert.equal(Object.values(plot.walls).filter((w) => w.m === 'fence_picket').length, 12);
+  a.send({ type: 'walls', plotId: 0, segs: [['h', 5, 7]], m: 'fence_gate' });
+  a.send({ type: 'floorRect', plotId: 0, x: 4, y: 4, w: 3, h: 3, item: 'floor_stone' });
+  const T = TILE, X = (lx) => (plot.x + lx + 0.5) * T, Y = (ly) => (plot.y + ly + 0.5) * T;
+  assert.ok(crossesWall(game.world, game.plots, X(4), Y(3), X(4), Y(5)), 'the fence blocks the way in');
+  assert.ok(!crossesWall(game.world, game.plots, X(5), Y(8), X(5), Y(6)), 'the gate opens');
+  // Doors don't go in fences.
+  a.send({ type: 'feature', plotId: 0, d: 'h', x: 6, y: 7, f: 'door' });
+  assert.match(a.last('error').msg, /gate/);
+  // The patio isn't walled in: room tools see it joined to the rest of the floor around it.
+  a.send({ type: 'floorRect', plotId: 0, x: 3, y: 4, w: 1, h: 1, item: 'floor_stone' });
+  assert.ok(roomRegion(plot, 0, 4, 4).tiles.has('3,4'), 'fences don’t close a room');
+});

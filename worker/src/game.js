@@ -672,6 +672,7 @@ export class Game {
     const k = edgeKey(level, d, x, y);
     const wall = plot.walls?.[k];
     if (!wall) return s.send({ type: 'error', msg: 'Doors and windows go into a wall' });
+    if (ITEMS[wall.m]?.fence) return s.send({ type: 'error', msg: 'Fences take a gate, not a door: pick one from Fences' });
     if (wall.f === f && featureWidth(f) < 2) return;
     // Double doors take this segment and the next one along the wall.
     const keys = [k];
@@ -704,7 +705,7 @@ export class Game {
     if (!plot || def?.layer !== 'wall' || ![0, 1].includes(side)) return;
     level = this.lvl(level);
     const k0 = edgeKey(level, d, x, y);
-    if (!plot.walls[k0]) return;
+    if (!plot.walls[k0] || !!ITEMS[plot.walls[k0].m]?.fence !== !!def.fence) return;
     const faces = [[k0, side]];
     const view = levelView(plot, level);
     const tileOn = (e, sd) => (e.d === 'h' ? [e.x, e.y - 1 + sd] : [e.x - 1 + sd, e.y]);

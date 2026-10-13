@@ -15,6 +15,8 @@ import { itemIcon } from './sprites.js';
 import { View, LEVEL_H } from './gfx/view.js';
 import { Ghost, Outline } from './gfx/ghost.js';
 import { slotFronts } from './gfx/goods.js';
+import { FENCE_MODELS } from './gfx/models-fences.js';
+import { modelIcon } from './modelicon.js';
 import { Minimap } from './minimap.js';
 import { roomTiles, roomRegion, extract, rotateTimes, fragmentValue, removeAt, stockFragment, placeError as fragError } from '@shared/blueprint.js';
 import { STYLED_ROOMS } from '@shared/rooms.js';
@@ -839,7 +841,7 @@ function cloneCanvas(src) {
 function iconFor(id) {
   if (!iconCache[id]) {
     const d = ITEMS[id];
-    iconCache[id] = d && ['wall', 'feature', 'roof'].includes(d.layer) ? swatchIcon(id) : itemIcon(id);
+    iconCache[id] = d?.fence ? modelIcon(FENCE_MODELS[id](), 44) : d && ['wall', 'feature', 'roof'].includes(d.layer) ? swatchIcon(id) : itemIcon(id);
   }
   return cloneCanvas(iconCache[id]);
 }
@@ -1184,7 +1186,7 @@ function renderItems() {
     const [w, h] = footprint(id, 0);
     b.title = `${def.name}${def.crop ? ` · grows in ${seasonsLabel(def.crop)}` : ''} · ${def.shop ? `×${S.inv[id]} in your bag` : `🪙${def.price}`}${w * h > 1 ? ` · ${w}×${h}` : ''}${canRotate(id) ? ' · rotatable' : ''}${def.light ? ' · glows at night' : ''}${def.slots ? ` · shows ${def.slots} kinds of goods${def.outdoor ? ', made for outdoors' : ''}` : ''}${def.solid ? '' : ' · walk-through'}`;
     const size = def.layer === 'obj' && w * h > 1 ? ` · ${w}×${h}` : '';
-    const unit = def.layer === 'wall' ? '/wall' : def.layer === 'roof' || def.layer === 'floor' ? '/tile' : '';
+    const unit = def.fence ? '/length' : def.layer === 'wall' ? '/wall' : def.layer === 'roof' || def.layer === 'floor' ? '/tile' : '';
     b.insertAdjacentHTML('beforeend', def.shop
       ? `<span>${esc(def.name)}</span><span class="count">×${S.inv[id]}${size}</span>`
       : `<span>${esc(def.name)}</span><span class="price">🪙${def.price}${unit}${size}</span>`);
@@ -1251,7 +1253,7 @@ const coarse = matchMedia('(pointer: coarse)').matches;
 function toolInfo(extra) {
   const t = S.tool, d = ITEMS[t.id];
   const msgs = {
-    wall: S.wallTool === 'paint' ? 'Paint: click one side of a wall to paint just that side (inside and outside can differ). Shift+click paints the whole room, or the whole outside of that building.' : S.wallTool === 'room' ? 'Drag from corner to corner to build a room (walls + wood floor).' : S.wallTool === 'chain' ? 'Custom room: click corner after corner; close the shape for a room with a floor, or double-click / Enter to stop.' : 'Drag along the grid lines to build a wall.',
+    wall: S.wallTool === 'paint' ? 'Paint: click one side of a wall to paint just that side (inside and outside can differ). Shift+click paints the whole room, or the whole outside of that building.' : S.wallTool === 'room' ? 'Drag from corner to corner to build a room (walls + wood floor).' : S.wallTool === 'chain' ? 'Custom room: click corner after corner; close the shape for a room with a floor, or double-click / Enter to stop.' : ITEMS[S.tool.id]?.fence ? 'Drag along the grid lines to build a fence (gates let you through).' : 'Drag along the grid lines to build a wall.',
     blueprint: 'Move it into place, R or right-click to turn, click to buy. Shop furniture isn’t included.',
     saveRoom: 'Click a room’s floor to save it to your library.',
     feature: 'Tap a wall to set the door or window into it.',
@@ -1469,12 +1471,12 @@ function previewInner() {
     if (!q) return;
     const p = chainSnap(q);
     const edges = S.chain ? chainEdges(S.chain, p) : [];
-    ghost.tiles([[p[0] - 0.2, p[1] - 0.2]], def, S.level, true, 0.5);
     if (S.chain) ghost.tiles(S.chain.map(([x, y]) => [x - 0.2, y - 0.2]), def, S.level, true, 0.5);
     const fresh = edges.filter((e) => !plot.walls?.[edgeKey(S.level, ...e)]);
     const cost = S.freeBuild ? 0 : fresh.length * d.price;
     const bad = edges.map((e) => wallError(plot, S.level, ...e, world)).find(Boolean) || coinsErr(cost);
-    ghost.walls(edges, def, S.level, !bad, false, t.id);
+    ghost.wallCursor(p[0], p[1], def, S.level, !bad);
+    ghost.walls(edges, def, S.level, !bad, d.fence ? 'fence' : false, d.fence ? null : t.id);
     const closes = S.chain && S.chain.length > 2 && p[0] === S.chain[0][0] && p[1] === S.chain[0][1];
     tip(`⌁ Custom room · ${fresh.length} walls · −🪙${cost}${S.chain ? (closes ? ' · click to close the room' : ' · double-click or Enter to finish') : ' · click to start'}`, bad);
     return;
@@ -1490,15 +1492,17 @@ function previewInner() {
   if (t.kind === 'wall') {
     if (!drag) {
       const q = pickLocal(hover.cx, hover.cy);
-      if (q) { const [cx, cz] = cornerOf(q); ghost.tiles([[cx - 0.5, cz - 0.5]].map(([a, b]) => [a + 0.3, b + 0.3]), def, S.level, true, 0.6); }
-      tip(`${d.name} · 🪙${d.price}/wall · ${S.wallTool === 'room' ? 'drag a room' : 'drag along the grid'}`);
+      if (q) { const [cx, cz] = cornerOf(q); ghost.wallCursor(cx, cz, def, S.level, true); }
+      tip(`${d.name} · 🪙${d.price}/${d.fence ? 'length' : 'wall'} · ${S.wallTool === 'room' ? (d.fence ? 'drag a fenced pen' : 'drag a room') : 'drag along the grid'}`);
       return;
     }
     const plan = wallPlan();
     const news = plan.edges.filter((e) => plot.walls?.[edgeKey(S.level, ...e)]?.m !== t.id);
+    if (d.fence) plan.room = null; // a fenced pen, no floor
     const cost = S.freeBuild ? 0 : news.length * d.price + (plan.room ? plan.room.w * plan.room.h * ITEMS.floor_wood.price : 0);
     const bad = plan.edges.map((e) => wallError(plot, S.level, ...e, world)).find(Boolean) || coinsErr(cost);
-    ghost.walls(plan.edges, def, S.level, !bad, false, t.id);
+    ghost.walls(plan.edges, def, S.level, !bad, d.fence ? 'fence' : false, d.fence ? null : t.id);
+    ghost.wallCursor(drag.cur[0], drag.cur[1], def, S.level, !bad);
     if (plan.room) ghost.texturedTiles(Array.from({ length: plan.room.w * plan.room.h }, (_, i) => [plan.room.x + (i % plan.room.w), plan.room.y + Math.floor(i / plan.room.w)]), def, S.level, !bad, 'floor', 'floor_wood', 0.02);
     const label = plan.room ? `Room ${plan.room.w}×${plan.room.h} · 🪙${cost}` : `${news.length} wall${news.length === 1 ? '' : 's'} · 🪙${cost}`;
     tip(label, bad);
@@ -2162,6 +2166,7 @@ function commit(h) {
   if (t.kind === 'wall') {
     const plan = wallPlan();
     if (!plan || !plan.edges.length) return;
+    if (ITEMS[t.id]?.fence) plan.room = null;
     const fresh = plan.edges.filter((e) => !plot.walls?.[edgeKey(S.level, ...e)] && !wallError(plot, S.level, ...e, world));
     const undo = fresh.map((e) => ({ type: 'remove', ...base, edge: e }));
     out({ type: 'walls', ...base, m: t.id, segs: plan.edges });
