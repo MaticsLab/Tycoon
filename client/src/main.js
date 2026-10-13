@@ -16,6 +16,7 @@ import { Ghost, Outline } from './gfx/ghost.js';
 import { Minimap } from './minimap.js';
 import { roomTiles, roomRegion, extract, rotateTimes, fragmentValue, removeAt, stockFragment, placeError as fragError } from '@shared/blueprint.js';
 import { STYLED_ROOMS } from '@shared/rooms.js';
+import { NEEDS, HEALTH, ACTIVITIES, FOODS, usesOf, mood } from '@shared/needs.js';
 import { drawFloor, drawObject } from './sprites.js';
 import { openCreator, closeCreator } from './creator.js';
 import { renderCity } from './cityui.js';
@@ -98,7 +99,7 @@ function connect() {
   ws = sock;
   let opened = false;
   sock.onopen = () => { opened = true; failures = 0; send({ type: 'hello', ...(pendingLook || {}) }); };
-  sock.onmessage = (ev) => { try { onMessage(JSON.parse(ev.data)); } catch (e) { console.error(e); } };
+  sock.onmessage = (ev) => { lastMsgAt = Date.now(); try { onMessage(JSON.parse(ev.data)); } catch (e) { console.error(e); } };
   sock.onclose = async () => {
     if (ws !== sock) return;
     const wasConnected = S.connected;
@@ -111,9 +112,28 @@ function connect() {
     if (wasConnected) toast('Connection lost — reconnecting…');
     if (!S.me) { joinError("Can't reach the server. Check the address and try again."); return; }
     failures++;
-    reconnectTimer = setTimeout(connect, Math.min(10000, 1000 * 2 ** Math.min(failures, 3)));
+    // Back off (0.5 s, 2 s, 4 s, 8 s...) with some randomness, so after a server update
+    // everyone doesn't reconnect in the same instant.
+    const wait = failures === 1 ? 500 : Math.min(10000, 1000 * 2 ** Math.min(failures - 1, 3));
+    reconnectTimer = setTimeout(connect, wait * (0.7 + Math.random() * 0.6));
   };
 }
+
+// The server sends something at least once a second. If it goes quiet (a dead Wi-Fi,
+// the phone slept), drop the connection and reconnect instead of waiting minutes for
+// the operating system to notice.
+let lastMsgAt = Date.now();
+function checkAlive(limit = 5000) {
+  if (!S.connected || !ws || Date.now() - lastMsgAt < limit) return;
+  lastMsgAt = Date.now();
+  const sock = ws, lost = sock.onclose;
+  sock.onclose = null; // run the reconnect once, now
+  lost?.();
+  try { sock.close(); } catch { /* already gone */ }
+}
+setInterval(() => { checkAlive(); if (S.connected) send({ type: 'ping' }); }, 4000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkAlive(4000); });
+addEventListener('online', () => { if (!S.connected && S.me) { failures = 0; connect(); } });
 
 function onMessage(m) {
   switch (m.type) {
@@ -128,6 +148,8 @@ function onMessage(m) {
       S.myPlot = m.you.plotId;
       S.username = m.you.username;
       S.library = m.you.library || [];
+      S.needs = m.you.needs || null; S.act = null; S.stopSent = false;
+      renderNeeds();
       S.guest = m.you.guest;
       store.set('guest', S.guest ? '1' : '0');
       store.set('name', m.you.name);
@@ -181,10 +203,17 @@ function onMessage(m) {
       break;
     }
     case 'state':
-      for (const [id, x, y, dir, moving, level] of m.p) {
+      for (const [id, x, y, dir, moving, level, act] of m.p) {
         const p = S.players.get(id);
         if (!p) continue;
         p.tx = x; p.ty = y; p.dir = dir; p.moving = !!moving; p.running = moving === 2; p.level = level || 0;
+        p.act = act || 0;
+        // Keep a short history of where they were when, to play it back smoothly.
+        const buf = (p.buf ||= []);
+        const last = buf[buf.length - 1];
+        if (last && m.t - last.t > 300) buf.push({ t: m.t - 100, x: last.x, y: last.y }); // was standing still
+        buf.push({ t: m.t, x, y });
+        if (buf.length > 12) buf.splice(0, buf.length - 12);
         if (Math.hypot(p.x - x, p.y - y) > 96) { p.x = x; p.y = y; }
       }
       for (const [id, x, y, dir, moving] of m.n || []) {
@@ -195,6 +224,11 @@ function onMessage(m) {
       break;
     case 'pos':
       S.me.x = m.x; S.me.y = m.y; S.me.level = m.level || 0;
+      break;
+    case 'needs':
+      S.needs = m.needs;
+      if (S.act !== m.act) { S.act = m.act; S.stopSent = false; closeUseMenu(); }
+      renderNeeds();
       break;
     case 'chat': {
       const who = m.id === S.me?.id ? S.me : S.players.get(m.id);
@@ -422,8 +456,11 @@ function updateContext() {
   $('where').textContent = plot ? (plot.owner ? (plot.farm ? `${plot.farm} Farm` : `${plot.ownerName}'s home`) : `Plot ${here + 1} · For sale`) : 'Village';
   let action = '';
   const npc = nearestNpc();
+  const usable = S.mode === 'walk' && !S.talk && !S.act ? nearestUsable() : null;
   if (S.mode !== 'walk' || S.talk) action = '';
+  else if (S.act) action = `stop:${S.act}`;
   else if (npc) action = `talk:${npc.id}`;
+  else if (usable) action = `use:${usable.plot.id}:${usable.level}:${usable.key}`;
   else if (nearMyPet()) action = 'pet';
   else if (plot && !plot.owner && S.myPlot == null) action = 'claim';
   else if (here === S.myPlot && here >= 0) {
@@ -438,10 +475,24 @@ function updateContext() {
     else if (action.startsWith('harvest')) btn.textContent = `🌾 Harvest (${action.split(':')[1]})`;
     else if (action.startsWith('talk')) btn.textContent = `💬 Talk to ${NPCS[action.split(':')[1]].name}`;
     else if (action === 'pet') btn.textContent = `🐾 Pet your ${PETS[petOf(S.me)].kind}`;
+    else if (action.startsWith('stop')) { const a = ACTIVITIES[S.act]; btn.textContent = `${a.icon} ${a.verb}… ✋ Stop`; }
+    else if (action.startsWith('use')) {
+      const u = usable, a = ACTIVITIES[u.uses[0]];
+      btn.textContent = u.uses.length > 1 ? `${a.icon} ${ITEMS[u.t].name}…` : `${a.icon} ${a.label}${a.cost ? ` · 🪙${a.cost}` : ''}`;
+    }
+    btn.classList.toggle('busy', action.startsWith('stop'));
   }
   syncPlots();
 }
 $('action').onclick = () => {
+  if (lastAction.startsWith('stop')) { send({ type: 'stop' }); return; }
+  if (lastAction.startsWith('use')) {
+    const u = nearestUsable();
+    if (!u) return;
+    if (u.uses.length === 1) useThing(u, u.uses[0]);
+    else { const r = $('action').getBoundingClientRect(); openUseMenu(u, r.left + r.width / 2, r.top - 8); }
+    return;
+  }
   if (lastAction === 'claim') send({ type: 'claim', plotId: plotIdAtPixel(world, S.me.x, S.me.y) });
   else if (lastAction.startsWith('harvest')) send({ type: 'harvest', plotId: S.myPlot });
   else if (lastAction.startsWith('talk')) send({ type: 'npcOpen', npc: lastAction.split(':')[1] });
@@ -684,7 +735,9 @@ function showBag() {
   list.className = 'list';
   for (const [k, n] of entries) {
     const sub = ITEMS[k] ? 'Furniture · place it from the Bag tab in Build mode' : GOODS[k].kind === 'produce' ? 'Crop · Rosa buys these' : 'Gift · give it to a villager';
-    list.appendChild(itemRow(k, `×${n} · ${sub}`, []));
+    const food = FOODS[k];
+    const gives = food ? Object.entries(food).map(([nd, v]) => `+${v} ${(NEEDS.find((x) => x.id === nd) || HEALTH).icon}`).join(' ') : '';
+    list.appendChild(itemRow(k, `×${n} · ${sub}${gives ? ` · eat: ${gives}` : ''}`, food ? [['😋 Eat', () => { send({ type: 'eat', item: k }); closeModal(); }]] : []));
   }
   body.appendChild(list);
 }
@@ -1854,6 +1907,7 @@ addEventListener('keydown', (e) => {
   }
   const k = e.key.toLowerCase();
   if (k === 'escape' && (S.held || S.chain)) { S.held = null; S.chain = null; if (S.tool.kind === 'movehouse' || S.tool.kind === 'blueprint') S.tool = { kind: 'none' }; syncStrip(); renderItems(); refreshPreview(); return; }
+  if (k === 'escape' && !$('usemenu').hidden) { closeUseMenu(); return; }
   if (k === 'escape') { if (drag) { drag = null; refreshPreview(); } else { setMode('walk'); closeTalk(); closeModal(); toggleMap(false); } }
   if (k === 'b') $('btn-build').click();
   if (k === 'q') turnCamera(-1);
@@ -2010,6 +2064,16 @@ cv.addEventListener('pointercancel', endPointer);
 cv.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && S.mode === 'build' && !drag) { hover = null; refreshPreview(); } });
 
 function onTap(cx, cy) {
+  closeUseMenu();
+  // Tap furniture to use it (Sims-style menu).
+  const u = usableAt(cx, cy);
+  if (u) {
+    if (S.act) { toast(`You’re busy: ${ACTIVITIES[S.act].verb.toLowerCase()}`); return; }
+    if (!canUseOn(u.plot)) { toast('You can only use things in someone’s home while they’re in'); return; }
+    if (u.d > TILE * 1.5) { toast(`Walk up to the ${ITEMS[u.t].name.toLowerCase()} first`); return; }
+    openUseMenu(u, cx, cy - 10);
+    return;
+  }
   // Tap an NPC to talk.
   for (const n of S.npcs.values()) {
     const p = view.toScreen(U(n.x), 0.8, U(n.y));
@@ -2074,19 +2138,34 @@ function syncPlots(force) {
   // Until the server answers a move, keep the old spot empty (but never for long).
   if (S.dropped && now - S.droppedAt > 4000) S.dropped = null;
   const carried = S.held?.kind !== 'blueprint' && S.held || S.dropped;
-  for (let st of Object.values(S.plots)) {
-    if (carried && st.id === S.myPlot) st = liftedPlot(st, carried);
+  // Nearest plots first, and at most two rebuilds a frame so building never freezes the
+  // game (the rest catch up over the next frames).
+  const plots = Object.values(S.plots).sort((a, b) => plotDist(a) - plotDist(b));
+  let rebuilt = 0;
+  for (let st of plots) {
+    let variant = '';
+    if (carried && st.id === S.myPlot) { st = liftedPlot(st, carried); variant = `lift:${carried.kind}:${carried.from || ''}:${carried.ox},${carried.oy}`; }
     const crops = Object.values(st.obj).filter((o) => ITEMS[o.t]?.crop).map((o) => cropStage(o, sNow)).join('');
     const e = st.owner ? null : plotEntrance(world, st);
-    view.setPlot(st, { ...plotOpts(st.id), crops, entrance: e && { x: e.x / TILE, z: e.y / TILE } });
+    if (view.setPlot(st, { ...plotOpts(st.id), crops, variant, entrance: e && { x: e.x / TILE, z: e.y / TILE } }) && ++rebuilt >= 2 && !force) {
+      plotsDirty = true;
+      return;
+    }
   }
 }
+const plotDist = (p) => (S.me ? Math.hypot((p.x + p.w / 2) * TILE - S.me.x, (p.y + p.h / 2) * TILE - S.me.y) : 0);
 
 // ---------- Update ----------
 let sendAcc = 0, lastSent = '', lastQuadrant = -1;
 function update(dt) {
   const me = S.me;
-  const v = S.mode === 'walk' ? inputVector() : { x: 0, y: 0 };
+  let v = S.mode === 'walk' ? inputVector() : { x: 0, y: 0 };
+  if (S.act) {
+    // Busy (in the shower, asleep...): moving gets you up instead.
+    if (Math.hypot(v.x, v.y) > 0.1 && !S.stopSent) { S.stopSent = true; send({ type: 'stop' }); }
+    v = { x: 0, y: 0 };
+  }
+  me.act = S.act || 0;
   me.moving = Math.hypot(v.x, v.y) > 0.1;
   me.running = me.moving && !!v.run;
   if (me.moving) view.offset.multiplyScalar(Math.max(0, 1 - dt * 3));
@@ -2094,7 +2173,8 @@ function update(dt) {
   if (me.moving) {
     const g = view.ground();
     const wx = g.rx * v.x - g.fx * v.y, wz = g.rz * v.x - g.fz * v.y;
-    const sp = PLAYER_SPEED * (me.running ? RUN_MULT : 1) * dt;
+    const tired = S.needs && (S.needs.energy < 8 || S.needs.health < 20) ? 0.7 : 1; // exhausted or unwell: slower
+    const sp = PLAYER_SPEED * (me.running ? RUN_MULT : 1) * tired * dt;
     const nx = me.x + wx * sp, ny = me.y + wz * sp;
     // Each axis separately, so you slide along walls; stairs change your level.
     let l = stepLevel(world, S.plots, nx, me.y, me.level);
@@ -2121,11 +2201,132 @@ function update(dt) {
     if (sig !== lastSent) { lastSent = sig; send(msg); }
   }
   const k = Math.min(1, dt * 10);
-  for (const p of S.players.values()) { p.x += (p.tx - p.x) * k; p.y += (p.ty - p.y) * k; }
+  // Other players are drawn ~120 ms in the past, interpolating between the positions
+  // the server sent: smooth, even motion whatever the network timing.
+  const at = serverNow() - 120;
+  for (const p of S.players.values()) {
+    const buf = p.buf;
+    if (!buf?.length || Math.hypot(p.tx - p.x, p.ty - p.y) > 96) { p.x += (p.tx - p.x) * k; p.y += (p.ty - p.y) * k; continue; }
+    let i = buf.length - 1;
+    while (i > 0 && buf[i - 1].t > at) i--;
+    const b = buf[i], a = buf[i - 1];
+    if (!a || at >= b.t) { p.x += (b.x - p.x) * k; p.y += (b.y - p.y) * k; continue; }
+    const f = Math.max(0, Math.min(1, (at - a.t) / Math.max(1, b.t - a.t)));
+    p.x = a.x + (b.x - a.x) * f; p.y = a.y + (b.y - a.y) * f;
+  }
   for (const n of S.npcs.values()) { n.x += (n.tx - n.x) * k; n.y += (n.ty - n.y) * k; }
   updatePets(dt);
   if (S.held !== lastHeld) { lastHeld = S.held; plotsDirty = true; }
   if (plotsDirty) syncPlots();
+}
+
+// ---------- Needs & using furniture ----------
+const needCol = (v) => (v >= 60 ? '#5fc44a' : v >= 30 ? '#e8c23a' : v >= 15 ? '#ec8a2c' : '#e0453a');
+let needsOpen = store.get('needsOpen') !== '0';
+function renderNeeds() {
+  const el = $('needs');
+  if (!S.needs) { el.hidden = true; return; }
+  el.hidden = false;
+  el.classList.toggle('open', needsOpen);
+  const m = mood(S.needs);
+  // The plumbob: green when you're happy, yellow, then red.
+  $('plumbob').style.background = `hsl(${Math.round(60 + m * 60)}, 75%, 50%)`;
+  $('needs-mood').textContent = m > 0.5 ? 'Happy' : m > 0 ? 'Fine' : m > -0.5 ? 'Uncomfortable' : 'Miserable';
+  const fill = S.act && ACTIVITIES[S.act]?.gain || {};
+  $('needs-bars').innerHTML = [...NEEDS, HEALTH].map((n) => {
+    const v = Math.round(S.needs[n.id] ?? 0);
+    return `<div class="need${v < 15 ? ' low' : ''}${fill[n.id] ? ' up' : ''}" title="${n.name} ${v}%"><span>${n.icon}</span><i><b style="width:${v}%;background:${needCol(v)}"></b></i><small>${n.name}</small></div>`;
+  }).join('');
+}
+$('needs-head').onclick = () => { needsOpen = !needsOpen; store.set('needsOpen', needsOpen ? '1' : '0'); renderNeeds(); };
+
+// You can use things at home, or in someone's home while they're in.
+function canUseOn(plot) {
+  if (!plot?.owner) return false;
+  if (plot.owner === S.me.id) return true;
+  const host = S.players.get(plot.owner);
+  return !!host && plotIdAtPixel(world, host.x, host.y) === plot.id;
+}
+// Distance (px) from you to an item's footprint.
+function distTo(plot, ax, ay, t, r) {
+  const [w, h] = footprint(t, r || 0);
+  const x0 = (plot.x + ax) * TILE, y0 = (plot.y + ay) * TILE, x1 = x0 + w * TILE, y1 = y0 + h * TILE;
+  return Math.hypot(Math.max(x0 - S.me.x, 0, S.me.x - x1), Math.max(y0 - S.me.y, 0, S.me.y - y1));
+}
+function nearestUsable(range = TILE * 1.5) {
+  const here = plotIdAtPixel(world, S.me.x, S.me.y);
+  const plot = here >= 0 ? S.plots[here] : null;
+  if (!plot || !canUseOn(plot)) return null;
+  const level = S.me.level || 0, view = level ? plot.l1 : plot;
+  if (!view) return null;
+  let best = null;
+  for (const [k, o] of Object.entries(view.obj)) {
+    const uses = usesOf(o.t);
+    if (!uses.length) continue;
+    const [ax, ay] = k.split(',').map(Number);
+    const d = distTo(plot, ax, ay, o.t, o.r);
+    if (d <= range && (!best || d < best.d)) best = { plot, level, key: k, lx: ax, ly: ay, t: o.t, uses, d };
+  }
+  return best;
+}
+// The usable item under a screen point (on your floor): the one whose middle shows up
+// closest to the tap, like tapping a villager.
+function usableAt(cx, cy) {
+  const level = S.me.level || 0;
+  let best = null, bd = 40;
+  for (const plot of Object.values(S.plots)) {
+    if (!plot.owner) continue;
+    const v = level ? plot.l1 : plot;
+    if (!v) continue;
+    for (const [k, o] of Object.entries(v.obj)) {
+      const uses = usesOf(o.t);
+      if (!uses.length) continue;
+      const [ax, ay] = k.split(',').map(Number);
+      const [w, h] = footprint(o.t, o.r || 0);
+      const p = view.toScreen(plot.x + ax + w / 2, level * LEVEL_H + 0.5, plot.y + ay + h / 2);
+      const d = Math.hypot(p.x - cx, p.y - cy) / Math.max(1, Math.sqrt(w * h) * 0.8);
+      if (d < bd) { bd = d; best = { plot, level, key: k, lx: ax, ly: ay, t: o.t, uses, d: distTo(plot, ax, ay, o.t, o.r) }; }
+    }
+  }
+  return best;
+}
+function useThing(u, act) {
+  closeUseMenu();
+  const a = ACTIVITIES[act];
+  if (a.cost && S.coins < a.cost) return toast('Not enough coins');
+  send({ type: 'use', plotId: u.plot.id, level: u.level, lx: u.lx, ly: u.ly, act });
+}
+// A little Sims-style pie of choices next to the item.
+function openUseMenu(u, x, y) {
+  const el = $('usemenu');
+  el.innerHTML = `<div class="um-title">${esc(ITEMS[u.t].name)}</div>`;
+  const hasStove = [u.plot, u.plot.l1].some((v) => v && Object.values(v.obj).some((o) => o.t === 'stove'));
+  for (const id of u.uses) {
+    const a = ACTIVITIES[id];
+    const b = document.createElement('button');
+    const off = a.stove && !hasStove;
+    b.innerHTML = `<span>${a.icon}</span>${esc(a.label)}${a.cost ? ` <small>🪙${a.cost}</small>` : ''}${off ? ' <small>(needs a stove)</small>' : ''}`;
+    b.disabled = off;
+    b.onclick = (e) => { e.stopPropagation(); useThing(u, id); };
+    el.appendChild(b);
+  }
+  el.hidden = false;
+  const r = el.getBoundingClientRect();
+  el.style.left = `${Math.max(8, Math.min(innerWidth - r.width - 8, x - r.width / 2))}px`;
+  el.style.top = `${Math.max(8, Math.min(innerHeight - r.height - 8, y - r.height))}px`;
+}
+function closeUseMenu() { const el = $('usemenu'); if (el) el.hidden = true; }
+
+// How someone doing an activity is drawn: sitting on a seat, lying in bed, or hidden
+// behind the shower glass / in the tub (steam shows instead).
+const SIT_Y = { toilet: 0.32, sit: 0.3, nap: 0.42, sleep: 0.5 };
+function actPose(p) {
+  const a = p.act;
+  if (!a) return null;
+  if (a === 'shower' || a === 'bath') return { vis: false };
+  if (a === 'sleep' || a === 'nap') return { lie: true, y: SIT_Y[a] };
+  if (SIT_Y[a]) return { y: SIT_Y[a] };
+  return null;
 }
 
 // ---------- Pets ----------
@@ -2355,12 +2556,16 @@ function render(now) {
   const myH = hOf(S.me);
   if (S.mode !== 'build' || !S.me) view.setTarget(U(S.me.x), U(S.me.y), false, myH);
   const sNow = serverNow();
-  for (const p of S.players.values()) view.actor(p.id, U(p.x), U(p.y), p.dir, p.running ? 'run' : p.moving, p.look, now, true, hOf(p));
+  const drawPerson = (p, h) => {
+    const pose = actPose(p);
+    view.actor(p.id, U(p.x), U(p.y), p.dir, p.running ? 'run' : p.moving, p.look, now, pose?.vis ?? true, h + (pose?.y || 0), null, pose ? (pose.lie ? 'lie' : 'sit') : null);
+  };
+  for (const p of S.players.values()) drawPerson(p, hOf(p));
   for (const n of S.npcs.values()) {
     const d = NPCS[n.id];
     view.actor(`npc:${n.id}`, U(n.x), U(n.y), n.dir, n.moving, d.look, now);
   }
-  view.actor(S.me.id, U(S.me.x), U(S.me.y), S.me.dir, S.me.running ? 'run' : S.me.moving, S.me.look, now, true, myH);
+  drawPerson(S.me, myH);
   for (const [id, p] of pets) {
     const owner = id === S.me.id ? S.me : S.players.get(id);
     if (!owner) continue;
@@ -2396,6 +2601,7 @@ function drawOverlay(now) {
     if (!onScreen(s)) continue;
     tag(label, s.x, s.y, 11, col);
     if (p.bubble && performance.now() < p.bubbleUntil) bubble(p.bubble, s.x, s.y - 20, 13);
+    else if (p.act && ACTIVITIES[p.act]) actIcon(p, s, now);
   }
   // Zzz over sleeping pets.
   octx.font = 'bold 11px sans-serif';
@@ -2431,6 +2637,41 @@ function drawOverlay(now) {
     octx.beginPath(); octx.arc(stick.sx + dx * k, stick.sy + dy * k, 18, 0, Math.PI * 2); octx.fill();
     octx.globalAlpha = 1;
   }
+}
+
+// What someone's doing, over their head: a thought bubble with the activity's icon,
+// drifting Zzz for sleepers and steam over showers and baths.
+function actIcon(p, s, now) {
+  const a = p.act;
+  if (a === 'sleep' || a === 'nap') {
+    octx.fillStyle = '#e8f0ff';
+    for (let i = 0; i < 3; i++) {
+      const t = ((now / 1600) + i / 3) % 1;
+      octx.globalAlpha = Math.sin(t * Math.PI) * 0.95;
+      octx.font = `bold ${12 + i * 4}px sans-serif`;
+      octx.fillText('Z', s.x + 8 + t * 14, s.y - 4 - t * 22);
+    }
+    octx.globalAlpha = 1;
+    return;
+  }
+  if (a === 'shower' || a === 'bath') {
+    const b = view.toScreen(U(p.x), 0.9 + heightAt(world, S.plots, p.x, p.y, p.level || 0), U(p.y));
+    for (let i = 0; i < 6; i++) {
+      const t = ((now / 1400) + i / 6) % 1;
+      octx.globalAlpha = Math.sin(t * Math.PI) * 0.55;
+      octx.fillStyle = '#ffffff';
+      octx.beginPath(); octx.arc(b.x + Math.sin(i * 2.1 + now / 500) * 10, b.y - t * 34, 4 + t * 7, 0, Math.PI * 2); octx.fill();
+    }
+    octx.globalAlpha = 1;
+  }
+  const y = s.y - 22 + Math.sin(now / 400) * 2;
+  octx.fillStyle = '#fffaf0'; octx.strokeStyle = '#6b4a2b'; octx.lineWidth = 2;
+  octx.beginPath(); octx.arc(s.x, y - 12, 13, 0, Math.PI * 2); octx.fill(); octx.stroke();
+  octx.beginPath(); octx.arc(s.x - 9, y + 4, 3, 0, Math.PI * 2); octx.fill(); octx.stroke();
+  octx.font = '15px sans-serif';
+  octx.textBaseline = 'middle';
+  octx.fillText(ACTIVITIES[a].icon, s.x, y - 11);
+  octx.textBaseline = 'bottom';
 }
 
 function tag(text, x, y, fs, color) {
@@ -2510,6 +2751,6 @@ if (new URLSearchParams(location.search).has('debug')) {
     plotToClient: (lx, ly, h = 0, plotId = S.myPlot) => { const d = S.plots[plotId]; return view.toScreen(d.x + lx, S.level * LEVEL_H + h, d.y + ly); },
     worldToClient: (x, z, h = 0) => view.toScreen(x, h, z),
     tileToClient: (tx, ty) => view.toScreen(tx + 0.5, 0, ty + 0.5),
-    setLevel, cycleWalls, turnCamera, setMode, send,
+    setLevel, cycleWalls, turnCamera, setMode, send, nearestUsable, usableAt,
   };
 }

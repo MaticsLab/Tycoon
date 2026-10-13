@@ -152,6 +152,7 @@ export class View {
     const eye = this.target.clone();
     const a = eye.dot(right), b = eye.dot(up);
     eye.addScaledVector(right, Math.round(a / unit) * unit - a).addScaledVector(up, Math.round(b / unit) * unit - b);
+    this.snap = { right, up, unit }; // sprites snap to the same grid (see actor)
     this.camera.position.copy(eye).addScaledVector(back, 80);
     this.camera.lookAt(eye);
     this.camera.updateMatrixWorld();
@@ -191,9 +192,12 @@ export class View {
   // state: a live plot (with its own x, y, w, h). opts: { cut: 'up'|'cut'|'down', maxLevel, roofs, now }
   setPlot(state, opts) {
     const g = this.ground();
-    const sig = JSON.stringify([state, opts.cut, opts.maxLevel, opts.roofs, opts.crops, this.quadrant, opts.entrance]);
+    // Cheap change check: the server bumps a plot's rev on every edit (plus its size,
+    // owner and content counts in case a plot was replaced). Returns true if rebuilt.
+    const counts = [state.floor, state.obj, state.l1?.floor, state.l1?.obj, state.walls].map((o) => (o ? Object.keys(o).length : 0)).join('.');
+    const sig = JSON.stringify([state.rev ?? 0, state.x, state.y, state.w, state.h, state.owner, counts, (state.roofs || []).length, opts.variant || '', opts.cut, opts.maxLevel, opts.roofs, opts.crops, this.quadrant, opts.entrance]);
     let p = this.plots.get(state.id);
-    if (p && p.sig === sig) return;
+    if (p && p.sig === sig) return false;
     this.removePlot(state.id);
     const cards = new BillboardSet();
     const built = buildPlot(state, { cut: { mode: opts.cut, fx: g.fx, fz: g.fz }, maxLevel: opts.maxLevel, roofs: opts.roofs, cards, now: opts.now, entrance: opts.entrance });
@@ -201,6 +205,7 @@ export class View {
     p = { group: built.group, cards, lights: built.lights, sig };
     this.plots.set(state.id, p);
     this.scene.add(p.group, p.cards.group);
+    return true;
   }
 
   removePlot(id) {
@@ -213,7 +218,9 @@ export class View {
 
   // ---------- actors (players, NPCs and pets as pixel sprites) ----------
   // pet: { idx, sit } draws a pet instead of a villager.
-  actor(id, x, z, dirWorld, moving, look, now, vis = true, y = 0, pet = null) {
+  // pose: 'lie' (asleep in bed), 'sit' (on a seat: no ground shadow) or null.
+  actor(id, x, z, dirWorld, moving, look, now, vis = true, y = 0, pet = null, pose = null) {
+    const lie = pose === 'lie';
     let a = this.actors.get(id);
     if (!a) {
       a = { sprite: new THREE.Sprite(), blob: null, vec: [0, 1], lx: x, lz: z, lookRef: null, look: null };
@@ -242,13 +249,31 @@ export class View {
       spr = personSprite(a.look, dir, frame);
     }
     const tex = texOf(spr.cv);
-    if (a.sprite.material.map !== tex) {
-      a.sprite.material = spriteMat(tex);
-      a.sprite.center.set(-spr.dx / spr.cv.width, 1 + spr.dy / spr.cv.height);
+    if (a.sprite.material.map !== tex || a.lie !== lie) {
+      a.lie = lie;
+      if (lie) {
+        // A turned copy of the sprite, centred on the bed.
+        a.lieMats ||= new Map();
+        let m = a.lieMats.get(tex);
+        if (!m) { m = new THREE.SpriteMaterial({ map: tex, alphaTest: 0.5, rotation: Math.PI / 2 }); a.lieMats.set(tex, m); }
+        a.sprite.material = m;
+        a.sprite.center.set(0.5, 0.5);
+      } else {
+        a.sprite.material = spriteMat(tex);
+        a.sprite.center.set(-spr.dx / spr.cv.width, 1 + spr.dy / spr.cv.height);
+      }
       a.sprite.scale.set((spr.cv.width / TEXEL) * PERSON_SCALE, (spr.cv.height / TEXEL) * PERSON_SCALE, 1);
     }
     a.sprite.position.set(x, y, z);
+    // Land on the same low-res pixel grid as the camera, so walking characters glide in
+    // even pixel steps instead of jittering against the ground.
+    if (this.snap && !lie) {
+      const { right, up, unit } = this.snap, p = a.sprite.position;
+      const ra = p.dot(right), ub = p.dot(up);
+      p.addScaledVector(right, Math.round(ra / unit) * unit - ra).addScaledVector(up, Math.round(ub / unit) * unit - ub);
+    }
     a.blob.position.set(x, y, z);
+    a.blob.visible = vis && !pose; // no ground shadow while sitting or lying on things
   }
 
   pruneActors() {
@@ -263,7 +288,13 @@ export class View {
   render(now, dark, follow) {
     if (Math.abs(this.yawGoal - this.yaw) > 0.0005) { this.yaw += (this.yawGoal - this.yaw) * 0.2; this.basisVersion++; }
     this.updateCards(now);
-    this.target.lerp(this.goal.clone().add(this.offset), follow ? 0.18 : 0.25);
+    // Follow the player rigidly (a trailing camera makes the character wobble against the
+    // pixel grid); free-look panning eases, independent of the frame rate.
+    const dt = Math.min(0.1, (now - (this.lastFrame ?? now)) / 1000);
+    this.lastFrame = now;
+    const want = this.goal.clone().add(this.offset);
+    if (follow) this.target.copy(want);
+    else this.target.lerp(want, 1 - Math.exp(-dt * 16));
     this.applyCamera(false);
     const night = Math.min(1, dark / 0.62);
     this.sun.intensity = 2.4 * (1 - night * 0.88);

@@ -1,14 +1,15 @@
-import { generateWorld, applyRoads, worldClock, publicAreaAt, TILE, PLAYER_SPEED, RUN_MULT, WORLD_VERSION, STARTER_PLOTS, MAP_W, CIVIC } from '../../shared/world.js';
+import { generateWorld, applyRoads, worldClock, publicAreaAt, plotIdAtPixel, TILE, PLAYER_SPEED, RUN_MULT, WORLD_VERSION, STARTER_PLOTS, MAP_W, CIVIC } from '../../shared/world.js';
 import { City } from './city.js';
 import { roomRegion, extract, stockFragment, rotateTimes, removeAt, placeError as fragError, applyAt, fragmentValue, cleanFragment } from '../../shared/blueprint.js';
 import { STYLED_ROOMS } from '../../shared/rooms.js';
 import { ITEMS, GOODS, CROPS, START_COINS, cropStage, itemName } from '../../shared/catalog.js';
 import {
-  key, inInterior, tilesOf, objAt, occChanged, placementError, canStand, levelView, canRotate,
+  key, inInterior, tilesOf, footprint, objAt, occChanged, placementError, canStand, levelView, canRotate,
   edgeKey, parseEdge, wallError, wallTouchesFeet, roofError, roofAt, indexPlots, roadIn, roadEditError, plotEntrance,
   landError, contentFits, shiftContent, mergedRect, splitRects, hasContent, LAND_PRICE, stepLevel,
 } from '../../shared/plot.js';
 import { NPCS } from '../../shared/npcs.js';
+import { HOUR_MS, NEEDS, ACTIVITIES, FOODS, sanitizeNeeds, usesOf, advanceNeeds, activityDone, fullNeeds } from '../../shared/needs.js';
 import { sanitizeLook, randomLook, shirtColor } from '../../shared/look.js';
 import { Npc, parseAiReply, REPLY_SCHEMA } from './npc.js';
 
@@ -118,7 +119,7 @@ export class Game {
 
   publicPlayer(s) {
     const p = s.profile;
-    return { id: p.id, name: p.name, color: p.color, look: p.look, x: s.x, y: s.y, dir: s.dir, moving: s.moving, level: s.level };
+    return { id: p.id, name: p.name, color: p.color, look: p.look, x: s.x, y: s.y, dir: s.dir, moving: s.moving, level: s.level, act: s.act?.id || 0 };
   }
 
   // identity: { userId, name, username, isAnonymous } — verified by the host.
@@ -129,6 +130,8 @@ export class Game {
         let msg;
         try { msg = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return; }
         if (!msg || typeof msg.type !== 'string') return;
+        s.quiet = 0;
+        if (msg.type === 'ping') return;
         try {
           const r = this.handle(s, msg);
           if (r && r.catch) return r.catch((e) => console.error('handler error', e));
@@ -171,6 +174,9 @@ export class Game {
       case 'cheat': return this.cheat(s, msg);
       case 'setLook': return this.setLook(s, msg);
       case 'harvest': return this.harvest(s, msg);
+      case 'use': return this.use(s, msg);
+      case 'stop': return this.stopActivity(s, true);
+      case 'eat': return this.eat(s, msg);
       case 'home': return this.home(s);
       case 'npcOpen': return this.npcOpen(s, msg);
       case 'npcClose': return this.npcClose(s, msg);
@@ -202,6 +208,7 @@ export class Game {
     if (!profile) profile = this.newProfile(id.userId, clean(msg.name, 16) || clean(id.name, 16) || 'Villager', msg.look ? sanitizeLook(msg.look) : randomLook());
     profile.look = profile.look ? sanitizeLook(profile.look) : randomLook();
     profile.inv ||= {};
+    profile.needs = sanitizeNeeds(profile.needs);
     this.applyLook(profile, msg);
     if (profile.plotId != null && this.plots[profile.plotId]?.owner !== profile.id) profile.plotId = null;
     this.markProfile(profile);
@@ -273,11 +280,12 @@ export class Game {
     s.level = ok ? lvl : 0;
     s.dir = 0; s.moving = false; s.lastMove = this.now();
     s.greeted = {};
+    s.act = null; s.needsAt = this.now(); s.needsSent = 0;
     this.sessions.set(profile.id, s);
 
     s.send({
       type: 'welcome', worldVersion: WORLD_VERSION, serverTime: this.now(), epoch: this.epoch,
-      you: { id: profile.id, name: profile.name, color: profile.color, look: profile.look, library: profile.library || [], farm: profile.farm || '', fav: profile.fav || '', coins: profile.coins, plotId: profile.plotId, x: s.x, y: s.y, level: s.level, inv: profile.inv, username: s.identity.username || null, guest: !!s.identity.isAnonymous },
+      you: { id: profile.id, name: profile.name, color: profile.color, look: profile.look, library: profile.library || [], needs: profile.needs, farm: profile.farm || '', fav: profile.fav || '', coins: profile.coins, plotId: profile.plotId, x: s.x, y: s.y, level: s.level, inv: profile.inv, username: s.identity.username || null, guest: !!s.identity.isAnonymous },
       players: [...this.sessions.values()].filter((o) => o !== s).map((o) => this.publicPlayer(o)),
       npcs: Object.values(this.npcs).map((n) => ({ id: n.id, x: n.x, y: n.y, dir: n.dir })),
       plots: Object.values(this.plots),
@@ -290,6 +298,7 @@ export class Game {
 
   leave(s) {
     if (!s.profile || this.sessions.get(s.profile.id) !== s) return;
+    if (s.act) this.stopActivity(s, false);
     this.sessions.delete(s.profile.id);
     s.profile.x = s.x; s.profile.y = s.y; s.profile.level = s.level;
     this.markProfile(s.profile);
@@ -299,16 +308,22 @@ export class Game {
 
   // ---------- movement & chat ----------
   move(s, { x, y, d, m }) {
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    if (!Number.isFinite(x) || !Number.isFinite(y) || s.act) return;
     const now = this.now();
-    const dt = Math.min(1, (now - s.lastMove) / 1000);
+    // Speed check with a movement budget: time earns distance (up to a second's worth),
+    // moves spend it. Moves that arrive bunched together after a network hiccup are fine;
+    // only going faster than running speed overall gets you put back.
+    const top = PLAYER_SPEED * RUN_MULT * 1.25;
+    s.budget = Math.min(top + 24, (s.budget ?? top) + top * Math.max(0, now - s.lastMove) / 1000);
+    s.lastMove = now;
     const dist = Math.hypot(x - s.x, y - s.y);
-    const level = dist > PLAYER_SPEED * RUN_MULT * dt * 1.4 + 12 ? -1 : stepLevel(this.world, this.plots, x, y, s.level);
+    const level = dist > s.budget ? -1 : stepLevel(this.world, this.plots, x, y, s.level);
     if (level < 0) {
       s.send({ type: 'pos', x: s.x, y: s.y, level: s.level });
       return;
     }
-    s.x = x; s.y = y; s.level = level; s.lastMove = now;
+    s.budget -= dist;
+    s.x = x; s.y = y; s.level = level;
     // City data: road traffic and visits to public places.
     const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
     if (tx !== s.tx || ty !== s.ty) {
@@ -354,6 +369,7 @@ export class Game {
   }
 
   plotChanged(plot) {
+    plot.rev = (plot.rev || 0) + 1; // clients rebuild a plot only when its rev changes
     occChanged(plot);
     this.mark(`plot:${plot.id}`);
     this.broadcast({ type: 'plot', plot });
@@ -718,6 +734,7 @@ export class Game {
     this.mark('meta');
     // Anyone now stuck (inside a wall line, say) gets moved out to the road.
     for (const o of this.sessions.values()) {
+      if (o.act && ACTIVITIES[o.act.id]?.seat) continue; // they're in a bed or a shower
       if (!canStand(this.world, this.plots, o.x, o.y, o.level || 0)) this.home(o);
     }
   }
@@ -844,7 +861,7 @@ export class Game {
     const off = (v) => ['false', 'off', '0', 'no'].includes(v);
     if (!c) return;
     if (c === 'help') {
-      return say('testingcheats true · money <amount> · motherlode · kaching · rosebud · freerealestate on/off · bb.enablefreebuild · tp cityhall|park|fair|square');
+      return say('testingcheats true · money <amount> · motherlode · kaching · rosebud · freerealestate on/off · bb.enablefreebuild · tp cityhall|park|fair|square · fillneeds · needs <need> <0-100>');
     }
     if (c === 'testingcheats') {
       if (on(args[0])) { s.cheats.testing = true; return say('Cheats are enabled.'); }
@@ -869,11 +886,23 @@ export class Game {
         return say('Usage: freerealestate on | off');
       case 'tp': {
         const spots = { cityhall: [139.5, 37.5], hall: [139.5, 37.5], park: [138.5, 47.5], fair: [129.5, 69.5], square: [60, 59.5], plaza: [60, 59.5] };
-        const to = spots[args[0]];
-        if (!to) return say('Usage: tp cityhall | park | fair | square');
+        const to = spots[args[0]] || (args.length === 2 && args.every((a) => Number.isFinite(+a)) ? [+args[0], +args[1]] : null);
+        if (!to) return say('Usage: tp cityhall | park | fair | square | <x> <y> (tiles)');
+        if (s.act) { this.stopActivity(s, false); this.sendNeeds(s); }
         s.x = to[0] * TILE; s.y = to[1] * TILE; s.level = 0; s.lastMove = this.now();
         s.send({ type: 'pos', x: s.x, y: s.y, level: 0 });
-        return say(`Whoosh! You’re at the ${args[0]}.`);
+        return say(spots[args[0]] ? `Whoosh! You’re at the ${args[0]}.` : 'Whoosh!');
+      }
+      case 'fillneeds': case 'sims.fill_all_commodities':
+        Object.assign(s.profile.needs, fullNeeds(), { hunger: 100, energy: 100, bladder: 100, hygiene: 100, fun: 100 });
+        this.sendNeeds(s);
+        return say('All needs filled.');
+      case 'needs': {
+        const [need, v] = [args[0], Number(args[1])];
+        if (!(need in s.profile.needs) || !Number.isFinite(v)) return say('Usage: needs hunger|energy|bladder|hygiene|fun|health <0-100>');
+        s.profile.needs[need] = Math.max(0, Math.min(100, v));
+        this.sendNeeds(s);
+        return say(`${need} set to ${s.profile.needs[need]}.`);
       }
       case 'bb.enablefreebuild':
         s.cheats.build = !s.cheats.build;
@@ -1046,6 +1075,107 @@ export class Game {
     s.send({ type: 'npcSay', text: line, sentiment, changes, ...n.view(s.profile, this.now()) });
   }
 
+  // ---------- needs & activities ----------
+  // Needs run down while you're online; activities fill them back up.
+  tickNeeds(s, now) {
+    const pr = s.profile;
+    // (capped, so a stalled server or a skipped clock never drains needs in one go)
+    const { needs, low, faint } = advanceNeeds(pr.needs, Math.min(5000, now - s.needsAt) / HOUR_MS, s.act?.id);
+    s.needsAt = now;
+    pr.needs = needs;
+    if (s.act) {
+      const view = this.plots[s.act.plotId] && levelView(this.plots[s.act.plotId], s.act.level);
+      if (view?.obj[s.act.key]?.t !== s.act.item) this.stopActivity(s, true);
+      else if (activityDone(s.act.id, needs, (now - s.act.t0) / HOUR_MS)) this.stopActivity(s, true);
+    }
+    for (const id of low) s.send({ type: 'toast', text: `${NEEDS.find((n) => n.id === id).icon} ${NEEDS.find((n) => n.id === id).low}` });
+    if (faint) return this.faint(s);
+    if (now - s.needsSent >= 2000) this.sendNeeds(s);
+    if (now - (s.needsSaved || 0) >= 20_000) { s.needsSaved = now; this.markProfile(pr); }
+  }
+
+  sendNeeds(s) {
+    s.needsSent = this.now();
+    const n = s.profile.needs;
+    s.send({ type: 'needs', needs: Object.fromEntries(Object.entries(n).map(([k, v]) => [k, Math.round(v * 10) / 10])), act: s.act?.id || null });
+  }
+
+  // Health hit zero: you pass out and wake up at home, patched up by the village doctor.
+  faint(s) {
+    if (s.act) this.stopActivity(s, false);
+    const n = s.profile.needs;
+    Object.assign(n, { health: 45, energy: Math.max(n.energy, 50), hunger: Math.max(n.hunger, 40), bladder: Math.max(n.bladder, 60), hygiene: Math.max(n.hygiene, 30), fun: Math.max(n.fun, 30) });
+    const fee = Math.min(25, s.profile.coins);
+    if (fee) this.coins(s, -fee);
+    this.home(s);
+    s.send({ type: 'toast', text: `😵 You fainted! The village doctor patched you up${fee ? ` (🪙${fee})` : ''}. Look after your needs!` });
+    this.sendNeeds(s);
+  }
+
+  // Use a piece of furniture: { plotId, level, lx, ly, act }. Your own home, or a home
+  // whose owner is there with you.
+  use(s, { plotId, level = 0, lx, ly, act }) {
+    const plot = this.plots[plotId];
+    const a = ACTIVITIES[act];
+    if (!plot || !a || !Number.isInteger(lx) || !Number.isInteger(ly)) return;
+    level = this.lvl(level);
+    if (plot.owner !== s.profile.id) {
+      const host = plot.owner && this.sessions.get(plot.owner);
+      if (!host || plotIdAtPixel(this.world, host.x, host.y) !== plot.id) return s.send({ type: 'error', msg: 'You can only use things in someone’s home while they’re in' });
+    }
+    const view = levelView(plot, level);
+    const hit = objAt(view, lx, ly);
+    if (!hit || !usesOf(hit.obj.t).includes(act)) return;
+    const [ax, ay] = hit.key.split(',').map(Number);
+    const [w, h] = footprint(hit.obj.t, hit.obj.r || 0);
+    // Close enough? (within about a tile of the item, on its floor)
+    const x0 = (plot.x + ax) * TILE, y0 = (plot.y + ay) * TILE, x1 = x0 + w * TILE, y1 = y0 + h * TILE;
+    const dx = Math.max(x0 - s.x, 0, s.x - x1), dy = Math.max(y0 - s.y, 0, s.y - y1);
+    if ((s.level || 0) !== level || Math.hypot(dx, dy) > TILE * 1.6) return s.send({ type: 'error', msg: `Walk up to the ${ITEMS[hit.obj.t].name.toLowerCase()} first` });
+    if (a.stove && ![plot, plot.l1].some((v) => v && Object.values(v.obj).some((o) => o.t === 'stove'))) return s.send({ type: 'error', msg: 'You need a stove to cook' });
+    for (const o of this.sessions.values()) if (o !== s && o.act?.plotId === plot.id && o.act.key === hit.key && o.act.level === level) return s.send({ type: 'error', msg: `${o.profile.name} is using that` });
+    const cost = a.cost || 0;
+    if (cost > s.profile.coins) return s.send({ type: 'error', msg: `Not enough coins (needs 🪙${cost})` });
+    if (s.act) this.stopActivity(s, false);
+    if (cost) this.coins(s, -cost);
+    s.act = { id: act, t0: this.now(), plotId: plot.id, level, key: hit.key, item: hit.obj.t, back: { x: s.x, y: s.y, level: s.level } };
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    if (a.seat) {
+      // Sit or lie on it, facing its front.
+      s.x = cx; s.y = cy;
+      s.dir = [0, 2, 1, 3][hit.obj.r || 0];
+      s.send({ type: 'pos', x: s.x, y: s.y, level });
+    } else {
+      s.dir = Math.abs(cx - s.x) > Math.abs(cy - s.y) ? (cx < s.x ? 2 : 3) : (cy < s.y ? 1 : 0);
+    }
+    s.moving = 0;
+    this.sendNeeds(s);
+  }
+
+  // Stop what you're doing (walking away, or it's done); `send` tells your client.
+  stopActivity(s, send = true) {
+    const act = s.act;
+    if (!act) return;
+    s.act = null;
+    if (ACTIVITIES[act.id]?.seat) {
+      s.x = act.back.x; s.y = act.back.y; s.level = act.back.level;
+      s.lastMove = this.now();
+      if (send) s.send({ type: 'pos', x: s.x, y: s.y, level: s.level });
+    }
+    if (send) this.sendNeeds(s);
+  }
+
+  // Eat something from your bag.
+  eat(s, { item }) {
+    const food = FOODS[item];
+    if (!food || !(s.profile.inv[item] > 0)) return;
+    if (s.profile.needs.hunger >= 98 && !food.energy) return s.send({ type: 'error', msg: 'You’re full!' });
+    this.bag(s, item, -1);
+    for (const [k, v] of Object.entries(food)) s.profile.needs[k] = Math.min(100, s.profile.needs[k] + v);
+    s.send({ type: 'toast', text: `${GOODS[item].icon} Yum! ${GOODS[item].name}` });
+    this.sendNeeds(s);
+  }
+
   // ---------- simulation ----------
   tick() {
     const now = this.now();
@@ -1055,6 +1185,12 @@ export class Game {
     if (this.city.dirtyView && now - (this.lastCitySend || 0) > 1000) { this.lastCitySend = now; this.sendCity(); }
     if (this.city.statsDirty && now - (this.lastCitySave || 0) > 30_000) { this.lastCitySave = now; this.city.statsDirty = false; this.mark('city'); }
     if (!this.sessions.size) return;
+    // Drop players we haven't heard from for 450 ticks, about 45 s (a phone that went to
+    // sleep mid-game). Counted in ticks so a stalled server never drops everyone at once.
+    for (const o of [...this.sessions.values()]) {
+      o.quiet = (o.quiet || 0) + 1;
+      if (o.quiet > 450) { this.leave(o); try { o.conn.close(); } catch { /* gone */ } }
+    }
     for (const n of Object.values(this.npcs)) {
       n.tick(dt, now, this.world, this.plots);
       // Say hello to players walking past (at most every 5 minutes each).
@@ -1065,9 +1201,14 @@ export class Game {
         this.broadcast({ type: 'npcBubble', id: n.id, text: n.passingLine(s.profile, now) });
       }
     }
+    for (const s of this.sessions.values()) if (now - s.needsAt >= 1000) this.tickNeeds(s, now);
     const p = [];
-    for (const s of this.sessions.values()) p.push([s.profile.id, Math.round(s.x * 10) / 10, Math.round(s.y * 10) / 10, s.dir, s.moving || 0, s.level || 0]);
+    for (const s of this.sessions.values()) p.push([s.profile.id, Math.round(s.x * 10) / 10, Math.round(s.y * 10) / 10, s.dir, s.moving || 0, s.level || 0, s.act?.id || 0]);
     const npcs = Object.values(this.npcs).map((n) => [n.id, Math.round(n.x * 10) / 10, Math.round(n.y * 10) / 10, n.dir, n.moving ? 1 : 0]);
+    // Nothing moved: skip it, but still send one a second so clients know we're alive.
+    const sig = JSON.stringify([p, npcs]);
+    if (sig === this.lastState && now - this.lastStateAt < 1000) return;
+    this.lastState = sig; this.lastStateAt = now;
     this.broadcast({ type: 'state', t: now, p, n: npcs });
   }
 }

@@ -65,7 +65,7 @@ export class Minimap {
 
   // Rebuild the cached ground layers when roads or plots change.
   update(world, plots, myPlot) {
-    const sig = `${world.roadsVersion}|${myPlot}|${JSON.stringify(Object.values(plots).map((p) => [p.id, p.x, p.y, p.w, p.h, p.owner, Object.keys(p.floor).length, Object.keys(p.walls || {}).length, (p.roofs || []).length]))}`;
+    const sig = `${world.roadsVersion}|${myPlot}|${Object.values(plots).map((p) => `${p.id}.${p.rev ?? 0}.${p.x}.${p.y}.${p.w}.${p.h}.${p.owner}`).join(',')}`;
     if (sig === this.sig) return;
     this.sig = sig;
     this.layers = { small: paintStatic(world, plots, myPlot, 2), big: paintStatic(world, plots, myPlot, 6) };

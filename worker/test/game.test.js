@@ -850,3 +850,83 @@ test('rooms move with their upstairs, stairs and roof; blueprints use shop furni
   assert.equal(Object.values(plot.obj).filter((o) => o.t === 'grandclock').length, 2, 'taken from the bag');
   assert.equal(a.last('inv').inv.grandclock, undefined);
 });
+
+test('needs: run down over time; fridge, toilet, shower, bed and TV fill them; eating; fainting', async () => {
+  const { game, join, advance } = setup();
+  const a = await join({ name: 'Ana' });
+  assert.equal(a.welcome.you.needs.health, 100);
+  a.send({ type: 'cheat', cmd: 'testingcheats true' });
+  a.send({ type: 'cheat', cmd: 'motherlode' });
+  a.send({ type: 'claim', plotId: 0 });
+  const plot = game.plots[0];
+  for (const [item, lx, ly] of [['fridge', 2, 2], ['stove', 3, 2], ['toilet', 6, 2], ['shower', 8, 2], ['bed', 10, 2], ['tv', 12, 2]]) {
+    a.send({ type: 'place', plotId: 0, lx, ly, item });
+    assert.equal(plot.obj[`${lx},${ly}`]?.t, item, item);
+  }
+  const s = a.session();
+  const run = (secs) => { for (let i = 0; i < secs; i++) { advance(1000); game.tick(); } };
+  // Needs decay while online.
+  const h0 = s.profile.needs.hunger;
+  run(36); // one in-game hour
+  assert.ok(Math.abs(h0 - s.profile.needs.hunger - 3.5) < 0.2, `hunger fell ${h0 - s.profile.needs.hunger}`);
+  // Too far away to use the toilet.
+  stand(game, a, 0, 14, 10);
+  a.send({ type: 'use', plotId: 0, lx: 6, ly: 2, act: 'toilet' });
+  assert.match(a.last('error').msg, /Walk up/);
+  // Use the toilet: you sit on it, the bladder fills, then you get back up.
+  s.profile.needs.bladder = 10;
+  stand(game, a, 0, 6, 3);
+  const back = [s.x, s.y];
+  a.send({ type: 'use', plotId: 0, lx: 6, ly: 2, act: 'toilet' });
+  assert.equal(s.act.id, 'toilet');
+  assert.equal(a.last('pos').y, (plot.y + 2.5) * TILE, 'sitting on it');
+  a.send({ type: 'move', x: 0, y: 0, d: 0, m: 1 });
+  assert.equal(s.y, (plot.y + 2.5) * TILE, 'moves ignored while busy');
+  run(20);
+  assert.ok(s.profile.needs.bladder > 97, 'bladder filled');
+  assert.equal(s.act, null, 'done by itself');
+  assert.deepEqual([s.x, s.y], back, 'back where you stood');
+  // Snack from the fridge costs 5 and feeds you; cooking needs the stove (there is one).
+  s.profile.needs.hunger = 20;
+  stand(game, a, 0, 2, 3);
+  const c0 = s.profile.coins;
+  a.send({ type: 'use', plotId: 0, lx: 2, ly: 2, act: 'cook' });
+  assert.equal(c0 - s.profile.coins, 15);
+  run(40);
+  assert.ok(s.profile.needs.hunger > 80, `hunger ${s.profile.needs.hunger}`);
+  // Shower, then stop early by walking away.
+  s.profile.needs.hygiene = 0;
+  stand(game, a, 0, 8, 3);
+  a.send({ type: 'use', plotId: 0, lx: 8, ly: 2, act: 'shower' });
+  run(5);
+  a.send({ type: 'stop' });
+  assert.equal(s.act, null);
+  assert.ok(s.profile.needs.hygiene > 15 && s.profile.needs.hygiene < 30, `hygiene ${s.profile.needs.hygiene}`);
+  // Others see what you're doing; someone else can't use the same thing.
+  const b = await join({ name: 'Ben' });
+  stand(game, a, 0, 12, 3);
+  a.send({ type: 'use', plotId: 0, lx: 12, ly: 2, act: 'tv' });
+  game.tick();
+  assert.equal(b.last('state').p.find((p) => p[0] === a.welcome.you.id)[6], 'tv');
+  stand(game, b, 0, 12, 3);
+  b.send({ type: 'use', plotId: 0, lx: 12, ly: 2, act: 'tv' });
+  assert.match(b.last('error').msg, /Ana is using/);
+  // Ben can't use Ana's bed while she's out.
+  a.send({ type: 'stop' });
+  stand(game, a, 0, 10, 5);
+  s.x = game.world.spawn.x; s.y = game.world.spawn.y;
+  stand(game, b, 0, 11, 3);
+  b.send({ type: 'use', plotId: 0, lx: 10, ly: 2, act: 'sleep' });
+  assert.match(b.last('error').msg, /while they’re in/);
+  // Eat a turnip from the bag.
+  s.profile.inv.turnip = 1;
+  s.profile.needs.hunger = 50;
+  a.send({ type: 'eat', item: 'turnip' });
+  assert.equal(s.profile.needs.hunger, 62);
+  assert.equal(s.profile.inv.turnip, undefined);
+  // Health falls while needs are empty; at zero you faint and wake up at home.
+  Object.assign(s.profile.needs, { hunger: 0, bladder: 0, health: 1 });
+  run(20);
+  assert.match(a.last('toast').text, /fainted/);
+  assert.ok(s.profile.needs.health >= 40);
+});

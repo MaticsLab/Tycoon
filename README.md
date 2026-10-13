@@ -59,6 +59,13 @@ You can also befriend villagers whose personalities change based on how you trea
   - Each NPC has five traits: warmth, cheer, trust, generosity and energy. Kindness, insults and gifts shift those traits over time, and the NPC keeps a diary of how and why they changed.
   - They remember facts about you, keep the last few lines of your conversation, and pass gossip to each other.
   - Their mood and how much they like you change their shop prices.
+- **Needs, like The Sims.** Hunger, energy, bladder, hygiene and fun run down while you play (one in-game hour is 36 seconds), shown in the **Needs** panel under the map with a plumbob that turns from green to red as your mood drops. **Health** falls while any need is empty and recovers while they're all okay; if it hits zero you faint and wake up at home, patched up by the village doctor for 🪙25. Being exhausted or unwell also slows you down.
+  Walk up to furniture and use the action button, or tap it for a menu:
+  - **Fridge**: grab a snack (🪙5) or cook a meal (🪙15, needs a stove). The stove cooks too.
+  - **Toilet**, **shower**, **bathtub** and **sink** fill bladder and hygiene; showers and baths steam.
+  - **Bed**: sleep or nap, lying down with drifting Zzz. Sofas, armchairs, chairs, bean bags and benches let you sit and relax.
+  - **TV**, **bookshelf** or **desk** (read), **piano**, **aquarium**, **fireplace** and **telescope** fill fun.
+  Moving stops what you're doing. Others see a thought bubble with what you're up to, and you can use things in a friend's house while they're home. Crops, Honey Cake and Herbal Tea can be eaten straight from the bag.
 - **Farming.** Till soil, plant seeds, harvest into your bag, then sell to Rosa.
 - **Cheat console** in **⚙️ Settings → Cheats** (the same on desktop and phones). Type a command or tap one of the shortcut chips.
   Type `testingcheats true` first, then any of:
@@ -66,7 +73,8 @@ You can also befriend villagers whose personalities change based on how you trea
   - `motherlode` gives +50,000. `kaching` and `rosebud` give +1,000.
   - `freerealestate on` makes land changes free.
   - `bb.enablefreebuild` turns free building on or off.
-  - `tp cityhall`, `tp park`, `tp fair` or `tp square` teleports you.
+  - `tp cityhall`, `tp park`, `tp fair` or `tp square` teleports you (or `tp <x> <y>` in tiles).
+  - `fillneeds` (or `sims.fill_all_commodities`) fills every need; `needs hunger 20` sets one.
   The server setting `CHEATS` in `worker/wrangler.jsonc` controls who can use cheats: `all`, `admins` (only the usernames listed in `ADMINS`) or `off`.
 - **Character creator** in the Stardew style: roll the dice, turn the preview, pick a build, then skin, hair (22 styles, from swept spikes and emo fringes to curls and long waves), shirt (20 designs) and accessory (glasses, beards, hats and more) with the arrows.
   Sliders set eye, hair and pants colour, and you name yourself, your farm and your favourite thing. Change your look later from **👤 Me → Change look**.
@@ -89,6 +97,8 @@ client/   the game: Vite + Three.js (3D view) + canvas pixel-art painters; Capac
 | Live world            | one Durable Object (`World`). It runs the simulation and stores plots, profiles and NPC minds in its SQLite storage |
 | Accounts and sessions | Better Auth on the **`tycoon-auth` D1 database** (`user`, `session`, `account` and `verification` tables)  |
 | NPC dialogue          | Workers AI: Llama 3.3 70B, falling back to Llama 3.1 8B, then to scripted lines                            |
+
+**Keeping it smooth.** Moves are checked against a movement budget, so packets that arrive bunched up after a network hiccup aren't rejected. The server only broadcasts positions when something moved, but at least once a second. Clients reconnect when the server has been silent for 5 seconds, when the tab comes back or when the network returns, with randomised back-off. The server drops players it hasn't heard from for about 45 seconds. Each plot carries a revision number, so clients rebuild a house only when it changed, nearest first and at most two per frame. Other players are drawn about 120 ms in the past, interpolated between server updates. The camera and sprites share one pixel grid, so walking doesn't wobble.
 
 The Worker checks the player's Better Auth session before letting a WebSocket into the Durable Object. The game itself never handles passwords.
 The browser and the Android app both use bearer tokens, which work the same in both and avoid cross-site cookies.

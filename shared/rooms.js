@@ -22,23 +22,28 @@ function room(name, icon, { w, h, wall, floor, door, windows = [], objs = [], op
 export const STYLED_ROOMS = {
   bedroom: room('Cozy Bedroom', '🛏️', {
     w: 5, h: 4, wall: 'wall_white', floor: 'floor_wood', door: 2, windows: [['h', 1, 0], ['h', 3, 0]],
-    objs: [['bed', 1, 0], ['dresser', 3, 0], ['lamp', 4, 0], ['rug', 2, 2], ['houseplant', 0, 3], ['petbed', 4, 3]],
+    objs: [['bed', 1, 0], ['nightstand', 2, 0], ['dresser', 3, 0], ['wardrobe', 4, 0], ['lamp', 4, 2], ['rug', 2, 2], ['houseplant', 0, 3], ['petbed', 4, 3]],
   }),
+  // Shower, vanity and toilet along the back wall, each with a free tile in front.
   bathroom: room('Tiled Bathroom', '🛁', {
-    w: 3, h: 3, wall: 'wall_blue', floor: 'floor_tile', door: 1, windows: [['v', 3, 1]],
-    objs: [['bathtub', 0, 0], ['toilet', 2, 0], ['houseplant', 0, 2]],
+    w: 4, h: 3, wall: 'wall_white', floor: 'floor_tile', door: 1, windows: [['v', 4, 1]],
+    objs: [['shower', 0, 0], ['towelrack', 1, 0], ['sink', 2, 0], ['toilet', 3, 0], ['bathmat', 0, 1], ['monstera', 0, 2], ['candles', 3, 2]],
   }),
   kitchen: room('Country Kitchen', '🍳', {
     w: 5, h: 4, wall: 'wall_white', floor: 'floor_checker', door: 2, windows: [['h', 2, 0]],
-    objs: [['fridge', 0, 0], ['stove', 1, 0], ['counter', 2, 0], ['counter', 3, 0], ['lamp', 4, 0], ['table', 1, 2], ['chair', 0, 2, 3], ['chair', 3, 2, 1]],
+    objs: [['fridge', 0, 0], ['stove', 1, 0], ['counter', 2, 0], ['counter', 3, 0], ['lamp', 4, 0], ['table', 1, 2], ['chair', 0, 2, 3], ['chair', 3, 2, 1], ['monstera', 4, 3]],
   }),
   living: room('Living Room', '🛋️', {
     w: 6, h: 5, wall: 'wall_sage', floor: 'floor_wood', door: 3, windows: [['h', 1, 0, 'window_tall'], ['h', 4, 0, 'window_tall']],
-    objs: [['tv', 2, 0], ['bookshelf', 0, 0], ['lamp', 5, 0], ['rug', 2, 1], ['sofa', 2, 3, 2], ['armchair', 0, 2, 3], ['houseplant', 5, 4]],
+    objs: [
+      ['bookshelf', 0, 0], ['monstera', 1, 0], ['tv', 2, 0], ['floorvase', 4, 0], ['lamp', 5, 0],
+      ['coffeetable', 2, 2], ['sofa', 2, 3, 2], ['armchair', 0, 2, 3], ['endtable', 0, 3],
+      ['rug', 4, 1], ['beanbag', 5, 3], ['houseplant', 5, 4],
+    ],
   }),
   study: room('Quiet Study', '📚', {
     w: 4, h: 3, wall: 'wall_wood', floor: 'floor_red', door: 1, windows: [['v', 0, 1]],
-    objs: [['bookshelf', 0, 0], ['bookshelf', 1, 0], ['armchair', 3, 0], ['lamp', 2, 0], ['houseplant', 3, 2]],
+    objs: [['bookshelf', 0, 0], ['bookshelf', 1, 0], ['desk', 2, 0], ['chair', 2, 1, 2], ['armchair', 3, 1, 1], ['lamp', 0, 2], ['houseplant', 3, 2]],
   }),
   patio: room('Garden Patio', '🌻', {
     w: 4, h: 4, floor: 'floor_stone', open: true,
