@@ -179,9 +179,9 @@ Players can also change the server under **Server** on the join screen.
 
 |                 | Desktop                                       | Phone                              |
 |-----------------|-----------------------------------------------|------------------------------------|
-| Walk            | WASD / arrows (relative to the camera)        | drag anywhere (virtual joystick)   |
-| Run             | hold Shift while walking                      | drag the joystick far out          |
-| Camera          | middle-drag to orbit, right-drag to pan, Q / E to turn, wheel to zoom | two-finger drag to pan, twist to rotate, pinch to zoom, ⟲ ⟳ + − buttons |
+| Walk            | WASD / arrows (relative to the camera)        | drag anywhere: a floating joystick that follows your finger |
+| Run             | hold Shift while walking                      | hold the joystick out at its edge (it glows orange) |
+| Camera          | middle-drag to orbit, right-drag to pan, Q / E to turn, wheel to zoom | pinch to zoom, twist or two-finger swipe sideways to turn, two-finger swipe up/down to tilt (pans in build mode), ⟲ ⟳ + − buttons |
 | Talk / interact | Enter, or click an NPC                        | tap the action button or the NPC   |
 | Build mode      | B · H select/move · C copy (or Alt+click) · K sledgehammer · T design · L time of day · R or right-click rotate · V walls · PgUp/PgDn floors · Ctrl/Cmd+Z undo · Ctrl/Cmd+Y redo · Delete sells a held item · Enter or double-click finishes a custom room · Esc cancels · WASD or right-drag to pan | two-finger drag to pan, tool strip buttons |
 | Village map     | M, or click the minimap                       | tap the minimap                    |

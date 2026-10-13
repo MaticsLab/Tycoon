@@ -2042,10 +2042,11 @@ function showSettings(tab = settingsTab) {
   body.insertAdjacentHTML('beforeend', `
     <h3>🎮 Controls</h3>
     <div class="keys">
-      <span>Walk</span><span>WASD / arrows · drag on a phone</span>
-      <span>Run</span><span>hold Shift · drag the joystick far out</span>
-      <span>Rotate camera</span><span>hold the scroll wheel and drag · Q / E · two-finger twist</span>
-      <span>Move camera</span><span>right-drag · two-finger drag</span>
+      <span>Walk</span><span>WASD / arrows · on a phone, drag anywhere: the joystick follows your finger</span>
+      <span>Run</span><span>hold Shift · hold the joystick out at its edge</span>
+      <span>Rotate camera</span><span>hold the scroll wheel and drag · Q / E · two-finger twist or sideways swipe</span>
+      <span>Tilt camera</span><span>scroll-wheel drag up/down · two-finger swipe up/down</span>
+      <span>Move camera</span><span>right-drag · two-finger drag in build mode</span>
       <span>Zoom</span><span>mouse wheel · pinch</span>
       <span>Talk</span><span>Enter, or click a villager</span>
       <span>Village map</span><span>M, or tap the minimap</span>
@@ -2142,7 +2143,8 @@ cv.addEventListener('contextmenu', (e) => e.preventDefault());
 cv.addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); }); // no autoscroll
 
 const pointers = new Map();
-const stick = { id: null, sx: 0, sy: 0, x: 0, y: 0, active: false, moved: false, t: 0 };
+const stick = { id: null, sx: 0, sy: 0, x: 0, y: 0, active: false, moved: false, t: 0, edgeSince: 0 };
+const STICK_R = 46; // joystick radius (CSS px)
 let gesture = null; // two-finger pan/pinch, or right-mouse pan
 
 // Drag the view: in build mode the camera itself moves; while walking it looks away
@@ -2157,7 +2159,7 @@ function panBy(dx, dy) {
 
 cv.addEventListener('pointerdown', (e) => {
   if (!S.me) return;
-  cv.setPointerCapture(e.pointerId);
+  try { cv.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pointers.size === 2 || e.button === 1 || e.button === 2) {
     // Middle mouse orbits, right mouse pans, two fingers pan / pinch-zoom / twist-rotate.
@@ -2189,7 +2191,7 @@ cv.addEventListener('pointerdown', (e) => {
   }
   stick.id = e.pointerId;
   stick.sx = stick.x = e.clientX; stick.sy = stick.y = e.clientY;
-  stick.moved = false; stick.t = performance.now();
+  stick.moved = false; stick.t = performance.now(); stick.edgeSince = 0;
 });
 
 cv.addEventListener('pointermove', (e) => {
@@ -2200,11 +2202,17 @@ cv.addEventListener('pointermove', (e) => {
     if (pts.length === 2) {
       const cx = (pts[0].x + pts[1].x) / 2, cy = (pts[0].y + pts[1].y) / 2, dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
       const ang = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
-      panBy(cx - gesture.cx, cy - gesture.cy);
-      if (gesture.dist > 0 && dist > 0) view.zoomBy(gesture.dist / dist);
       let da = ang - gesture.ang;
       if (da > Math.PI) da -= Math.PI * 2; else if (da < -Math.PI) da += Math.PI * 2;
-      if (Math.abs(da) < 0.5) view.orbit(-da, 0);
+      const dcx = cx - gesture.cx, dcy = cy - gesture.cy;
+      // Ignore the first few pixels so a plain pinch doesn't also wobble the camera.
+      gesture.travel = (gesture.travel || 0) + Math.abs(dcx) + Math.abs(dcy) + Math.abs(da) * 60 + Math.abs(dist - gesture.dist);
+      if (gesture.travel > 10) {
+        if (gesture.dist > 0 && dist > 0) view.zoomBy(gesture.dist / dist);   // pinch: zoom
+        view.orbit(-da, 0);                                                  // twist: turn
+        if (S.mode === 'build') panBy(dcx, dcy);                             // building: two-finger drag pans
+        else view.orbit(-dcx * 0.006, dcy * 0.004);                          // walking: swipe sideways to turn, up/down to tilt
+      }
       Object.assign(gesture, { cx, cy, dist, ang });
     } else if (gesture.kind === 'orbit') {
       view.orbit(-(e.clientX - gesture.cx) * 0.008, (e.clientY - gesture.cy) * 0.004);
@@ -2227,7 +2235,12 @@ cv.addEventListener('pointermove', (e) => {
   }
   if (e.pointerId !== stick.id) return;
   stick.x = e.clientX; stick.y = e.clientY;
-  if (Math.hypot(stick.x - stick.sx, stick.y - stick.sy) > 10) { stick.moved = true; stick.active = true; }
+  const dx = stick.x - stick.sx, dy = stick.y - stick.sy, d = Math.hypot(dx, dy);
+  if (d > 10) { stick.moved = true; stick.active = true; }
+  // A floating stick: past the rim, the base slides along behind your finger, so you
+  // can steer anywhere without lifting it.
+  if (d > STICK_R) { stick.sx = stick.x - (dx / d) * STICK_R; stick.sy = stick.y - (dy / d) * STICK_R; }
+  if (d >= STICK_R * 0.92) { if (!stick.edgeSince) stick.edgeSince = performance.now(); } else stick.edgeSince = 0;
 });
 
 const endPointer = (e) => {
@@ -2304,8 +2317,9 @@ function inputVector() {
   let run = keys.has('shift');
   if (stick.active) {
     const dx = stick.x - stick.sx, dy = stick.y - stick.sy, d = Math.hypot(dx, dy);
-    if (d > 8) { const k = Math.min(1, d / 40) / d; x = dx * k; y = dy * k; }
-    run = d > 75; // drag the joystick far out to run
+    if (d > 6) { const k = Math.min(1, d / STICK_R) / d; x = dx * k; y = dy * k; }
+    // Hold the stick out at the rim for a moment to break into a run.
+    run = stick.edgeSince > 0 && performance.now() - stick.edgeSince > 350;
   }
   const len = Math.hypot(x, y);
   return len > 1 ? { x: x / len, y: y / len, run } : { x, y, run };
@@ -3079,12 +3093,17 @@ function drawOverlay(now) {
     octx.globalAlpha = 1;
   }
   if (stick.active && S.mode === 'walk') {
-    octx.globalAlpha = 0.35;
+    const running = S.me.running;
+    octx.globalAlpha = 0.3;
     octx.fillStyle = '#fff';
-    octx.beginPath(); octx.arc(stick.sx, stick.sy, 40, 0, Math.PI * 2); octx.fill();
-    const dx = stick.x - stick.sx, dy = stick.y - stick.sy, d = Math.hypot(dx, dy) || 1, k = Math.min(1, 40 / d);
-    octx.globalAlpha = 0.7;
-    octx.beginPath(); octx.arc(stick.sx + dx * k, stick.sy + dy * k, 18, 0, Math.PI * 2); octx.fill();
+    octx.beginPath(); octx.arc(stick.sx, stick.sy, STICK_R, 0, Math.PI * 2); octx.fill();
+    octx.globalAlpha = 0.8;
+    octx.lineWidth = 3; octx.strokeStyle = running ? '#ffb347' : 'rgba(255,255,255,.9)';
+    octx.beginPath(); octx.arc(stick.sx, stick.sy, STICK_R, 0, Math.PI * 2); octx.stroke();
+    const dx = stick.x - stick.sx, dy = stick.y - stick.sy, d = Math.hypot(dx, dy) || 1, k = Math.min(1, STICK_R / d);
+    octx.globalAlpha = 0.85;
+    octx.fillStyle = running ? '#ffb347' : '#fff';
+    octx.beginPath(); octx.arc(stick.sx + dx * k, stick.sy + dy * k, 20, 0, Math.PI * 2); octx.fill();
     octx.globalAlpha = 1;
   }
 }
