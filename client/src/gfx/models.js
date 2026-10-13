@@ -2,10 +2,10 @@
 // origin at the north-west corner of the item's unrotated footprint, y up, and the
 // front facing south (+z). Boxes are merged into one mesh per item (plus one for
 // glowing parts like lamp shades), and a dithered grain texture keeps the pixel look.
-import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { footprint, LEVEL_H } from '@shared/plot.js';
 import { grainTex } from './textures.js';
+import { box, merge, toMesh, node, lambert, basic, linearRGB, rgbToHSL, hslToRGB, hexFromLinear, s2l, ctx } from './bjs.js';
+import { EXTRA_MODELS } from './models-extra.js';
 
 const WOOD = '#a8703f', WOOD_D = '#6b4424', WOOD_L = '#c99363', METAL = '#2f3542', WHITE = '#f4f6f7';
 // WOOD and WOOD_L carry the big surfaces (they stay readable under warm night light);
@@ -575,25 +575,18 @@ const MODELS = {
   ],
 };
 
+Object.assign(MODELS, EXTRA_MODELS);
+
 // Items shown as camera-facing pixel-art cards instead of boxes.
 export const BILLBOARD = new Set(['houseplant', 'bush', 'sapling', 'scarecrow', 'statue', 'telescope', 'flowerbed']);
 
 export const hasModel = (t) => !!MODELS[t];
 
-function colorize(geo, hex) {
-  const c = new THREE.Color(hex).convertSRGBToLinear();
-  const n = geo.attributes.position.count;
-  const arr = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) { arr[i * 3] = c.r; arr[i * 3 + 1] = c.g; arr[i * 3 + 2] = c.b; }
-  geo.setAttribute('color', new THREE.BufferAttribute(arr, 3));
-  return geo;
-}
-
 const geoCache = new Map();
 let solidMat, glowMat;
 export function materials() {
-  solidMat ||= new THREE.MeshLambertMaterial({ vertexColors: true, map: grainTex() });
-  glowMat ||= new THREE.MeshBasicMaterial({ vertexColors: true });
+  solidMat ||= lambert({ vertexColors: true, map: grainTex() });
+  glowMat ||= basic({ vertexColors: true });
   return { solidMat, glowMat };
 }
 
@@ -606,40 +599,70 @@ const KEEP = new Set([WOOD, WOOD_D, WOOD_L, METAL, WHITE, CREAM, BRASS, CHROME, 
   '#cfe9ee', '#a9d6df', '#e1f3f6', '#efe6d6', '#e3d8c4', '#d9cfbd', '#5cc0e0', '#bdeeff', '#8fe0b0']);
 function recolor(col, c) {
   if (!c || KEEP.has(col)) return col;
-  const k = new THREE.Color(col), hsl = {};
-  k.getHSL(hsl);
+  // HSL of the linear colour, as three.js's Color.getHSL / setHSL did.
+  const hsl = rgbToHSL(...linearRGB(col));
   if (hsl.s < 0.22 || (hsl.h > 0.04 && hsl.h < 0.12 && hsl.l < 0.55)) return col; // greys and wood tones
-  k.setHSL((hsl.h + c / 6) % 1, hsl.s, hsl.l);
-  return `#${k.getHexString()}`;
+  return hexFromLinear(...hslToRGB((hsl.h + c / 6) % 1, hsl.s, hsl.l));
 }
 
-function itemGeometry(t, c = 0) {
+// { solid, glow }: merged geometry (vertex colours in linear space), cached per item|colourway.
+export function itemGeometry(t, c = 0) {
   const ck = c ? `${t}|${c}` : t;
   if (geoCache.has(ck)) return geoCache.get(ck);
   const [w0, d0] = footprint(t, 0);
   const solid = [], glow = [];
   for (const [x, y, z, w, h, d, col, lit] of MODELS[t]()) {
-    const g = new THREE.BoxGeometry(w, h, d);
-    g.translate(x + w / 2 - w0 / 2, y + h / 2, z + d / 2 - d0 / 2);
-    (lit ? glow : solid).push(colorize(g, recolor(col, c)));
+    const g = box(w, h, d).translate(x + w / 2 - w0 / 2, y + h / 2, z + d / 2 - d0 / 2);
+    // (three.js linearised these twice: Color() already converts, then convertSRGBToLinear;
+    // kept so furniture keeps its familiar deep colours.)
+    (lit ? glow : solid).push(g.colorize(linearRGB(recolor(col, c)).map(s2l)));
   }
-  const out = { solid: solid.length ? mergeGeometries(solid) : null, glow: glow.length ? mergeGeometries(glow) : null };
-  for (const g of [out.solid, out.glow]) if (g) g.userData.shared = true; // cached: never dispose
+  const out = { solid: solid.length ? merge(solid) : null, glow: glow.length ? merge(glow) : null, meshes: null };
   geoCache.set(ck, out);
   return out;
 }
 
+// Babylon geometry shared by every copy of an item (cloned meshes share vertex buffers).
+function sourceMeshes(t, c) {
+  const g = itemGeometry(t, c);
+  if (!g.meshes) {
+    const { solidMat, glowMat } = materials();
+    g.meshes = {
+      solid: g.solid && toMesh(g.solid, solidMat, { name: `src:${t}|${c}` }),
+      glow: g.glow && toMesh(g.glow, glowMat, { name: `srcg:${t}|${c}` }),
+    };
+    for (const m of Object.values(g.meshes)) if (m) { m.setEnabled(false); m.isVisible = false; }
+  }
+  return g.meshes;
+}
+
 // A ready-to-place furniture object. (x, z) = world position of the footprint's
 // north-west corner, y = floor height; r = rotation 0..3; c = colourway 0..5.
-export function makeItem(t, r, x, y, z, c = 0) {
-  const { solidMat, glowMat } = materials();
-  const g = itemGeometry(t, c);
-  const grp = new THREE.Group();
-  if (g.solid) { const m = new THREE.Mesh(g.solid, solidMat); m.castShadow = true; m.receiveShadow = true; grp.add(m); }
-  if (g.glow) grp.add(new THREE.Mesh(g.glow, glowMat));
+// opts.cast: draws into the sun's shadow map (furniture in the world does).
+export function makeItem(t, r, x, y, z, c = 0, { cast = true, parent = null } = {}) {
+  const src = sourceMeshes(t, c);
+  const grp = node(t, parent);
+  if (src.solid) { const m = src.solid.clone(`${t}`, grp, true, false); m.setEnabled(true); m.isVisible = true; m.parent = grp; m.position.setAll(0); if (cast) shadowAdd(m); }
+  if (src.glow) { const m = src.glow.clone(`${t}:glow`, grp, true, false); m.setEnabled(true); m.isVisible = true; m.parent = grp; m.position.setAll(0); }
   const [w, d] = footprint(t, r);
   grp.position.set(x + w / 2, y, z + d / 2);
   grp.rotation.y = (-r * Math.PI) / 2;
-  grp.userData.item = t;
+  grp.metadata = { item: t };
   return grp;
+}
+const shadowAdd = (m) => ctx.shadow?.add(m);
+
+// Bakes an item into a Batch (for static scenes: one draw call for all the furniture).
+export function itemInto(batch, t, r, x, y, z, c = 0) {
+  const g = itemGeometry(t, c);
+  const { solidMat, glowMat } = materials();
+  const [w, d] = footprint(t, r);
+  const a = (-r * Math.PI) / 2;
+  for (const [geo, mat] of [[g.solid, solidMat], [g.glow, glowMat]]) {
+    if (!geo) continue;
+    const cl = geo.clone();
+    if (a) cl.rotateY(a);
+    cl.translate(x + w / 2, y, z + d / 2);
+    batch.add(mat, cl);
+  }
 }

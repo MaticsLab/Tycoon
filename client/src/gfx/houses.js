@@ -1,21 +1,26 @@
 // Builds a plot's house in 3D from its Sims-style data (see shared/plot.js):
 // floors on two levels, wall segments on tile edges with real door/window openings,
 // Sims cutaway, gable roofs, furniture models and pixel-art cards for plants/crops.
-import * as THREE from 'three';
 import { ITEMS, cropStage } from '@shared/catalog.js';
 import { parseEdge, levelView, footprint, LEVELS, LEVEL_H } from '@shared/plot.js';
 import { wallTex, floorTex, roofTex, woodTex, signTex, WALL_H } from './textures.js';
 import { Batch, boxAt, gableRoof } from './geom.js';
-import { makeItem, hasModel, BILLBOARD } from './models.js';
+import { itemInto, hasModel, BILLBOARD, materials } from './models.js';
+import { Geo, box, toMesh, node, lambert as mkLambert } from './bjs.js';
 import { objectSprite, cropSprite } from '../sprites.js';
 
 export { LEVEL_H }; // floor-to-floor height (shared with the game rules)
 export const LOW_H = 0.4; // cut-away wall height
 const THICK = 0.12;
+// Night lights of newer items: [x, y, z (tiles from the item's NW corner), kind].
+const EXTRA_LIGHTS = {
+  arclamp: [0.6, 1.3, 0.68, 'lamp'], lantern: [0.5, 0.3, 0.5, 'pumpkin'],
+  firepit: [0.5, 0.35, 0.5, 'fire'], stonelantern: [0.5, 0.95, 0.5, 'pumpkin'],
+};
 
 const mats = new Map();
 const mat = (key, make) => { if (!mats.has(key)) mats.set(key, make()); return mats.get(key); };
-const lambert = (o) => new THREE.MeshLambertMaterial(o);
+const lambert = (o) => mkLambert(o);
 const wallMat = (m) => mat(`wall|${m}`, () => lambert({ map: wallTex(m) }));
 const trimMat = () => mat('trim', () => lambert({ color: '#4a2e18' }));
 const doorMat = () => mat('door', () => lambert({ map: woodTex() }));
@@ -58,7 +63,7 @@ function stakes(batch, plot) {
 //         entrance: { x, z } (tiles) where the plot meets the road }
 // Returns { group, lights: [{ x, y, z, kind }] }.
 export function buildPlot(plot, opts) {
-  const group = new THREE.Group();
+  const group = node('plot');
   const lights = [];
   const ox = plot.x, oz = plot.y;
   const batch = new Batch();
@@ -82,14 +87,8 @@ export function buildPlot(plot, opts) {
         uv.push(u, v, u + 0.25, v, u + 0.25, v - 0.25, u, v - 0.25);
         idx.push(i * 4, i * 4 + 2, i * 4 + 1, i * 4, i * 4 + 3, i * 4 + 2);
       });
-      const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-      g.setAttribute('normal', new THREE.Float32BufferAttribute(new Array(pos.length).fill(0).map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
-      g.setIndex(idx);
-      const mesh = new THREE.Mesh(g, floorMat(t));
-      mesh.receiveShadow = true;
-      group.add(mesh);
+      const nrm = new Array(pos.length).fill(0).map((_, i) => (i % 3 === 1 ? 1 : 0));
+      toMesh(new Geo(pos, nrm, uv, idx), floorMat(t), { parent: group });
       // Upstairs floors are slabs with a ceiling underneath.
       if (l > 0) for (const [lx, ly] of tiles) batch.add(ceilMat(), boxAt(ox + lx, y - 0.14, oz + ly, 1, 0.15, 1));
     }
@@ -159,8 +158,9 @@ export function buildPlot(plot, opts) {
   }
   batch.build(group);
 
-  // Furniture, plants and crops
+  // Furniture, plants and crops (all the furniture of a plot is one mesh, plus one for glowing parts)
   const cards = opts.cards;
+  const furn = new Batch();
   for (let l = 0; l <= maxLevel; l++) {
     const view = levelView(plot, l);
     const y = l * LEVEL_H;
@@ -171,7 +171,7 @@ export function buildPlot(plot, opts) {
       const rot = o.r || 0;
       const [w, h] = footprint(o.t, rot);
       if (hasModel(o.t)) {
-        group.add(makeItem(o.t, rot, ox + lx, y, oz + ly, o.c || 0));
+        itemInto(furn, o.t, rot, ox + lx, y, oz + ly, o.c || 0);
       } else if (cards && d.crop) {
         cards.add(cropSprite(d.crop, cropStage(o, opts.now)), 8, 13, ox + lx + 0.5, y, oz + ly + 0.6);
       } else if (cards && BILLBOARD.has(o.t)) {
@@ -183,8 +183,18 @@ export function buildPlot(plot, opts) {
       else if (o.t === 'jackolantern') lights.push({ x: ox + lx + 0.5, y: y + 0.5, z: oz + ly + 0.8, kind: 'pumpkin' });
       else if (o.t === 'candles') lights.push({ x: ox + lx + 0.5, y: y + 0.4, z: oz + ly + 0.5, kind: 'pumpkin' }); // small warm glow
       else if (o.t === 'cauldron') lights.push({ x: ox + lx + 0.5, y: y + 0.9, z: oz + ly + 0.5, kind: 'cauldron' });
+      else if (EXTRA_LIGHTS[o.t]) {
+        // Offset from the NW corner of the unrotated footprint, turned with the item.
+        const [px, py, pz, kind] = EXTRA_LIGHTS[o.t];
+        const [w0, h0] = footprint(o.t, 0);
+        const [ux, uz] = [px - w0 / 2, pz - h0 / 2];
+        const a = (-rot * Math.PI) / 2, c = Math.cos(a), sn = Math.sin(a);
+        lights.push({ x: ox + lx + w / 2 + c * ux + sn * uz, y: y + py, z: oz + ly + h / 2 - sn * ux + c * uz, kind });
+      }
     }
   }
+
+  furn.build(group, { noCast: materials().glowMat });
 
   // "For sale" sign where the plot meets the road
   if (!plot.owner) {
@@ -192,12 +202,11 @@ export function buildPlot(plot, opts) {
     const sx = Math.min(Math.max(e.x - 1.5, ox), ox + plot.w - 1), sz = Math.min(Math.max(e.z - 0.8, oz + 0.2), oz + plot.h - 0.3);
     const s = new Batch();
     s.add(doorMat(), boxAt(sx + 0.45, 0, sz, 0.1, 0.9, 0.1));
-    s.build(group);
     const sale = mat('forsale', () => lambert({ map: signTex('FOR SALE', 48, 20) }));
-    const board = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.45, 0.06), [doorMat(), doorMat(), doorMat(), doorMat(), sale, doorMat()]);
-    board.position.set(sx + 0.5, 0.95, sz + 0.1);
-    board.castShadow = true;
-    group.add(board);
+    // The board: the sign on its front face, plain wood elsewhere.
+    s.add(doorMat(), box(1.0, 0.45, 0.06, ['px', 'nx', 'py', 'ny', 'nz']).translate(sx + 0.5, 0.95, sz + 0.1));
+    s.add(sale, box(1.0, 0.45, 0.06, ['pz']).translate(sx + 0.5, 0.95, sz + 0.1));
+    s.build(group);
   }
   return { group, lights };
 }

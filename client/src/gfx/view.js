@@ -1,70 +1,75 @@
-// The 3D view. Renders at a low resolution and scales up with sharp pixels so the
-// world keeps its pixel-art look (HD-2D style). An isometric orthographic camera
+// The 3D view (Babylon.js). Renders at a low resolution and scales up with sharp pixels
+// so the world keeps its pixel-art look (HD-2D style). An isometric orthographic camera
 // turns in 90° steps (Q/E or the ⟲ ⟳ buttons) and zooms; the sun casts blocky
 // shadows; at night lamps, fireplaces and windows light up.
-import * as THREE from 'three';
+import { TargetCamera } from '@babylonjs/core/Cameras/targetCamera.js';
+import { Camera } from '@babylonjs/core/Cameras/camera.js';
 import { MAP_W, MAP_H, SHOPS, FOUNTAIN } from '@shared/world.js';
-import { personSprite } from '../people.js';
+import { personSprite, sleeperSprite } from '../people.js';
 import { petSprite } from '../pets.js';
 import { sanitizeLook } from '@shared/look.js';
 import { BillboardSet, texOf, blobMesh } from './billboards.js';
 import { buildTerrain, buildRocks, treeCards, buildFountain, fountainSpray, buildPlazaLamps, PLAZA_LAMPS, buildShop, buildDecor, buildCityHall } from './scenery.js';
 import { buildPlot, glassMat, LEVEL_H } from './houses.js';
 import { TEXEL } from './textures.js';
+import { createScene, ctx, G, NPT, ShadowMap, TyMaterial, Vector3, Color4, Geo, toMesh, spriteGeo, disposeNode, freeze, linear, linearRGB, linearHSL } from './bjs.js';
 
 const ELEV = 0.62; // camera pitch (radians)
 const DIR_VEC = [[0, 1], [0, -1], [-1, 0], [1, 0]]; // world dir 0..3 -> (x, z)
 // Villagers are drawn at 80% so they stand ~1.5 tiles tall: a bit shorter than a
 // doorway (2.05) and well under a wall (2.5), like a person in a Sims house.
 export const PERSON_SCALE = 0.8;
+const SUN_OFF = [-14, 26, 8]; // sun position relative to the point it lights
+const SUN_DIR = (() => { const l = Math.hypot(...SUN_OFF); return new Vector3(SUN_OFF[0] / l, SUN_OFF[1] / l, SUN_OFF[2] / l); })();
+const HEMI_GROUND = linear('#6f8f4a'), HEMI_DAY = linear('#dff0ff'), HEMI_NIGHT = linear('#7d8fd6');
+const LIGHT_KIND = {
+  post: { i: 9, c: linearRGB('#ffd08a'), d: 8 }, fire: { i: 7, c: linearRGB('#ff9a4a'), d: 6 }, window: { i: 4, c: linearRGB('#ffd08a'), d: 6 },
+  pumpkin: { i: 4, c: linearRGB('#ff9a4a'), d: 4 }, cauldron: { i: 6, c: linearRGB('#8aff6a'), d: 6 }, lamp: { i: 6, c: linearRGB('#ffd08a'), d: 6 },
+};
+
+// three.js-style vector helpers the game code relies on (copy / multiplyScalar).
+class Vec3 extends Vector3 {
+  copy(v) { return this.copyFrom(v); }
+  multiplyScalar(s) { return this.scaleInPlace(s); }
+  clone() { return new Vec3(this.x, this.y, this.z); }
+}
 
 export class View {
   constructor(canvas, world) {
     this.canvas = canvas;
     this.world = world;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(1);
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.BasicShadowMap;
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color('#2a4f2c');
-    this.camera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 300);
+    const { engine, scene } = createScene(canvas);
+    this.engine = engine;
+    this.scene = scene;
+    scene.clearColor = Color4.FromHexString('#2a4f2cff');
+    this.camera = new TargetCamera('cam', new Vector3(0, 80, 0), scene, true);
+    this.camera.mode = Camera.ORTHOGRAPHIC_CAMERA;
+    this.camera.minZ = 0.1; this.camera.maxZ = 300;
     this.yaw = Math.PI / 4;   // camera heading (free orbit)
     this.yawGoal = this.yaw;  // Q/E and the ⟲ ⟳ buttons glide here in 90° steps
     this.pitch = ELEV;        // camera tilt
-    this.offset = new THREE.Vector3(); // free-look pan away from the followed point
+    this.offset = new Vec3(); // free-look pan away from the followed point
     this.basisVersion = 0; this.builtVersion = 0; this.lastCardBuild = 0;
     this.zoom = 15; // world units visible across the shorter side
-    this.target = new THREE.Vector3(FOUNTAIN.cx, 0, FOUNTAIN.cz + 4);
+    this.target = new Vec3(FOUNTAIN.cx, 0, FOUNTAIN.cz + 4);
     this.goal = this.target.clone();
+    this.eye = new Vector3();
+    this._want = new Vector3();
+    this._b = { right: new Vector3(), up: new Vector3(), back: new Vector3() };
 
-    // Lighting
-    this.hemi = new THREE.HemisphereLight('#dff0ff', '#6f8f4a', 1.6);
-    this.sun = new THREE.DirectionalLight('#fff1d6', 2.4);
-    this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
-    const sc = this.sun.shadow.camera;
-    sc.left = -22; sc.right = 22; sc.top = 22; sc.bottom = -22; sc.near = 1; sc.far = 80;
-    this.sun.shadow.bias = -0.0008;
-    this.sun.shadow.normalBias = 0.03;
-    this.scene.add(this.hemi, this.sun, this.sun.target);
-    this.pool = Array.from({ length: 12 }, () => {
-      const l = new THREE.PointLight('#ffc878', 0, 7, 1.4);
-      this.scene.add(l);
-      return l;
-    });
+    // Lighting: sun shadows (the light values themselves are shader globals, see render)
+    this.shadow = new ShadowMap(2048, 22);
+    this.lightList = [];
 
     // Static scenery
     this.terrain = buildTerrain(world);
     this.terrainRoads = world.roadsVersion;
-    this.scene.add(this.terrain, buildRocks(world), buildFountain(), buildPlazaLamps(), buildCityHall());
-    for (const shop of SHOPS) this.scene.add(buildShop(shop));
+    buildRocks(world); buildFountain(); buildPlazaLamps(); buildCityHall();
+    for (const shop of SHOPS) buildShop(shop);
     this.spray = fountainSpray();
-    this.scene.add(this.spray);
     this.trees = new BillboardSet();
     treeCards(world, this.trees);
     const decor = buildDecor(world, this.trees);
-    this.scene.add(this.trees.group, decor.group);
     this.staticLights = [
       ...decor.lights,
       ...PLAZA_LAMPS.map(([x, z]) => ({ x, y: 2.2, z, kind: 'post' })),
@@ -73,9 +78,6 @@ export class View {
 
     this.plots = new Map(); // id -> { group, cards, lights, sig }
     this.actors = new Map(); // id -> { sprite, blob, vec }
-    this.blobGroup = new THREE.Group();
-    this.scene.add(this.blobGroup);
-    this.raycaster = new THREE.Raycaster();
     this.resize();
     this.applyCamera(true);
   }
@@ -84,13 +86,13 @@ export class View {
   get theta() { return this.yaw; }
   // Which of the four diagonal views we're closest to (cutaway is decided per quadrant).
   get quadrant() { return ((Math.round((this.yaw - Math.PI / 4) / (Math.PI / 2)) % 4) + 4) % 4; }
-  basis() {
+  basis(out = null) {
     const t = this.theta, c = Math.cos(this.pitch), s = Math.sin(this.pitch);
-    return {
-      right: new THREE.Vector3(Math.cos(t), 0, -Math.sin(t)),
-      up: new THREE.Vector3(-Math.sin(t) * s, c, -Math.cos(t) * s),
-      back: new THREE.Vector3(Math.sin(t) * c, s, Math.cos(t) * c),
-    };
+    const b = out || { right: new Vector3(), up: new Vector3(), back: new Vector3() };
+    b.right.set(Math.cos(t), 0, -Math.sin(t));
+    b.up.set(-Math.sin(t) * s, c, -Math.cos(t) * s);
+    b.back.set(Math.sin(t) * c, s, Math.cos(t) * c);
+    return b;
   }
   // Ground directions for movement: forward = away from the camera.
   ground() {
@@ -126,7 +128,7 @@ export class View {
 
   setTarget(x, z, snap = false, y = 0) {
     this.goal.set(x, y, z);
-    if (snap) this.target.copy(this.goal);
+    if (snap) this.target.copyFrom(this.goal);
   }
 
   resize() {
@@ -135,57 +137,63 @@ export class View {
     // Aim for ~320 low-res pixels on the short side.
     this.pixel = Math.max(1, Math.round((Math.min(cssW, cssH) * dpr) / 320));
     const w = Math.max(1, Math.floor((cssW * dpr) / this.pixel)), h = Math.max(1, Math.floor((cssH * dpr) / this.pixel));
-    this.renderer.setSize(w, h, false);
+    if (this.canvas.width !== w || this.canvas.height !== h) this.engine.setSize(w, h, true);
+    this.height = h;
     // `zoom` is how many world units fit across the screen's shorter side.
     const aspect = w / h;
     const halfH = aspect >= 1 ? this.zoom / 2 : this.zoom / 2 / aspect, halfW = halfH * aspect;
-    this.camera.top = halfH; this.camera.bottom = -halfH;
-    this.camera.left = -halfW; this.camera.right = halfW;
-    this.camera.updateProjectionMatrix();
+    const c = this.camera;
+    c.orthoTop = halfH; c.orthoBottom = -halfH; c.orthoLeft = -halfW; c.orthoRight = halfW;
+    // three.js-style names (main.js reads top/bottom for drag panning)
+    c.top = halfH; c.bottom = -halfH; c.left = -halfW; c.right = halfW;
+    this.halfW = halfW; this.halfH = halfH;
   }
 
   applyCamera(first) {
-    const { back, right, up } = this.basis();
+    const { back, right, up } = this.basis(this._b);
     // Snap the view to whole low-res pixels so the world moves in clean pixel steps
     // instead of crawling (which shimmers like static when zoomed out).
-    const unit = (this.camera.top - this.camera.bottom) / this.renderer.domElement.height;
-    const eye = this.target.clone();
-    const a = eye.dot(right), b = eye.dot(up);
-    eye.addScaledVector(right, Math.round(a / unit) * unit - a).addScaledVector(up, Math.round(b / unit) * unit - b);
+    const unit = (this.halfH * 2) / this.height;
+    const eye = this.eye.copyFrom(this.target);
+    const a = Vector3.Dot(eye, right), b = Vector3.Dot(eye, up);
+    const da = Math.round(a / unit) * unit - a, db = Math.round(b / unit) * unit - b;
+    eye.x += right.x * da + up.x * db; eye.y += right.y * da + up.y * db; eye.z += right.z * da + up.z * db;
     this.snap = { right, up, unit }; // sprites snap to the same grid (see actor)
-    this.camera.position.copy(eye).addScaledVector(back, 80);
-    this.camera.lookAt(eye);
-    this.camera.updateMatrixWorld();
+    this.camera.position.set(eye.x + back.x * 80, eye.y + back.y * 80, eye.z + back.z * 80);
+    this.camera.setTarget(eye);
     if (first) this.trees.build(this.basis());
-    this.sun.position.set(this.target.x - 14, 26, this.target.z + 8);
-    this.sun.target.position.copy(this.target);
   }
 
   // ---------- picking ----------
   // World point under a screen position, on the horizontal plane at height y.
   pick(clientX, clientY, y = 0) {
     const rect = this.canvas.getBoundingClientRect();
-    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
-    this.raycaster.setFromCamera(ndc, this.camera);
-    const hit = new THREE.Vector3();
-    return this.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -y), hit) ? { x: hit.x, z: hit.z } : null;
+    const nx = ((clientX - rect.left) / rect.width) * 2 - 1, ny = -((clientY - rect.top) / rect.height) * 2 + 1;
+    const { right, up, back } = this._b;
+    const ox = this.eye.x + right.x * nx * this.halfW + up.x * ny * this.halfH;
+    const oy = this.eye.y + right.y * nx * this.halfW + up.y * ny * this.halfH;
+    const oz = this.eye.z + right.z * nx * this.halfW + up.z * ny * this.halfH;
+    if (Math.abs(back.y) < 1e-6) return null;
+    const t = (oy - y) / back.y; // ray runs along -back
+    return { x: ox - back.x * t, z: oz - back.z * t };
   }
 
   // CSS pixel position of a world point.
   toScreen(x, y, z) {
-    const v = new THREE.Vector3(x, y, z).project(this.camera);
+    const { right, up } = this._b, e = this.eye;
+    const dx = x - e.x, dy = y - e.y, dz = z - e.z;
+    const nx = (dx * right.x + dy * right.y + dz * right.z) / this.halfW, ny = (dx * up.x + dy * up.y + dz * up.z) / this.halfH;
     const rect = this.canvas.getBoundingClientRect();
-    return { x: rect.left + ((v.x + 1) / 2) * rect.width, y: rect.top + ((1 - v.y) / 2) * rect.height };
+    return { x: rect.left + ((nx + 1) / 2) * rect.width, y: rect.top + ((1 - ny) / 2) * rect.height };
   }
 
   // Repaint the ground after the road layout changed.
   refreshTerrain() {
     if (this.terrainRoads === this.world.roadsVersion) return;
     this.terrainRoads = this.world.roadsVersion;
-    this.scene.remove(this.terrain);
-    this.terrain.traverse((o) => { o.geometry?.dispose(); o.material?.map?.dispose(); o.material?.dispose(); });
+    for (const m of this.terrain.getChildMeshes()) { m.material?.o.map?.dispose(); m.material?.dispose(); }
+    disposeNode(this.terrain);
     this.terrain = buildTerrain(this.world);
-    this.scene.add(this.terrain);
   }
 
   // ---------- plots ----------
@@ -202,36 +210,38 @@ export class View {
     const cards = new BillboardSet();
     const built = buildPlot(state, { cut: { mode: opts.cut, fx: g.fx, fz: g.fz }, maxLevel: opts.maxLevel, roofs: opts.roofs, cards, now: opts.now, entrance: opts.entrance });
     cards.build(this.basis());
+    freeze(built.group);
     p = { group: built.group, cards, lights: built.lights, sig };
     this.plots.set(state.id, p);
-    this.scene.add(p.group, p.cards.group);
     return true;
   }
 
   removePlot(id) {
     const p = this.plots.get(id);
     if (!p) return;
-    this.scene.remove(p.group, p.cards.group);
-    disposeGroup(p.group);
+    disposeNode(p.group);
+    p.cards.dispose();
     this.plots.delete(id);
   }
 
   // ---------- actors (players, NPCs and pets as pixel sprites) ----------
   // pet: { idx, sit } draws a pet instead of a villager.
-  // pose: 'lie' (asleep in bed), 'sit' (on a seat: no ground shadow) or null.
+  // pose: null, or { kind: 'sit' } (seated sprite, no ground shadow), { kind: 'sleep', r, w, h, quilt }
+  // (a flat top-down sleeper lying on the bed, head at the bed's head end), { kind: 'hidden' }.
+  // The old string forms 'sit' and 'lie' (a turned upright sprite) still work.
   actor(id, x, z, dirWorld, moving, look, now, vis = true, y = 0, pet = null, pose = null) {
-    const lie = pose === 'lie';
+    const kind = typeof pose === 'string' ? pose : pose?.kind || null;
+    const lie = kind === 'lie';
     let a = this.actors.get(id);
     if (!a) {
-      a = { sprite: new THREE.Sprite(), blob: null, vec: [0, 1], lx: x, lz: z, lookRef: null, look: null };
-      a.sprite.renderOrder = 1;
+      const geo = spriteGeo(1, 1, 0.5, 0.5);
+      a = { sprite: null, blob: null, geo, vec: [0, 1], lx: x, lz: z, lookRef: null, look: null, tex: null };
+      a.sprite = toMesh(geo, null, { updatable: true, name: `actor:${id}` });
+      a.sprite.alwaysSelectAsActiveMesh = true;
       a.blob = blobMesh([[0, 0, 0, pet ? 0.26 : 0.36]]);
-      this.scene.add(a.sprite);
-      this.blobGroup.add(a.blob);
       this.actors.set(id, a);
     }
     a.seen = true;
-    a.sprite.visible = a.blob.visible = vis;
     // Facing comes from actual motion when there is any, else the reported direction.
     const mx = x - a.lx, mz = z - a.lz;
     if (Math.hypot(mx, mz) > 0.004) a.vec = [mx, mz];
@@ -246,39 +256,68 @@ export class View {
     if (pet) spr = petSprite(pet.idx, dir, frame, pet.sit);
     else {
       if (a.lookRef !== look) { a.lookRef = look; a.look = sanitizeLook(look); }
-      spr = personSprite(a.look, dir, frame);
+      spr = personSprite(a.look, dir, frame, kind === 'sit' ? 'sit' : null);
     }
     const tex = texOf(spr.cv);
-    if (a.sprite.material.map !== tex || a.lie !== lie) {
-      a.lie = lie;
+    if (a.tex !== tex || a.lie !== lie) {
+      a.tex = tex; a.lie = lie;
+      const sx = (spr.cv.width / TEXEL) * PERSON_SCALE, sy = (spr.cv.height / TEXEL) * PERSON_SCALE;
       if (lie) {
         // A turned copy of the sprite, centred on the bed.
         a.lieMats ||= new Map();
         let m = a.lieMats.get(tex);
-        if (!m) { m = new THREE.SpriteMaterial({ map: tex, alphaTest: 0.5, rotation: Math.PI / 2 }); a.lieMats.set(tex, m); }
+        if (!m) { m = new TyMaterial({ kind: 'sprite', map: tex, alphaTest: 0.5 }); a.lieMats.set(tex, m); }
         a.sprite.material = m;
-        a.sprite.center.set(0.5, 0.5);
+        spriteGeo(sx, sy, 0.5, 0.5, Math.PI / 2, a.geo);
       } else {
         a.sprite.material = spriteMat(tex);
-        a.sprite.center.set(-spr.dx / spr.cv.width, 1 + spr.dy / spr.cv.height);
+        spriteGeo(sx, sy, -spr.dx / spr.cv.width, 1 + spr.dy / spr.cv.height, 0, a.geo);
       }
-      a.sprite.scale.set((spr.cv.width / TEXEL) * PERSON_SCALE, (spr.cv.height / TEXEL) * PERSON_SCALE, 1);
+      a.sprite.updateVerticesData('position', a.geo.pos, false, false);
     }
-    a.sprite.position.set(x, y, z);
+    const p = a.sprite.position;
+    p.set(x, y, z);
     // Land on the same low-res pixel grid as the camera, so walking characters glide in
     // even pixel steps instead of jittering against the ground.
     if (this.snap && !lie) {
-      const { right, up, unit } = this.snap, p = a.sprite.position;
-      const ra = p.dot(right), ub = p.dot(up);
-      p.addScaledVector(right, Math.round(ra / unit) * unit - ra).addScaledVector(up, Math.round(ub / unit) * unit - ub);
+      const { right, up, unit } = this.snap;
+      const ra = Vector3.Dot(p, right), ub = Vector3.Dot(p, up);
+      const da = Math.round(ra / unit) * unit - ra, db = Math.round(ub / unit) * unit - ub;
+      p.set(p.x + right.x * da + up.x * db, p.y + right.y * da + up.y * db, p.z + right.z * da + up.z * db);
     }
+    const sleep = kind === 'sleep' && !pet;
+    a.sprite.isVisible = vis && !sleep && kind !== 'hidden';
     a.blob.position.set(x, y, z);
-    a.blob.visible = vis && !pose; // no ground shadow while sitting or lying on things
+    a.blob.isVisible = vis && !kind; // no ground shadow while sitting or lying on things
+    if (sleep) this.sleeper(a, x, y, z, pose, vis);
+    else if (a.sleep) a.sleep.isVisible = false;
+  }
+
+  // Someone in bed, seen from above: a flat card on the mattress under the quilt art.
+  sleeper(a, x, y, z, pose, vis) {
+    if (!a.sleep) {
+      // Unit quad in the ground plane; canvas top (the head) at -z, scaled per bed.
+      const geo = new Geo([-0.5, 0, -0.5, 0.5, 0, -0.5, 0.5, 0, 0.5, -0.5, 0, 0.5], [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], [0, 1, 1, 1, 1, 0, 0, 0], [0, 2, 1, 0, 3, 2]);
+      a.sleep = toMesh(geo, null, { name: 'sleeper' });
+    }
+    const tex = texOf(sleeperSprite(a.look, ...(pose.quilt ? [pose.quilt] : [])).cv);
+    let m = sleepMats.get(tex);
+    if (!m) {
+      m = new TyMaterial({ kind: 'basic', map: tex, alphaTest: 0.5, tint: true, doubleSided: true });
+      m.zOffset = -2; // over the bed's own quilt
+      sleepMats.set(tex, m);
+    }
+    const s = a.sleep, w = pose.w || 1, h = pose.h || 2;
+    s.material = m;
+    s.scaling.set(Math.min(w, h) - 0.1, 1, Math.max(w, h) - 0.1);
+    s.rotation.y = (-(pose.r || 0) * Math.PI) / 2;
+    s.position.set(x, y + 0.01, z);
+    s.isVisible = vis;
   }
 
   pruneActors() {
     for (const [id, a] of this.actors) {
-      if (!a.seen) { this.scene.remove(a.sprite); this.blobGroup.remove(a.blob); this.actors.delete(id); }
+      if (!a.seen) { a.sprite.dispose(false, false); a.blob.dispose(false, false); a.sleep?.dispose(false, false); this.actors.delete(id); }
       a.seen = false;
     }
   }
@@ -292,66 +331,63 @@ export class View {
     // pixel grid); free-look panning eases, independent of the frame rate.
     const dt = Math.min(0.1, (now - (this.lastFrame ?? now)) / 1000);
     this.lastFrame = now;
-    const want = this.goal.clone().add(this.offset);
-    if (follow) this.target.copy(want);
-    else this.target.lerp(want, 1 - Math.exp(-dt * 16));
+    const want = this._want.copyFrom(this.goal).addInPlace(this.offset);
+    if (follow) this.target.copyFrom(want);
+    else { const k = 1 - Math.exp(-dt * 16); this.target.addInPlace(want.subtractInPlace(this.target).scaleInPlace(k)); }
     this.applyCamera(false);
     const night = Math.min(1, dark / 0.62);
-    this.sun.intensity = 2.4 * (1 - night * 0.88);
-    this.sun.color.setHSL(0.1 - night * 0.45, 0.55, 0.85 - night * 0.2);
-    this.hemi.intensity = 1.6 - night * 1.05;
-    this.hemi.color.set(night > 0.5 ? '#7d8fd6' : '#dff0ff');
+    // Shader globals (linear colour × intensity, as three.js's physically based lights).
+    const sunI = 2.4 * (1 - night * 0.88);
+    linearHSL(0.1 - night * 0.45, 0.55, 0.85 - night * 0.2, G.sunColor).scaleInPlace(sunI);
+    G.sunDir.copyFrom(SUN_DIR);
+    const hemiI = 1.6 - night * 1.05;
+    G.hemiSky.copyFrom(night > 0.5 ? HEMI_NIGHT : HEMI_DAY).scaleInPlace(hemiI);
+    G.hemiGround.copyFrom(HEMI_GROUND).scaleInPlace(hemiI);
     const tint = 1 - night * 0.55;
-    for (const m of spriteMats.values()) m.color.setRGB(tint, tint, Math.min(1, tint + night * 0.15));
-    glassMat().emissive.setRGB(night * 0.9, night * 0.7, night * 0.3);
+    G.tint.set(tint, tint, Math.min(1, tint + night * 0.15));
+    glassMat().emissive.set(night * 0.9, night * 0.7, night * 0.3);
     // Night light pool: nearest light sources to the camera target.
-    const all = [...this.staticLights];
-    for (const p of this.plots.values()) all.push(...p.lights);
-    const tx = this.target.x, tz = this.target.z;
-    all.sort((a, b) => (a.x - tx) ** 2 + (a.z - tz) ** 2 - ((b.x - tx) ** 2 + (b.z - tz) ** 2));
-    this.pool.forEach((l, i) => {
-      const s = all[i];
-      if (!s || night < 0.05) { l.intensity = 0; return; }
-      l.position.set(s.x, s.y, s.z);
-      l.intensity = night * (s.kind === 'post' ? 9 : s.kind === 'fire' ? 7 : s.kind === 'window' ? 4 : s.kind === 'pumpkin' ? 4 : 6);
-      l.color.set(s.kind === 'fire' || s.kind === 'pumpkin' ? '#ff9a4a' : s.kind === 'cauldron' ? '#8aff6a' : '#ffd08a');
-      l.distance = s.kind === 'post' ? 8 : s.kind === 'pumpkin' ? 4 : 6;
-    });
+    G.ptCount = 0;
+    if (night >= 0.05) {
+      const all = this.lightList;
+      all.length = 0;
+      for (const s of this.staticLights) all.push(s);
+      for (const p of this.plots.values()) for (const s of p.lights) all.push(s);
+      const tx = this.target.x, tz = this.target.z;
+      for (const s of all) s.d2 = (s.x - tx) ** 2 + (s.z - tz) ** 2;
+      all.sort(byD2);
+      const n = Math.min(NPT, all.length);
+      for (let i = 0; i < n; i++) {
+        const s = all[i], k = LIGHT_KIND[s.kind] || LIGHT_KIND.lamp, I = night * k.i;
+        G.ptPos[i * 4] = s.x; G.ptPos[i * 4 + 1] = s.y; G.ptPos[i * 4 + 2] = s.z; G.ptPos[i * 4 + 3] = k.d;
+        G.ptCol[i * 4] = k.c[0] * I; G.ptCol[i * 4 + 1] = k.c[1] * I; G.ptCol[i * 4 + 2] = k.c[2] * I; G.ptCol[i * 4 + 3] = 1.4;
+      }
+      G.ptCount = n;
+    }
+    // The sun's shadow frame moves in coarse steps, so the map is only redrawn now and then.
+    this.shadow.update(Math.round(this.target.x / 2) * 2, Math.round(this.target.z / 2) * 2, SUN_OFF);
     this.spray.update(now);
-    this.renderer.render(this.scene, this.camera);
+    ctx.frame++;
+    this.engine.beginFrame();
+    this.scene.render();
+    this.engine.endFrame();
   }
 }
+const byD2 = (a, b) => a.d2 - b.d2;
 
-const spriteMats = new Map();
+const spriteMats = new Map(), sleepMats = new Map();
 // Villager and pet sprites face the camera, so on their own they lean back toward
 // whatever stands behind them and a wall behind you slices through your head. Each
-// pixel instead gets the depth it would have on an upright figure standing at the feet:
-// walls behind you stay behind, while a bed or wall really in front still hides the
-// parts of you it should.
-function feetDepth(shader) {
-  shader.vertexShader = shader.vertexShader.replace(
-    'gl_Position = projectionMatrix * mvPosition;',
-    `gl_Position = projectionMatrix * mvPosition;
-    vec3 upView = normalize( modelViewMatrix[ 1 ].xyz );
-    vec4 upright = mvPosition;
-    upright.z += rotatedPosition.y * upView.z / max( upView.y, 0.05 );
-    vec4 uprightClip = projectionMatrix * upright;
-    gl_Position.z = ( uprightClip.z / uprightClip.w - 0.001 ) * gl_Position.w;`,
-  );
-}
+// pixel instead gets the depth it would have on an upright figure standing at the feet
+// (the FEET define of the shader in bjs.js): walls behind you stay behind, while a bed
+// or wall really in front still hides the parts of you it should.
 function spriteMat(tex) {
   let m = spriteMats.get(tex);
   if (!m) {
-    m = new THREE.SpriteMaterial({ map: tex, alphaTest: 0.5 });
-    m.onBeforeCompile = feetDepth;
-    m.customProgramCacheKey = () => 'feet-depth';
+    m = new TyMaterial({ kind: 'sprite', map: tex, alphaTest: 0.5, feet: true, tint: true });
     spriteMats.set(tex, m);
   }
   return m;
-}
-
-function disposeGroup(g) {
-  g.traverse((o) => { if (o.geometry && !o.geometry.userData?.shared) o.geometry.dispose(); });
 }
 
 export { LEVEL_H, MAP_W, MAP_H };

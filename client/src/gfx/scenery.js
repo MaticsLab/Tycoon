@@ -1,45 +1,62 @@
 // The static village in 3D: terrain (the pixel-art ground painted in sprites.js),
 // fences, rocks, trees, the fountain, plaza lamps and the two shops.
-import * as THREE from 'three';
 import { T, MAP_W, MAP_H, SHOPS, SQUARE, FOUNTAIN, PLAZA_LAMPS, HALL, tileHash } from '@shared/world.js';
 import { ITEMS } from '@shared/catalog.js';
 import { renderGround, treeSprite, treeKind, objectSprite, r, px, disc } from '../sprites.js';
 import { canvasTex, paintTex, wallTex, roofTex, woodTex, stoneTex, signTex, WALL_H } from './textures.js';
 export { woodTex };
 import { Batch, boxAt, gableRoof } from './geom.js';
-import { makeItem } from './models.js';
+import { itemInto, materials } from './models.js';
+import { Geo, merge, toMesh, node, lambert, basic, plane as planeGeo, cylinder, sphere, freeze } from './bjs.js';
 
-const lambert = (opts) => new THREE.MeshLambertMaterial(opts);
+// Builds batches and freezes the result (static scenery never moves).
+const buildInto = (batch, grp) => { batch.build(grp, { noCast: materials().glowMat }); return grp; };
 
 export function buildTerrain(world) {
   const cv = renderGround(world, { three: true });
-  const mat = lambert({ map: canvasTex(cv) });
-  const g = new THREE.PlaneGeometry(MAP_W, MAP_H);
-  g.rotateX(-Math.PI / 2);
-  g.translate(MAP_W / 2, 0, MAP_H / 2);
-  const mesh = new THREE.Mesh(g, mat);
-  mesh.receiveShadow = true;
+  const grp = node('terrain');
+  const g = planeGeo(MAP_W, MAP_H).rotateX(-Math.PI / 2).translate(MAP_W / 2, 0, MAP_H / 2);
+  toMesh(g, lambert({ map: canvasTex(cv) }), { parent: grp });
   // A dark forest floor beyond the map edge.
-  const skirt = new THREE.Mesh(new THREE.PlaneGeometry(MAP_W + 80, MAP_H + 80).rotateX(-Math.PI / 2).translate(MAP_W / 2, -0.02, MAP_H / 2), lambert({ color: '#2f5a2a' }));
-  const grp = new THREE.Group();
-  grp.add(mesh, skirt);
-  return grp;
+  const skirt = planeGeo(MAP_W + 80, MAP_H + 80).rotateX(-Math.PI / 2).translate(MAP_W / 2, -0.02, MAP_H / 2);
+  toMesh(skirt, lambert({ color: '#2f5a2a', receive: false }), { parent: grp });
+  return freeze(grp);
 }
 
+// three.js DodecahedronGeometry(0.34): 20 vertices on the sphere, 36 flat triangles.
+const DT = (1 + Math.sqrt(5)) / 2, DR = 1 / DT;
+const DODECA_V = [-1, -1, -1, -1, -1, 1, -1, 1, -1, -1, 1, 1, 1, -1, -1, 1, -1, 1, 1, 1, -1, 1, 1, 1,
+  0, -DR, -DT, 0, -DR, DT, 0, DR, -DT, 0, DR, DT, -DR, -DT, 0, -DR, DT, 0, DR, -DT, 0, DR, DT, 0, -DT, 0, -DR, DT, 0, -DR, -DT, 0, DR, DT, 0, DR];
+const DODECA_I = [3, 11, 7, 3, 7, 15, 3, 15, 13, 7, 19, 17, 7, 17, 6, 7, 6, 15, 17, 4, 8, 17, 8, 10, 17, 10, 6, 8, 0, 16, 8, 16, 2, 8, 2, 10, 0, 12, 1, 0, 1, 18, 0, 18, 16, 6, 10, 2, 6, 2, 13, 6, 13, 15, 2, 16, 18, 2, 18, 3, 2, 3, 13, 18, 1, 9, 18, 9, 11, 18, 11, 3, 4, 14, 12, 4, 12, 0, 4, 0, 8, 11, 9, 5, 11, 5, 19, 11, 19, 7, 19, 5, 14, 19, 14, 4, 19, 4, 17, 1, 12, 14, 1, 14, 5, 1, 5, 9];
+
 export function buildRocks(world) {
-  const list = [];
-  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) if (world.tiles[y * MAP_W + x] === T.ROCK) list.push([x, y]);
-  const geo = new THREE.DodecahedronGeometry(0.34, 0);
-  const mat = lambert({ color: '#8d939b', flatShading: true });
-  const mesh = new THREE.InstancedMesh(geo, mat, list.length);
-  const m = new THREE.Matrix4();
-  list.forEach(([x, y], i) => {
+  const pos = [], nrm = [], idx = [];
+  const unit = [];
+  for (let i = 0; i < DODECA_V.length; i += 3) { const l = Math.hypot(DODECA_V[i], DODECA_V[i + 1], DODECA_V[i + 2]); unit.push(DODECA_V[i] / l * 0.34, DODECA_V[i + 1] / l * 0.34, DODECA_V[i + 2] / l * 0.34); }
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
+    if (world.tiles[y * MAP_W + x] !== T.ROCK) continue;
     const h = tileHash(x, y);
-    m.compose(new THREE.Vector3(x + 0.5, 0.16, y + 0.55), new THREE.Quaternion().setFromEuler(new THREE.Euler(h * 2, h * 5, 0)), new THREE.Vector3(1.1, 0.7 + h * 0.3, 0.9));
-    mesh.setMatrixAt(i, m);
-  });
-  mesh.castShadow = true; mesh.receiveShadow = true;
-  return mesh;
+    // Euler XYZ (h*2, h*5, 0) then scale (1.1, 0.7 + 0.3h, 0.9), at (x + 0.5, 0.16, y + 0.55).
+    const a = h * 2, b = h * 5, ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b);
+    const R = [cb, 0, sb, sa * sb, ca, -sa * cb, -ca * sb, sa, ca * cb];
+    const S = [1.1, 0.7 + h * 0.3, 0.9];
+    const tv = [];
+    for (let i = 0; i < unit.length; i += 3) {
+      const vx = unit[i] * S[0], vy = unit[i + 1] * S[1], vz = unit[i + 2] * S[2];
+      tv.push(R[0] * vx + R[1] * vy + R[2] * vz + x + 0.5, R[3] * vx + R[4] * vy + R[5] * vz + 0.16, R[6] * vx + R[7] * vy + R[8] * vz + y + 0.55);
+    }
+    for (let i = 0; i < DODECA_I.length; i += 3) {
+      const [p, q, r] = [DODECA_I[i], DODECA_I[i + 1], DODECA_I[i + 2]].map((k) => tv.slice(k * 3, k * 3 + 3));
+      const e1 = [q[0] - p[0], q[1] - p[1], q[2] - p[2]], e2 = [r[0] - p[0], r[1] - p[1], r[2] - p[2]];
+      let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+      const l = Math.hypot(...n) || 1; n = n.map((v) => v / l);
+      const o = pos.length / 3;
+      pos.push(...p, ...q, ...r); nrm.push(...n, ...n, ...n); idx.push(o, o + 1, o + 2);
+    }
+  }
+  const grp = node('rocks');
+  if (pos.length) toMesh(new Geo(pos, nrm, [], idx), lambert({ color: '#8d939b' }), { parent: grp, cast: true });
+  return freeze(grp);
 }
 
 // Trees as pixel-art billboards. Returns entries for a BillboardSet.
@@ -63,44 +80,45 @@ export function treeCards(world, set) {
 
 // Fountain in the middle of the plaza (4x4 tiles).
 export function buildFountain() {
-  const grp = new THREE.Group();
+  const grp = node('fountain');
   const stone = lambert({ map: stoneTex() });
   const light = lambert({ color: '#d3cdbf' });
   const water = lambert({ color: '#4aa2d6', emissive: '#12324a' });
-  const add = (geo, mat, y) => { const m = new THREE.Mesh(geo, mat); m.position.set(FOUNTAIN.cx, y, FOUNTAIN.cz); m.castShadow = true; m.receiveShadow = true; grp.add(m); return m; };
-  add(new THREE.CylinderGeometry(1.85, 1.95, 0.45, 8), stone, 0.225);
-  add(new THREE.CylinderGeometry(1.88, 1.88, 0.06, 8), light, 0.47);
-  add(new THREE.CylinderGeometry(1.6, 1.6, 0.05, 8), water, 0.42);
-  add(new THREE.CylinderGeometry(0.28, 0.36, 1.2, 8), stone, 0.9);
-  add(new THREE.CylinderGeometry(0.75, 0.45, 0.2, 8), light, 1.4);
-  add(new THREE.CylinderGeometry(0.62, 0.62, 0.04, 8), water, 1.5);
-  add(new THREE.CylinderGeometry(0.1, 0.14, 0.55, 6), stone, 1.75);
-  add(new THREE.SphereGeometry(0.16, 8, 6), light, 2.08);
-  return grp;
+  const parts = new Map();
+  const add = (geo, mat, y) => { if (!parts.has(mat)) parts.set(mat, []); parts.get(mat).push(geo.translate(FOUNTAIN.cx, y, FOUNTAIN.cz)); };
+  add(cylinder(1.85, 1.95, 0.45, 8), stone, 0.225);
+  add(cylinder(1.88, 1.88, 0.06, 8), light, 0.47);
+  add(cylinder(1.6, 1.6, 0.05, 8), water, 0.42);
+  add(cylinder(0.28, 0.36, 1.2, 8), stone, 0.9);
+  add(cylinder(0.75, 0.45, 0.2, 8), light, 1.4);
+  add(cylinder(0.62, 0.62, 0.04, 8), water, 1.5);
+  add(cylinder(0.1, 0.14, 0.55, 6), stone, 1.75);
+  add(sphere(0.16, 8, 6), light, 2.08);
+  for (const [mat, list] of parts) toMesh(merge(list), mat, { parent: grp, cast: true });
+  return freeze(grp);
 }
 
-// Animated water spray particles for the fountain.
+// Animated water spray particles for the fountain (one low-res pixel each).
 export function fountainSpray() {
   const N = 40;
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3));
-  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color: '#d8f2ff', size: 0.09 }));
-  pts.update = (now) => {
-    const a = geo.attributes.position;
+  const pos = new Float32Array(N * 3);
+  const mesh = toMesh(new Geo(pos, [], [], Array.from({ length: N }, (_, i) => i)), basic({ color: '#d8f2ff', points: true }), { updatable: true, name: 'spray' });
+  mesh.alwaysSelectAsActiveMesh = true;
+  mesh.update = (now) => {
     for (let i = 0; i < N; i++) {
       const f = ((now / 1100) + i / N) % 1, ang = i * 2.39;
-      a.setXYZ(i, FOUNTAIN.cx + Math.cos(ang) * f * 0.7, 2.1 + Math.sin(f * Math.PI) * 0.5 - f * 0.6, FOUNTAIN.cz + Math.sin(ang) * f * 0.7);
+      pos[i * 3] = FOUNTAIN.cx + Math.cos(ang) * f * 0.7; pos[i * 3 + 1] = 2.1 + Math.sin(f * Math.PI) * 0.5 - f * 0.6; pos[i * 3 + 2] = FOUNTAIN.cz + Math.sin(ang) * f * 0.7;
     }
-    a.needsUpdate = true;
+    mesh.updateVerticesData('position', pos, false, false);
   };
-  return pts;
+  return mesh;
 }
 
 export { PLAZA_LAMPS };
 export function buildPlazaLamps() {
-  const grp = new THREE.Group();
-  for (const [x, z] of PLAZA_LAMPS) grp.add(makeItem('lamppost', 0, x - 0.5, 0, z - 0.5));
-  return grp;
+  const b = new Batch();
+  for (const [x, z] of PLAZA_LAMPS) itemInto(b, 'lamppost', 0, x - 0.5, 0, z - 0.5);
+  return freeze(buildInto(b, node('lamps')));
 }
 
 // ---------- shops ----------
@@ -125,7 +143,7 @@ const awningTex = (a, b) => facadeTex(`awning|${a}`, 16, 8, (c) => {
 });
 
 export function buildShop(shop) {
-  const grp = new THREE.Group();
+  const grp = node(`shop:${shop.id}`);
   const b = new Batch();
   const wall = lambert({ map: wallTex(shop.id === 'rosa' ? 'wall_white' : 'wall_wood') });
   const roofM = lambert({ map: roofTex(shop.id === 'rosa' ? 'roof_red' : 'roof_blue') });
@@ -140,11 +158,7 @@ export function buildShop(shop) {
   b.build(grp);
 
   const zf = z1 + 0.012, cx = (x0 + x1) / 2;
-  const plane = (tex, w, h, x, y, z, rotX = 0) => {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), lambert({ map: tex, transparent: true, alphaTest: 0.5 }));
-    m.position.set(x, y, z); m.rotation.x = rotX; m.receiveShadow = true;
-    grp.add(m); return m;
-  };
+  const plane = (tex, w, h, x, y, z, rotX = 0) => toMesh(planeGeo(w, h).rotateX(rotX).translate(x, y, z), lambert({ map: tex, transparent: true, alphaTest: 0.5 }), { parent: grp });
   plane(doorTex(), 0.95, 1.9, cx, 0.25 + 0.95, zf);
   plane(signTex(shop.name), 2.4, 0.45, cx, 2.35, zf + 0.02);
   for (const wx of [x0 + 0.85, x1 - 0.85]) {
@@ -161,32 +175,36 @@ export function buildShop(shop) {
       for (let i = 0; i < 4; i++) goods.add(fruit, boxAt(gx + 0.08 + i * 0.18, 0.45, z1 + 0.25, 0.14, 0.12, 0.3));
     }
   } else {
-    grp.add(makeItem('chair', 0, x0 + 0.2, 0, z1 + 0.1));
-    grp.add(makeItem('dresser', 0, x1 - 1.1, 0, z1 + 0.05));
+    itemInto(goods, 'chair', 0, x0 + 0.2, 0, z1 + 0.1);
+    itemInto(goods, 'dresser', 0, x1 - 1.1, 0, z1 + 0.05);
   }
-  goods.build(grp);
-  return grp;
+  buildInto(goods, grp);
+  return freeze(grp);
 }
 
 // ---------- public props & City Hall ----------
 // Decorations in the public places (benches, lamps, Halloween pumpkins...): 3D models,
 // pixel cards for scarecrows, plus corn on the fair's corn tiles. Returns { group, lights }.
 export function buildDecor(world, cards) {
-  const group = new THREE.Group();
+  const group = node('decor');
   const lights = [];
+  // One batch per 16x16-tile chunk: few draw calls, still culled off-screen.
+  const chunks = new Map();
+  const chunk = (x, y) => { const k = `${Math.floor(x / 16)},${Math.floor(y / 16)}`; if (!chunks.has(k)) chunks.set(k, new Batch()); return chunks.get(k); };
   for (const d of world.decor) {
     const [w, h] = ITEMS[d.t]?.size || [1, 1];
     const [fw, fh] = d.r % 2 ? [h, w] : [w, h];
     if (d.t === 'scarecrow') cards.add(objectSprite('scarecrow', 0, 0), 8, 14, d.x + 0.5, 0, d.y + 0.65, { shadow: 0.5 });
-    else group.add(makeItem(d.t, d.r || 0, d.x, 0, d.y));
+    else itemInto(chunk(d.x, d.y), d.t, d.r || 0, d.x, 0, d.y);
     if (d.t === 'lamppost') lights.push({ x: d.x + 0.5, y: 2.2, z: d.y + 0.5, kind: 'post' });
     else if (d.t === 'jackolantern') lights.push({ x: d.x + 0.5, y: 0.5, z: d.y + fh / 2 + 0.3, kind: 'pumpkin' });
     else if (d.t === 'cauldron') lights.push({ x: d.x + 0.5, y: 0.9, z: d.y + 0.5, kind: 'cauldron' });
   }
   for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
-    if (world.tiles[y * MAP_W + x] === T.CORN) group.add(makeItem('cornstalks', 0, x, 0, y));
+    if (world.tiles[y * MAP_W + x] === T.CORN) itemInto(chunk(x, y), 'cornstalks', 0, x, 0, y);
   }
-  return { group, lights };
+  for (const b of chunks.values()) buildInto(b, group);
+  return { group: freeze(group), lights };
 }
 
 const hallSign = () => signTex('CITY HALL', 80, 18);
@@ -198,7 +216,7 @@ const clockTex = () => paintTex('clockface', 16, 16, (c) => {
 
 // A two-storey stone hall with a white portico, a clock tower and the town flag.
 export function buildCityHall() {
-  const grp = new THREE.Group();
+  const grp = node('cityhall');
   const b = new Batch();
   const stone = lambert({ map: wallTex('wall_stone') });
   const plaster = lambert({ map: wallTex('wall_white') });
@@ -226,10 +244,7 @@ export function buildCityHall() {
   b.add(trim, boxAt(tx - 0.08, 2.7 + H, tz - 0.08, 1.96, 0.12, 1.96));
   for (let i = 0; i < 4; i++) b.add(roofM, boxAt(tx - 0.1 + i * 0.25, 2.82 + H + i * 0.35, tz - 0.1 + i * 0.25, 2.0 - i * 0.5, 0.35, 2.0 - i * 0.5));
   b.build(grp);
-  const plane = (tex, w, h, x, y, z) => {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), lambert({ map: tex, transparent: true, alphaTest: 0.5 }));
-    m.position.set(x, y, z); m.receiveShadow = true; grp.add(m); return m;
-  };
+  const plane = (tex, w, h, x, y, z) => toMesh(planeGeo(w, h).translate(x, y, z), lambert({ map: tex, transparent: true, alphaTest: 0.5 }), { parent: grp });
   plane(clockTex(), 1.2, 1.2, cx, 1.6 + H, tz + 1.81);
   plane(hallSign(), 3.4, 0.7, cx, 0.35 + H, z1 + 1.41);
   // Doors and windows on the front wall
@@ -244,5 +259,5 @@ export function buildCityHall() {
     const wx = i < 2 ? x0 + 0.9 + i * 1.6 : x1 - 0.9 - (i - 2) * 1.6;
     for (const wy of [1.5, 1.5 + WALL_H]) plane(win, 0.9, 1.2, wx, wy, z1 + 0.012);
   }
-  return grp;
+  return freeze(grp);
 }

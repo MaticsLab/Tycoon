@@ -1,7 +1,7 @@
 // Pixel-art textures for the 3D world. Everything is painted with the same
 // fillRect painters as the 2D sprites, then sampled with nearest-neighbour
 // filtering so texels stay crisp, chunky pixels.
-import * as THREE from 'three';
+import { canvasTexture } from './bjs.js';
 import { r, px, disc, dk, lt, ramp, mix, FLOOR } from '../sprites.js';
 import { tileHash } from '@shared/world.js';
 import { ITEMS } from '@shared/catalog.js';
@@ -11,14 +11,7 @@ export const TEXEL = 16; // texels per world unit (one tile)
 // Magnified texels stay crisp (nearest); minified ones are mip-mapped so a zoomed-out,
 // moving camera doesn't turn fine pixel detail into shimmering "static".
 export function canvasTex(cv, repeat = false) {
-  const t = new THREE.CanvasTexture(cv);
-  t.magFilter = THREE.NearestFilter;
-  t.minFilter = THREE.LinearMipmapLinearFilter;
-  t.generateMipmaps = true;
-  t.anisotropy = 4;
-  t.colorSpace = THREE.SRGBColorSpace;
-  if (repeat) { t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.RepeatWrapping; }
-  return t;
+  return canvasTexture(cv, repeat);
 }
 
 const cache = new Map();
