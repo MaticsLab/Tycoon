@@ -9,6 +9,7 @@
     "android": "vite build && cap sync android && cap open android"
   },
   "dependencies": {
+    "@babylonjs/core": "^9.30.0",
     "@capacitor/android": "^7.4.0",
     "@capacitor/core": "^7.4.0",
     "three": "^0.186.1"
