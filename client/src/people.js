@@ -129,7 +129,7 @@ function handsFront(arms, y0, F, f, frame) {
     case 'wave': return { l: [-5, y0 + 8], r: [6 + (f % 2), y0 - 3] };
     case 'carry': return { l: [-2.5, y0 + 6], r: [2.5, y0 + 6], prop: ['plate', 0, y0 + 6] };
     case 'whittle': return { l: [-2, y0 + 7], r: [1 + (f % 2), y0 + 6], prop: ['stick', -2, y0 + 7] };
-    case 'lap': return { l: [-2.5, y0 + 8.5], r: [2.5, y0 + 8.5] };
+    case 'lap': return { l: [-4.5, y0 + 9.5], r: [4.5, y0 + 9.5] };
     default: return { l: [-5.5, y0 + 8 - SWAY[frame]], r: [5.5, y0 + 8 + SWAY[frame]] };
   }
 }
@@ -157,12 +157,37 @@ const SIT_DROP = 4;
 function legsSitting(c, L, dir) {
   const { P } = L;
   const dress = L.shirt.kind === 'dress';
-  if (dir === 0 || dir === 1) {
-    // lap, then two short shins and shoes
-    if (!dress) { r(c, -4, -6, 8, 3, P[2]); r(c, -4, -6, 1, 3, P[3]); r(c, 3, -6, 1, 3, P[1]); r(c, -1, -4, 2, 1, P[1]); }
+  if (dir === 0) {
+    // Seen from the front: two thighs coming towards you (lit along the top, a shadow
+    // between them), round knees a little apart, shins down to shoes pointing at you.
+    const K = L.K, S = L.S;
+    for (const side of [-1, 1]) {
+      const x0 = side < 0 ? -5 : 1;                       // knee column (3 px)
+      const th = dress ? S : P;
+      // thigh: from the hip (under the torso) out to the knee
+      r(c, side < 0 ? -4 : 0, -6, 4, 3, th[2]);
+      r(c, side < 0 ? -4 : 0, -6, 4, 1, th[3]);
+      // knee cap
+      r(c, x0, -4, 4, 2, th[2]); r(c, x0 + 1, -4, 2, 1, lt(th[3], 0.3)); px(c, side < 0 ? x0 : x0 + 3, -3, th[1]);
+      // shin and sock line
+      const shin = dress ? K : P;
+      r(c, x0 + 1, -2, 2, 1, shin[1]); px(c, side < 0 ? x0 + 1 : x0 + 2, -2, shin[0]);
+      // shoe, toe towards you
+      r(c, x0, -1, 4, 1, SHOE[1]); r(c, x0 + 1, -1, 2, 1, SHOE[2]); px(c, side < 0 ? x0 : x0 + 3, -1, SHOE[0]);
+    }
+    // the shadow between the legs
+    r(c, 0, -5, 1, 4, dress ? S[0] : P[0]); px(c, -1, -3, dress ? S[1] : P[1]);
+    if (dress) { r(c, -5, -4, 11, 1, S[1]); }
+    return;
+  }
+  if (dir === 1) {
+    // From behind the thighs are hidden by the body: the seat of the trousers on the
+    // chair, then the calves and heels below.
+    const th = dress ? L.S : P;
+    r(c, -4, -6, 8, 3, th[1]); r(c, -4, -6, 8, 1, th[2]); r(c, 0, -5, 1, 2, th[0]);
     for (const x0 of [-4, 1]) {
-      if (!dress) r(c, x0, -3, 3, 2, P[1]); else r(c, x0, -3, 3, 2, L.K[1]);
-      r(c, x0, -1, 3, 1, SHOE[1]); px(c, x0 + (x0 < 0 ? 0 : 2), -1, SHOE[0]);
+      r(c, x0, -3, 3, 2, dress ? L.K[1] : P[1]); r(c, x0, -3, 3, 1, dress ? L.K[0] : P[0]);
+      r(c, x0, -1, 3, 1, SHOE[1]); px(c, x0 + 1, -1, SHOE[2]);
     }
     return;
   }
