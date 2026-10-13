@@ -181,6 +181,7 @@ export function buildPlot(plot, opts) {
       else if (o.t === 'lamppost') lights.push({ x: ox + lx + 0.5, y: y + 2.2, z: oz + ly + 0.5, kind: 'post' });
       else if (o.t === 'fireplace') lights.push({ x: ox + lx + w / 2, y: y + 0.4, z: oz + ly + h / 2 + 0.6, kind: 'fire' });
       else if (o.t === 'jackolantern') lights.push({ x: ox + lx + 0.5, y: y + 0.5, z: oz + ly + 0.8, kind: 'pumpkin' });
+      else if (o.t === 'candles') lights.push({ x: ox + lx + 0.5, y: y + 0.4, z: oz + ly + 0.5, kind: 'pumpkin' }); // small warm glow
       else if (o.t === 'cauldron') lights.push({ x: ox + lx + 0.5, y: y + 0.9, z: oz + ly + 0.5, kind: 'cauldron' });
     }
   }
