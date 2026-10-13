@@ -118,6 +118,7 @@ You can also befriend villagers whose personalities change based on how you trea
     - **Bakery Oven:** wheat, eggs and milk → Farmhouse Cake; wheat → bread.
     - **Juice Press:** melon juice.
     - **Soup Pot:** corn & kale soup.
+- **Walk-in village shops.** Rosa's Market and Otto's Furniture on the town square are real buildings: in through the glass double doors, the walls cut away like at home. Rosa's has shelves, produce stands and chilled cases stocked with what she buys and sells; Otto's is a furniture showroom with a fireplace and a piano. The keepers stand behind their counters during opening hours. Tap a shelf or the register (**🛒 Shop here**), or talk to the keeper from anywhere inside, to buy and sell. The shops belong to the village: nobody can claim or edit them.
 - **Watering.** Watered crops grow twice as fast while the soil stays wet (one in-game day; wet soil looks dark). Buy a **watering can** from Rosa and walking through your rows waters them.
 - **Water and electricity.** At City Hall, hook up **💧 water** (🪙100 setup + 🪙120 a month) or **⚡ electricity** (🪙150 + 🪙200 a month). Bills go to the city treasury every 28 days. If you can't pay, the service is cut off until you settle up at City Hall.
   - Water gives you a **ground spout** and electricity a **power box**. Place either anywhere on your plot from Build → Bag.

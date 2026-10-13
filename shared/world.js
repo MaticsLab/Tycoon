@@ -38,12 +38,13 @@ export const FAIR = { x: 117, y: 65, w: 44, h: 16, name: 'Harvest Fair' };
 export const PUBLIC_AREAS = [SQUARE, CIVIC, PARK, FAIR];
 export const HALL = { x: 132, y: 26, w: 14, h: 7, name: 'City Hall' };
 export const FOUNTAIN = { x: 58, y: 51, cx: 60, cz: 53 }; // 4x4 tiles
-export const PLAZA_LAMPS = [[57.5, 50.5], [62.5, 50.5], [57.5, 55.5], [62.5, 55.5]];
+export const PLAZA_LAMPS = [[57.5, 51.5], [61.5, 51.5], [57.5, 55.5], [62.5, 55.5]];
 
-// Shop buildings on the north side of the plaza. The keeper stands at the door.
+// Shop buildings on the north side of the plaza: walk-in buildings (see townshops.js)
+// with the keeper behind the counter.
 export const SHOPS = [
-  { id: 'rosa', name: "Rosa's Market", x: 53, y: 45, w: 5, h: 3, roof: '#c0392b', awning: ['#e74c3c', '#fdf2e0'] },
-  { id: 'otto', name: "Otto's Furniture", x: 63, y: 45, w: 5, h: 3, roof: '#2c5d8a', awning: ['#3d7cb8', '#fdf2e0'] },
+  { id: 'rosa', name: "Rosa's Market", x: 51, y: 45, w: 8, h: 6 },
+  { id: 'otto', name: "Otto's Furniture", x: 62, y: 45, w: 8, h: 6 },
 ];
 
 // Plots that exist when a world is first created (the rest of the land is open).
@@ -104,8 +105,8 @@ function publicDecor(season) {
   }
   if (!season.halloween) return out;
   // Halloween: jack-o'-lanterns, hay bales, cauldrons and a little graveyard.
-  for (const [x, y] of [[50, 46], [69, 46], [56, 49], [63, 49], [55, 58], [65, 58], [52, 59], [67, 59], [59, 60], [60, 60]]) add('jackolantern', x, y);
-  for (const [x, y] of [[57, 46], [61, 46], [45, 46], [72, 59], [71, 46]]) add('pumpkin_deco', x, y);
+  for (const [x, y] of [[50, 46], [71, 48], [56, 52], [64, 52], [55, 58], [65, 58], [52, 59], [67, 59], [59, 60], [60, 60]]) add('jackolantern', x, y);
+  for (const [x, y] of [[59, 46], [61, 46], [45, 46], [72, 59], [71, 46]]) add('pumpkin_deco', x, y);
   for (const [x, y] of [[54, 59], [64, 59]]) add('haybale', x, y);
   add('cauldron', 66, 52); add('cauldron', 53, 52);
   for (const [x, y] of [[46, 48], [74, 56]]) add('cornstalks', x, y);
@@ -154,7 +155,7 @@ export function generateWorld(seed = 20261012, { date } = {}) {
   fill(FOUNTAIN.x, FOUNTAIN.y, 4, 4, T.FOUNTAIN);
   for (let y = S.y; y < S.y + S.h; y++) for (let x = 69; x < S.x + S.w; x++) set(x, y, (x + y) % 3 === 0 ? T.FLOWERS : T.GRASS);
   for (const [x, y] of [[70, 46], [74, 46], [70, 59], [74, 59], [72, 52]]) set(x, y, T.TREE);
-  for (const sh of SHOPS) fill(sh.x, sh.y, sh.w, sh.h, T.SHOP);
+  for (const sh of SHOPS) fill(sh.x, sh.y, sh.w, sh.h, T.PLAZA); // the buildings are village plots
 
   // City Hall: lawn, the hall itself, a paved forecourt down to the road.
   fill(CIVIC.x, CIVIC.y, CIVIC.w, CIVIC.h, T.LAWN);

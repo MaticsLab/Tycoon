@@ -15,6 +15,7 @@ import { Npc, parseAiReply, REPLY_SCHEMA, setMarket } from './npc.js';
 import { Life } from './life.js';
 import { Business } from './business.js';
 import { Farm } from './farm.js';
+import { townShopPlots, TOWN_PLOT_BASE } from '../../shared/townshops.js';
 import { waterCrop, WET_MS, QUALITY, ANIMALS } from '../../shared/farm.js';
 import { NPC_ACTS, readTone, blendTone } from '../../shared/village.js';
 
@@ -76,7 +77,7 @@ export class Game {
     this.plots = {};
     if (sameMap && saved.plots && Object.keys(saved.plots).length) {
       for (const s of Object.values(saved.plots)) if (s) this.plots[s.id] = normalizePlot(s);
-      this.nextPlotId = saved.meta.nextPlotId ?? Math.max(...Object.keys(this.plots).map(Number)) + 1;
+      this.nextPlotId = saved.meta.nextPlotId ?? Math.max(...Object.keys(this.plots).map(Number).filter((n) => n < TOWN_PLOT_BASE)) + 1;
     } else {
       STARTER_PLOTS.forEach((r, i) => { this.plots[i] = blankPlot(i, r); });
       this.nextPlotId = STARTER_PLOTS.length;
@@ -86,6 +87,9 @@ export class Game {
       }
       this.freshLand = true;
     }
+    // The village shops (walk-in buildings) are rebuilt from their layout every start.
+    for (const id of Object.keys(this.plots)) if (Number(id) >= TOWN_PLOT_BASE) delete this.plots[id];
+    for (const p of townShopPlots()) this.plots[p.id] = p;
     indexPlots(this.world, this.plots);
     // v3 -> v4: roads got wider and plots lost their fences. Plots keep their place;
     // anything now standing on a public road is packed up and refunded.
@@ -122,7 +126,7 @@ export class Game {
       else if (k === 'roads') out[k] = this.roads;
       else if (k === 'city') out[k] = this.city.s;
       else if (k === 'farm') out[k] = this.farm.save();
-      else if (kind === 'plot') out[k] = this.plots[id] ?? null;
+      else if (kind === 'plot') { if (this.plots[id]?.town) continue; out[k] = this.plots[id] ?? null; }
       else if (kind === 'profile') out[k] = this.profiles[id] ?? null;
       else if (kind === 'npc') out[k] = this.npcs[id].s;
     }
@@ -1108,7 +1112,10 @@ export class Game {
   nearNpc(s, id) {
     const n = this.npcs[id];
     if (!n) return null;
-    if (Math.hypot(n.x - s.x, n.y - s.y) > TALK_RANGE) { s.send({ type: 'error', msg: `Walk closer to ${n.def.name}` }); return null; }
+    // Anywhere inside their shop counts as close enough.
+    const shop = plotIdAtPixel(this.world, s.x, s.y);
+    const inShop = shop >= 0 && this.plots[shop]?.town && plotIdAtPixel(this.world, n.x, n.y) === shop;
+    if (!inShop && Math.hypot(n.x - s.x, n.y - s.y) > TALK_RANGE) { s.send({ type: 'error', msg: `Walk closer to ${n.def.name}` }); return null; }
     return n;
   }
 

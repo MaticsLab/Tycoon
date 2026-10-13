@@ -1,15 +1,15 @@
 // Village life: the places villagers go, their daily routines, a path finder that keeps
 // them on public land, and a reader for how a player writes (so villagers can match it).
 import { TILE, MAP_W, MAP_H, plotIdAtPixel } from './world.js';
-import { canStand } from './plot.js';
+import { canStand, crossesWall } from './plot.js';
 
 // Named spots, in tiles. `seat` = where they sit (a bench) if the activity sits.
 // `inside` = indoors (they vanish from view while there, e.g. asleep at home).
 export const PLACES = {
-  rosa_shop:     { name: 'Rosa’s Market', x: 55.5, y: 48.7 },
-  otto_shop:     { name: 'Otto’s Furniture', x: 65.5, y: 48.7 },
-  rosa_home:     { name: 'home above the market', x: 55.5, y: 48.6, inside: true },
-  otto_home:     { name: 'home behind the workshop', x: 65.5, y: 48.6, inside: true },
+  rosa_shop:     { name: 'Rosa’s Market', x: 54.5, y: 45.7 },
+  otto_shop:     { name: 'Otto’s Furniture', x: 65.5, y: 45.7 },
+  rosa_home:     { name: 'home above the market', x: 54.5, y: 45.6, inside: true },
+  otto_home:     { name: 'home behind the workshop', x: 65.5, y: 45.6, inside: true },
   juniper_home:  { name: 'the potting shed', x: 63, y: 58, inside: true },
   mabel_home:    { name: 'her flat by City Hall', x: 139.5, y: 33.6, inside: true },
   mabel_desk:    { name: 'the City Hall front desk', x: 139.5, y: 34.8 },
@@ -130,11 +130,13 @@ export function findPath(world, plots, fx, fy, tx, ty, maxNodes = 20000) {
       while (k !== key(sx, sy)) { pts.push([(k % MAP_W + 0.5) * TILE, (Math.floor(k / MAP_W) + 0.5) * TILE]); k = from.get(k); }
       pts.reverse();
       pts.push([tx, ty]);
-      return smooth(base, fx, fy, pts);
+      return smooth(base, fx, fy, pts, world, plots);
     }
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, ny = y + dy;
       if (!walk(nx, ny)) continue;
+      // In and out of the village shops: only through the doors.
+      if ((inPlot(world, x, y) || inPlot(world, nx, ny)) && crossesWall(world, plots, (x + 0.5) * TILE, (y + 0.5) * TILE, (nx + 0.5) * TILE, (ny + 0.5) * TILE)) continue;
       const k = key(nx, ny), ng = g.get(key(x, y)) + 1;
       if (ng < (g.get(k) ?? Infinity)) { g.set(k, ng); from.set(k, key(x, y)); open.push([ng + h(nx, ny), nx, ny]); }
     }
@@ -169,6 +171,8 @@ class Heap {
   }
 }
 
+const inPlot = (world, x, y) => x >= 0 && y >= 0 && x < MAP_W && y < MAP_H && world.plotAt[y * MAP_W + x] >= 0;
+
 // Is a tile walkable public land? Cached per map version (plots and roads), since
 // checking collision is the slow part of path finding.
 function walkable(world, plots) {
@@ -180,21 +184,25 @@ function walkable(world, plots) {
     const k = y * MAP_W + x;
     if (c.grid[k] < 0) {
       const px = (x + 0.5) * TILE, py = (y + 0.5) * TILE;
-      c.grid[k] = plotIdAtPixel(world, px, py) < 0 && canStand(world, plots, px, py + 4) ? 1 : 0;
+      const id = plotIdAtPixel(world, px, py);
+      c.grid[k] = (id < 0 || plots[id]?.town) && canStand(world, plots, px, py + 4) ? 1 : 0;
     }
     return c.grid[k] === 1;
   };
 }
 
 // Drop waypoints that can be skipped in a straight line, so walking looks natural.
-function smooth(walk, fx, fy, pts) {
+function smooth(walk, fx, fy, pts, world, plots) {
   const out = [];
   let ax = fx, ay = fy, i = 0;
   const clear = (x0, y0, x1, y1) => {
     const d = Math.hypot(x1 - x0, y1 - y0), steps = Math.ceil(d / 6);
+    let px = x0, py = y0;
     for (let s = 1; s <= steps; s++) {
       const x = x0 + ((x1 - x0) * s) / steps, y = y0 + ((y1 - y0) * s) / steps;
       if (!walk(Math.floor(x / TILE), Math.floor(y / TILE))) return false;
+      if ((inPlot(world, Math.floor(x / TILE), Math.floor(y / TILE)) || inPlot(world, Math.floor(px / TILE), Math.floor(py / TILE))) && crossesWall(world, plots, px, py, x, y)) return false;
+      px = x; py = y;
     }
     return true;
   };

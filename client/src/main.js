@@ -2481,7 +2481,7 @@ function update(dt) {
     l = stepLevel(world, S.plots, me.x, ny, me.level);
     if (l >= 0) { me.y = ny; me.level = l; }
     me.dir = Math.abs(wx) > Math.abs(wz) ? (wx < 0 ? 2 : 3) : (wz < 0 ? 1 : 0);
-    if (S.talk) { const n = S.npcs.get(S.talk.npc); if (n && Math.hypot(n.x - me.x, n.y - me.y) > TILE * 4) closeTalk(); }
+    if (S.talk) { const n = S.npcs.get(S.talk.npc); const shop = n && plotIdAtPixel(world, n.x, n.y); if (n && Math.hypot(n.x - me.x, n.y - me.y) > TILE * 4 && !(shop >= 0 && S.plots[shop]?.town && plotIdAtPixel(world, me.x, me.y) === shop)) closeTalk(); }
   }
   if (S.mode === 'build') {
     // WASD pans in build mode.
@@ -2551,6 +2551,7 @@ const SHOP_ACTS = {
   'shop:make': { icon: '⚙️', label: 'Make something' },
   'shop:collect': { icon: '✅', label: 'Collect' },
   'shop:wait': { icon: '⏳', label: 'Working…' },
+  'shop:keeper': { icon: '🛒', label: 'Shop here' },
   'farm:drive': { icon: '🚜', label: 'Drive' },
   'animal:feed': { icon: '🌿', label: 'Feed (hay or wheat)' },
   'animal:pet': { icon: '❤️', label: 'Pet them' },
@@ -2564,7 +2565,7 @@ const actInfo = (id) => ACTIVITIES[id] || SHOP_ACTS[id];
 function actionsFor(plot, o) {
   const mine = plot.owner === S.me.id;
   const out = canUseOn(plot) ? usesNow(o.t).filter((id) => !ACTIVITIES[id].shop || (mine && plot.biz)) : [];
-  if (slotsOf(o.t)) { if (mine) out.push('shop:stock'); else if (plot.biz) out.push('shop:browse'); }
+  if (slotsOf(o.t) || (plot.town && o.t === 'register')) { if (mine) out.push('shop:stock'); else if (plot.biz) out.push('shop:browse'); else if (plot.town) out.push('shop:keeper'); }
   if (isMachine(o.t) && mine) out.push(o.job ? (serverNow() >= o.job.ready ? 'shop:collect' : 'shop:wait') : 'shop:make');
   if (o.t === 'tractor' && mine && !S.ride) out.push('farm:drive');
   const home = ITEMS[o.t]?.animals;
@@ -2594,7 +2595,7 @@ function distTo(plot, ax, ay, t, r) {
 function nearestUsable(range = TILE * 1.5) {
   const here = plotIdAtPixel(world, S.me.x, S.me.y);
   const plot = here >= 0 ? S.plots[here] : null;
-  if (!plot || !(canUseOn(plot) || plot.biz)) return null;
+  if (!plot || !(canUseOn(plot) || plot.biz || plot.town)) return null;
   const level = S.me.level || 0, view = level ? plot.l1 : plot;
   if (!view) return null;
   let best = null;
@@ -2630,6 +2631,12 @@ function usableAt(cx, cy) {
 }
 function useThing(u, act) {
   closeUseMenu();
+  if (act === 'shop:keeper') {
+    // A village shop: talk to the keeper (they need to be in).
+    const n = S.npcs.get(u.plot.keeper);
+    if (!n || NPC_ACTS[n.act]?.hidden || plotIdAtPixel(world, n.x, n.y) !== u.plot.id) return toast(`${NPCS[u.plot.keeper].name} isn’t at the counter right now`);
+    return send({ type: 'npcOpen', npc: n.id });
+  }
   if (act === 'farm:drive') return send({ type: 'drive', plotId: u.plot.id, lx: u.lx, ly: u.ly });
   if (act.startsWith('animal:')) {
     const [, what, kind] = act.split(':');
@@ -3148,6 +3155,12 @@ function drawOverlay(now) {
   const W = innerWidth, H = innerHeight;
   const onScreen = (p) => p.x > -60 && p.y > -60 && p.x < W + 60 && p.y < H + 60;
   for (const st of Object.values(S.plots)) {
+    if (st.town) {
+      // Village shops: their name over the door.
+      const p = view.toScreen(st.x + st.w / 2, 3.2, st.y + st.h);
+      if (onScreen(p)) tag(`🏪 ${st.name}`, p.x, p.y, 12, '#ffe9b0');
+      continue;
+    }
     if (!st.owner || st.biz) continue;
     const p = view.toScreen(st.x + st.w / 2, 0.9, st.y + 0.5);
     if (onScreen(p)) tag(`🏡 ${st.farm ? st.farm + ' Farm' : st.ownerName}`, p.x, p.y, 11, st.owner === S.me.id ? '#ffe08a' : '#fff');
@@ -3158,6 +3171,8 @@ function drawOverlay(now) {
   octx.textAlign = 'center';
   for (const plot of Object.values(S.plots)) {
     if (Math.abs(plot.x + plot.w / 2 - cam.x) > 30 || Math.abs(plot.y + plot.h / 2 - cam.z) > 30) continue;
+    // A village shop's goods show once you're inside.
+    if (plot.town && plotIdAtPixel(world, S.me.x, S.me.y) !== plot.id) continue;
     for (const [lvl, v] of [[0, plot], [1, plot.l1]]) {
       if (!v || (lvl && !(S.mode === 'build' ? S.level : S.me.level))) continue;
       for (const [k, o] of Object.entries(v.obj)) {

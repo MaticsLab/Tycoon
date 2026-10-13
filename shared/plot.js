@@ -502,6 +502,11 @@ function hitsEdges(world, plots, x0, y0, x1, y1, level) {
   return false;
 }
 
+// Does going in a straight line from (x0, y0) to (x1, y1) cross a wall (doors are open)?
+export function crossesWall(world, plots, x0, y0, x1, y1, level = 0) {
+  return hitsEdges(world, plots, Math.min(x0, x1) - 1, Math.min(y0, y1) - 1, Math.max(x0, x1) + 1, Math.max(y0, y1) + 1, level);
+}
+
 // (x, y) is the centre of the player's feet in world pixels.
 export function canStand(world, plots, x, y, level = 0) {
   const pts = [[x - 5, y - 5], [x + 5, y - 5], [x - 5, y - 0.5], [x + 5, y - 0.5]];

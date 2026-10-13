@@ -67,7 +67,6 @@ export class View {
     this.terrain = buildTerrain(world);
     this.terrainRoads = world.roadsVersion;
     buildRocks(world); buildFountain(); buildPlazaLamps(); buildCityHall();
-    for (const shop of SHOPS) buildShop(shop);
     this.spray = fountainSpray();
     this.trees = new BillboardSet();
     this.treeSet = new BillboardSet(); // trees alone, rebuilt when the season changes
@@ -76,7 +75,8 @@ export class View {
     this.staticLights = [
       ...decor.lights,
       ...PLAZA_LAMPS.map(([x, z]) => ({ x, y: 2.2, z, kind: 'post' })),
-      ...SHOPS.flatMap((s) => [{ x: s.x + 0.95, y: 1.4, z: s.y + s.h - 0.3, kind: 'window' }, { x: s.x + s.w - 0.95, y: 1.4, z: s.y + s.h - 0.3, kind: 'window' }]),
+      // The village shops glow warmly through their windows at night.
+      ...SHOPS.flatMap((s) => [{ x: s.x + 1.5, y: 1.6, z: s.y + s.h - 1.2, kind: 'window' }, { x: s.x + s.w - 1.5, y: 1.6, z: s.y + s.h - 1.2, kind: 'window' }]),
     ];
 
     this.plots = new Map(); // id -> { group, cards, lights, sig }

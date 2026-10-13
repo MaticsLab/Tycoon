@@ -32,15 +32,35 @@ function standBy(game, a, npc) {
   s.x = n.x; s.y = n.y + 12;
 }
 
-test('a new world has 16 roadside plots, two shops and a walkable spawn', () => {
+test('a new world has 16 roadside plots, two shops and a walkable spawn', async () => {
   const game = new Game({});
   const w = game.world;
-  assert.equal(Object.keys(game.plots).length, STARTER_PLOTS.length);
+  assert.equal(Object.values(game.plots).filter((p) => !p.town).length, STARTER_PLOTS.length);
   assert.equal(w.shops.length, 2);
+  // The shops are walk-in buildings: in through the front door to the keeper's counter.
+  const { findPath } = await import('../../shared/village.js');
+  for (const id of ['rosa', 'otto']) {
+    const shop = Object.values(game.plots).find((p) => p.town === id);
+    assert.equal(shop.owner, 'village');
+    const n = NPCS[id].home;
+    const path = findPath(w, game.plots, 60 * TILE, 58 * TILE, n.x, n.y);
+    assert.ok(path, `a way in to ${id}`);
+    // ...through the doorway, never through a wall.
+    const { crossesWall } = await import('../../shared/plot.js');
+    let [px, py] = [60 * TILE, 58 * TILE];
+    for (const [x, y] of path) {
+      const steps = Math.ceil(Math.hypot(x - px, y - py) / 2);
+      for (let i = 1; i <= steps; i++) {
+        const [ax, ay, bx, by] = [px + (x - px) * (i - 1) / steps, py + (y - py) * (i - 1) / steps, px + (x - px) * i / steps, py + (y - py) * i / steps];
+        assert.ok(!crossesWall(w, game.plots, ax, ay, bx, by), `${id}: no walking through walls`);
+      }
+      [px, py] = [x, y];
+    }
+  }
   assert.ok(canStand(w, game.plots, w.spawn.x, w.spawn.y));
   for (const n of Object.values(NPCS)) assert.ok(canStand(w, game.plots, n.home.x, n.home.y), n.name);
   // Every plot is valid land that touches a road, and its entrance is walkable.
-  for (const p of Object.values(game.plots)) {
+  for (const p of Object.values(game.plots).filter((q) => !q.town)) {
     assert.equal(landError(game.plots, p.id, p, w), null, `plot ${p.id}`);
     const e = plotEntrance(w, p);
     assert.ok(canStand(w, game.plots, e.x, e.y), `entrance of plot ${p.id}`);
