@@ -377,3 +377,28 @@ body.night-skip::after { opacity: 1; transition: opacity .25s; }
 .paper h4 { margin: 10px 0 2px; }
 .paper p { margin: 0 0 6px; }
 #modal-body textarea, #modal-body input:not([type]), #modal-body input[type=text] { width: 100%; box-sizing: border-box; margin: 4px 0; padding: 6px; border: 2px solid #d8b98c; border-radius: 8px; font: inherit; }
+
+/* Touch building: confirm what you're placing (thumb-sized, bottom of the screen) */
+#stagebar { position: fixed; left: 50%; transform: translateX(-50%); z-index: 15; display: flex; gap: 14px; padding: 8px 12px; background: rgba(40, 28, 16, .55); border-radius: 40px; backdrop-filter: blur(4px); }
+#stagebar[hidden] { display: none; }
+#stagebar button { width: 60px; height: 60px; border-radius: 50%; border: 3px solid #fff; font-size: 26px; font-weight: bold; color: #fff; box-shadow: 0 3px 0 rgba(0,0,0,.3); }
+#stagebar button[hidden] { display: none; }
+#stage-ok { background: #3e9a3a; }
+#stage-no { background: #b8483a; }
+#stage-rot { background: #4a7fb5; }
+#tray.mini #items, #tray.mini #tabs, #tray.mini #toolinfo { display: none; }
+#btn-traymin { min-width: 44px; }
+/* Bigger, better-spaced targets for fingers (44-48 pt minimum, about 8 pt apart) */
+@media (pointer: coarse) {
+  #buildtools { gap: 8px; }
+  #buildtools button { min-width: 56px; height: 52px; }
+  #traybtns { gap: 8px; }
+  #traybtns button { min-height: 44px; }
+  #items { gap: 8px; }
+  #items button { width: 84px; min-height: 84px; }
+  #items button canvas { width: 50px; height: 50px; }
+  #tabs button { min-height: 44px; padding-left: 14px; padding-right: 14px; }
+  #side button { min-width: 52px; min-height: 52px; }
+  #usemenu button { min-height: 48px; font-size: 16px; }
+  .chip { min-height: 40px; }
+}

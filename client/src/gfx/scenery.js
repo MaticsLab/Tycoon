@@ -6,7 +6,7 @@ import { renderGround, treeSprite, treeKind, objectSprite, r, px, disc } from '.
 import { canvasTex, paintTex, wallTex, roofTex, woodTex, stoneTex, signTex, WALL_H } from './textures.js';
 export { woodTex };
 import { Batch, boxAt, gableRoof } from './geom.js';
-import { itemInto, materials } from './models.js';
+import { itemInto, materials, hasModel } from './models.js';
 import { Geo, merge, toMesh, node, lambert, basic, plane as planeGeo, cylinder, sphere, freeze } from './bjs.js';
 
 // Builds batches and freezes the result (static scenery never moves).
@@ -235,7 +235,7 @@ export function buildDecor(world, cards) {
   for (const d of world.decor) {
     const [w, h] = ITEMS[d.t]?.size || [1, 1];
     const [fw, fh] = d.r % 2 ? [h, w] : [w, h];
-    if (d.t === 'scarecrow') cards.add(objectSprite('scarecrow', 0, 0), 8, 14, d.x + 0.5, 0, d.y + 0.65, { shadow: 0.5 });
+    if (d.t === 'scarecrow' || !hasModel(d.t)) cards.add(objectSprite(d.t, 0, 0), 8, 14, d.x + fw / 2, 0, d.y + fh - 0.35, { shadow: 0.5 });
     else itemInto(chunk(d.x, d.y), d.t, d.r || 0, d.x, 0, d.y);
     if (d.t === 'lamppost') lights.push({ x: d.x + 0.5, y: 2.2, z: d.y + 0.5, kind: 'post' });
     else if (d.t === 'jackolantern') lights.push({ x: d.x + 0.5, y: 0.5, z: d.y + fh / 2 + 0.3, kind: 'pumpkin' });

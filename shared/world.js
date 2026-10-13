@@ -31,7 +31,7 @@ export const ROAD_W = 4;
 export const ROAD_ROWS = [21, 41, 61, 81];
 export const ROAD_COLS = [3, 58, 113, 161];
 
-export const SQUARE = { x: 44, y: 45, w: 32, h: 16, name: 'Town Square' };
+export const SQUARE = { x: 36, y: 45, w: 48, h: 16, name: 'Town Square' };
 export const CIVIC = { x: 117, y: 25, w: 44, h: 16, name: 'City Hall' };
 export const PARK = { x: 117, y: 45, w: 44, h: 16, name: 'Willow Park' };
 export const FAIR = { x: 117, y: 65, w: 44, h: 16, name: 'Harvest Fair' };
@@ -43,8 +43,8 @@ export const PLAZA_LAMPS = [[57.5, 51.5], [61.5, 51.5], [57.5, 55.5], [62.5, 55.
 // Shop buildings on the north side of the plaza: walk-in buildings (see townshops.js)
 // with the keeper behind the counter.
 export const SHOPS = [
-  { id: 'rosa', name: "Rosa's Market", x: 51, y: 45, w: 8, h: 6 },
-  { id: 'otto', name: "Otto's Furniture", x: 62, y: 45, w: 8, h: 6 },
+  { id: 'rosa', name: "Rosa's Market", x: 48, y: 45, w: 8, h: 6 },
+  { id: 'otto', name: "Otto's Furniture", x: 64, y: 45, w: 8, h: 6 },
 ];
 
 // Plots that exist when a world is first created (the rest of the land is open).
@@ -90,6 +90,11 @@ function publicDecor(season) {
   add('noticeboard', 136, 35); add('ballotbox', 141, 35); add('mailbox', 134, 37);
   // Town square: the village notice board (player market) and a post box.
   add('noticeboard', 54, 55); add('mailbox', 57, 57);
+  // Out in front of the shops: Rosa's produce stands, Otto's porch chairs and a dresser.
+  add('producestand', 48, 51); add('flowerbed', 50, 51); add('producestand', 53, 51); add('flowerbed', 55, 51);
+  add('rockingchair', 64, 51); add('armchair', 65, 51); add('flowerbed', 66, 51); add('dresser', 69, 51); add('flowerbed', 70, 51); add('bush', 71, 51);
+  // Benches round the fountain, and planters along the square.
+  add('bench', 51, 57); add('bench', 67, 57); add('flowerbed', 47, 60); add('flowerbed', 72, 60); add('lamppost', 47, 51); add('lamppost', 72, 51);
   for (const x of [126, 152]) add('bench', x, 37);
   // Willow Park
   for (const [x, y] of [[121, 47], [121, 58], [156, 47], [156, 58], [138, 46], [138, 59]]) add('lamppost', x, y);
@@ -107,8 +112,8 @@ function publicDecor(season) {
   }
   if (!season.halloween) return out;
   // Halloween: jack-o'-lanterns, hay bales, cauldrons and a little graveyard.
-  for (const [x, y] of [[50, 46], [71, 48], [56, 52], [64, 52], [55, 58], [65, 58], [52, 59], [67, 59], [59, 60], [60, 60]]) add('jackolantern', x, y);
-  for (const [x, y] of [[59, 46], [61, 46], [45, 46], [72, 59], [71, 46]]) add('pumpkin_deco', x, y);
+  for (const [x, y] of [[46, 47], [73, 47], [56, 52], [63, 52], [55, 58], [65, 58], [52, 59], [67, 59], [59, 60], [60, 60]]) add('jackolantern', x, y);
+  for (const [x, y] of [[59, 46], [61, 46], [45, 46], [72, 59], [73, 46]]) add('pumpkin_deco', x, y);
   for (const [x, y] of [[54, 59], [64, 59]]) add('haybale', x, y);
   add('cauldron', 66, 52); add('cauldron', 53, 52);
   for (const [x, y] of [[46, 48], [74, 56]]) add('cornstalks', x, y);
@@ -147,16 +152,16 @@ export function generateWorld(seed = 20261012, { date } = {}) {
   // Town square: pond on the left, fountain plaza in the middle, garden on the right.
   const S = SQUARE;
   fill(S.x, S.y, S.w, S.h, T.PLAZA);
-  const pond = { cx: 48.5, cy: 53.5, rx: 4.4, ry: 5.2 };
-  for (let y = S.y; y < S.y + S.h; y++) for (let x = S.x; x < S.x + 10; x++) {
+  const pond = { cx: 41.5, cy: 53.5, rx: 4.4, ry: 5.2 };
+  for (let y = S.y; y < S.y + S.h; y++) for (let x = S.x; x < S.x + 11; x++) {
     const d = ((x + 0.5 - pond.cx) / pond.rx) ** 2 + ((y + 0.5 - pond.cy) / pond.ry) ** 2;
     if (d < 0.75) set(x, y, T.WATER);
     else if (d < 1.25) set(x, y, T.SAND);
     else set(x, y, T.GRASS);
   }
   fill(FOUNTAIN.x, FOUNTAIN.y, 4, 4, T.FOUNTAIN);
-  for (let y = S.y; y < S.y + S.h; y++) for (let x = 69; x < S.x + S.w; x++) set(x, y, (x + y) % 3 === 0 ? T.FLOWERS : T.GRASS);
-  for (const [x, y] of [[70, 46], [74, 46], [70, 59], [74, 59], [72, 52]]) set(x, y, T.TREE);
+  for (let y = S.y; y < S.y + S.h; y++) for (let x = 73; x < S.x + S.w; x++) set(x, y, (x + y) % 3 === 0 ? T.FLOWERS : T.GRASS);
+  for (const [x, y] of [[76, 46], [81, 47], [76, 59], [81, 58], [79, 52]]) set(x, y, T.TREE);
   for (const sh of SHOPS) fill(sh.x, sh.y, sh.w, sh.h, T.PLAZA); // the buildings are village plots
 
   // City Hall: lawn, the hall itself, a paved forecourt down to the road.
@@ -231,7 +236,8 @@ export function generateWorld(seed = 20261012, { date } = {}) {
 // Footprints of public props (the catalog has the full definitions of the buyable ones).
 const PROP_SIZE = {
   flagpole: { solid: true }, lamppost: { solid: true }, noticeboard: { solid: true, size: [2, 1] }, ballotbox: { solid: true },
-  bench: { solid: true, size: [2, 1] }, gazebo: { solid: true, size: [4, 4] }, stall: { solid: true, size: [3, 2] },
+  bench: { solid: true, size: [2, 1] }, producestand: { solid: true, size: [2, 1] }, flowerbed: { solid: true }, rockingchair: { solid: true },
+  armchair: { solid: true }, dresser: { solid: true }, bush: { solid: true }, gazebo: { solid: true, size: [4, 4] }, stall: { solid: true, size: [3, 2] },
   scarecrow: { solid: true }, jackolantern: { solid: true }, pumpkin_deco: { solid: false }, haybale: { solid: true, size: [2, 1] },
   cauldron: { solid: true }, cornstalks: { solid: true }, gravestone: { solid: true }, ironfence: { solid: true },
 };

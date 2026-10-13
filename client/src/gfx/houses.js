@@ -3,10 +3,10 @@
 // Sims cutaway, gable roofs, furniture models and pixel-art cards for plants/crops.
 import { ITEMS, cropStage, isWet } from '@shared/catalog.js';
 import { parseEdge, levelView, footprint, LEVELS, LEVEL_H, featurePair, edgeKey, objAt } from '@shared/plot.js';
-import { wallTex, floorTex, roofTex, woodTex, signTex, doorTex, WALL_H } from './textures.js';
+import { wallTex, floorTex, roofTex, woodTex, signTex, doorTex, awningTex, stoneTex, WALL_H } from './textures.js';
 import { Batch, boxAt, gableRoof } from './geom.js';
 import { itemInto, hasModel, BILLBOARD, materials } from './models.js';
-import { Geo, box, toMesh, node, lambert as mkLambert } from './bjs.js';
+import { Geo, box, quad, toMesh, node, lambert as mkLambert, basic as mkBasic } from './bjs.js';
 import { objectSprite, cropSprite } from '../sprites.js';
 
 export { LEVEL_H }; // floor-to-floor height (shared with the game rules)
@@ -39,6 +39,92 @@ const railMat = () => mat('rail', () => lambert({ map: woodTex() }));
 const ceilMat = () => mat('ceil', () => lambert({ color: '#e8e2d4' }));
 const roofMat = (m) => mat(`roof|${m}`, () => lambert({ map: roofTex(m) }));
 const floorMat = (t) => mat(`floor|${t}`, () => lambert({ map: floorTex(t) }));
+
+// ---------- village shopfronts ----------
+// Layers on the outside of the village buildings: a stone plinth, corner pilasters, a
+// cornice, a tall sign board above the door, striped awnings over the shop windows,
+// window boxes with flowers, lanterns by the door, a front step and a chimney.
+const FACADES = {
+  rosa: { trim: '#f4ecd8', awning: ['#d8443a', '#fdf2e0'], board: '#7a2f22', flowers: ['#e84a5f', '#ffd23a', '#ff8c42'] },
+  otto: { trim: '#e8e2d2', awning: ['#2f6fa8', '#fdf2e0'], board: '#284f78', flowers: ['#f5f0e6', '#9b59b6', '#ffd23a'], chimney: true },
+  library: { trim: '#efe9dc', awning: ['#3e7a3a', '#f4ecd8'], board: '#2f5f2d', flowers: ['#e84a5f', '#f5f0e6', '#ffd23a'], chimney: true },
+};
+const colorMat = (c) => mat(`col|${c}`, () => lambert({ color: c }));
+const stoneMat = () => mat('stoneplinth', () => lambert({ map: stoneTex() }));
+const glowMat = () => mat('lanternglow', () => mkBasic({ color: '#ffd27a' }));
+const awnMat = (a, b) => mat(`awn|${a}|${b}`, () => lambert({ map: awningTex(a, b), alphaTest: 0.5, doubleSided: true }));
+const signMat = (text) => mat(`sign|${text}`, () => lambert({ map: signTex(text, 128, 20), doubleSided: true }));
+
+function facade(batch, group, lights, plot, F) {
+  const x0 = plot.x, z0 = plot.y, x1 = plot.x + plot.w, z1 = plot.y + plot.h, H = WALL_H;
+  const trim = colorMat(F.trim), dark = trimMat(), stone = stoneMat();
+  // Stone plinth, a little proud of the walls.
+  batch.add(stone, boxAt(x0 - 0.12, 0, z1 - 0.02, x1 - x0 + 0.24, 0.34, 0.16));
+  batch.add(stone, boxAt(x0 - 0.12, 0, z0 - 0.14, x1 - x0 + 0.24, 0.34, 0.16));
+  batch.add(stone, boxAt(x0 - 0.14, 0, z0 - 0.12, 0.16, 0.34, z1 - z0 + 0.24));
+  batch.add(stone, boxAt(x1 - 0.02, 0, z0 - 0.12, 0.16, 0.34, z1 - z0 + 0.24));
+  // Corner pilasters with little capitals.
+  for (const [cx, cz] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) {
+    batch.add(trim, boxAt(cx - 0.15, 0.34, cz - 0.15, 0.3, H - 0.34, 0.3));
+    batch.add(trim, boxAt(cx - 0.19, H - 0.18, cz - 0.19, 0.38, 0.1, 0.38));
+  }
+  // Cornice: a band under the eaves, with a darker shadow line.
+  batch.add(trim, boxAt(x0 - 0.1, H - 0.22, z1 - 0.02, x1 - x0 + 0.2, 0.2, 0.14));
+  batch.add(dark, boxAt(x0 - 0.06, H - 0.3, z1 + 0.01, x1 - x0 + 0.12, 0.06, 0.08));
+  batch.add(trim, boxAt(x0 - 0.1, H - 0.22, z0 - 0.12, x1 - x0 + 0.2, 0.2, 0.14));
+  batch.add(trim, boxAt(x0 - 0.12, H - 0.22, z0 - 0.1, 0.14, 0.2, z1 - z0 + 0.2));
+  batch.add(trim, boxAt(x1 - 0.02, H - 0.22, z0 - 0.1, 0.14, 0.2, z1 - z0 + 0.2));
+  // The door: where the double doors are on the front wall.
+  const front = [];
+  for (let x = 0; x < plot.w; x++) front.push(plot.walls?.[edgeKey(0, 'h', x, plot.h)]?.f || null);
+  const doorAt = front.findIndex((f) => f && ITEMS[f]?.passable);
+  const dx = doorAt >= 0 ? x0 + doorAt : x0 + plot.w / 2 - 1, dw = doorAt >= 0 && front[doorAt + 1] === front[doorAt] ? 2 : 1;
+  // A tall sign board standing on the cornice above the door ("false front").
+  const sw = Math.min(plot.w - 1, dw + 2.6), sx = dx + dw / 2 - sw / 2;
+  // (it stands out past the roof's overhang, so it's never hidden under the eaves)
+  const bz = z1 + 0.34;
+  batch.add(colorMat(F.board), boxAt(sx - 0.08, H - 0.25, bz, sw + 0.16, 1.15, 0.12));
+  batch.add(trim, boxAt(sx - 0.14, H + 0.88, bz - 0.03, sw + 0.28, 0.1, 0.18));
+  batch.add(trim, boxAt(sx - 0.14, H - 0.3, bz - 0.03, sw + 0.28, 0.07, 0.18));
+  for (const px of [sx + 0.2, sx + sw - 0.3]) batch.add(dark, boxAt(px, H - 0.25, z1 - 0.02, 0.1, 0.1, 0.38)); // brackets to the wall
+  toMesh(quad([[sx + 0.05, H + 0.8, bz + 0.126], [sx + sw - 0.05, H + 0.8, bz + 0.126], [sx + sw - 0.05, H - 0.18, bz + 0.126], [sx + 0.05, H - 0.18, bz + 0.126]], [0, 0, 1]), signMat(plot.name || ''), { parent: group });
+  // Lanterns either side of the door, and a stone step in front of it.
+  for (const lx of [dx - 0.28, dx + dw + 0.14]) {
+    batch.add(dark, boxAt(lx + 0.03, 1.55, z1 + 0.02, 0.08, 0.06, 0.2));
+    batch.add(dark, boxAt(lx - 0.02, 1.6, z1 + 0.12, 0.18, 0.04, 0.18));
+    batch.add(glowMat(), boxAt(lx + 0.01, 1.35, z1 + 0.14, 0.12, 0.24, 0.12));
+    batch.add(dark, boxAt(lx - 0.01, 1.31, z1 + 0.12, 0.16, 0.05, 0.16));
+    lights.push({ x: lx + 0.07, y: 1.5, z: z1 + 0.3, kind: 'lamp' });
+  }
+  batch.add(stone, boxAt(dx - 0.15, 0, z1 + 0.02, dw + 0.3, 0.12, 0.55));
+  // Striped awnings over runs of front windows.
+  for (let x = 0; x < plot.w; x++) {
+    const f = front[x];
+    if (!f || ITEMS[f]?.passable || (x > 0 && front[x - 1] === f)) continue;
+    let n = 1;
+    while (front[x + n] === f) n++;
+    const ax0 = x0 + x + 0.05, ax1 = x0 + x + n - 0.05, top = 2.35, out = 0.75, drop = 0.42;
+    toMesh(quad([[ax0, top, z1 + 0.07], [ax1, top, z1 + 0.07], [ax1, top - drop, z1 + out], [ax0, top - drop, z1 + out]], [0, 0.7, 0.7], [0, 1, n * 1.5, 1, n * 1.5, 0, 0, 0]), awnMat(...F.awning), { parent: group });
+    batch.add(dark, boxAt(ax0, top - 0.04, z1 + 0.04, ax1 - ax0, 0.05, 0.05));
+    // a flower box under the window
+    batch.add(colorMat('#6b4424'), boxAt(ax0 + 0.08, 0.36, z1 + 0.02, ax1 - ax0 - 0.16, 0.2, 0.22));
+    for (let i = 0; i < (ax1 - ax0 - 0.2) / 0.22; i++) batch.add(colorMat(F.flowers[i % F.flowers.length]), boxAt(ax0 + 0.14 + i * 0.22, 0.56, z1 + 0.06, 0.12, 0.1, 0.12));
+  }
+  // Window boxes on the side walls' windows.
+  for (const [ex, side] of [[0, -1], [plot.w, 1]]) {
+    for (let y = 0; y < plot.h; y++) {
+      if (!plot.walls?.[edgeKey(0, 'v', ex, y)]?.f || ITEMS[plot.walls[edgeKey(0, 'v', ex, y)].f]?.passable) continue;
+      const wx = x0 + ex + (side < 0 ? -0.24 : 0.02);
+      batch.add(colorMat('#6b4424'), boxAt(wx, 0.9, z0 + y + 0.15, 0.22, 0.18, 0.7));
+      for (let i = 0; i < 3; i++) batch.add(colorMat(F.flowers[i]), boxAt(wx + 0.05, 1.08, z0 + y + 0.2 + i * 0.22, 0.12, 0.1, 0.12));
+    }
+  }
+  // A brick chimney poking out of the roof at the back.
+  if (F.chimney) {
+    batch.add(wallMat('wall_brick'), boxAt(x1 - 1.4, H, z0 + 0.5, 0.55, 2.1, 0.55));
+    batch.add(dark, boxAt(x1 - 1.46, H + 2.1, z0 + 0.44, 0.67, 0.1, 0.67));
+  }
+}
 
 // A piece of wall along an edge: `a`..`b` along the edge (0..1), `y0`..`y1` up.
 function wallPiece(batch, m, e, ox, oz, base, a, b, y0, y1, thick = THICK) {
@@ -248,6 +334,9 @@ export function buildPlot(plot, opts) {
     batch.add(wallMat(c.m), boxAt(ox + c.x - p / 2, c.l * LEVEL_H, oz + c.z - p / 2, p, c.h + 0.01, p));
     batch.add(trimMat(), boxAt(ox + c.x - p / 2 - 0.01, c.l * LEVEL_H + c.h - 0.05, oz + c.z - p / 2 - 0.01, p + 0.02, 0.07, p + 0.02));
   }
+
+  // Village buildings get a proper shopfront from outside (not while cut away).
+  if (plot.town && FACADES[plot.town] && opts.roofs && (opts.cut?.mode ?? opts.cut ?? 'up') === 'up') facade(batch, group, lights, plot, FACADES[plot.town]);
 
   // Roofs
   if (opts.roofs) {

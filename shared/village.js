@@ -6,16 +6,16 @@ import { canStand, crossesWall } from './plot.js';
 // Named spots, in tiles. `seat` = where they sit (a bench) if the activity sits.
 // `inside` = indoors (they vanish from view while there, e.g. asleep at home).
 export const PLACES = {
-  rosa_shop:     { name: 'Rosa’s Market', x: 54.5, y: 45.7 },
-  otto_shop:     { name: 'Otto’s Furniture', x: 65.5, y: 45.7 },
-  rosa_home:     { name: 'home above the market', x: 54.5, y: 45.6, inside: true },
-  otto_home:     { name: 'home behind the workshop', x: 65.5, y: 45.6, inside: true },
+  rosa_shop:     { name: 'Rosa’s Market', x: 51.5, y: 45.7 },
+  otto_shop:     { name: 'Otto’s Furniture', x: 67.5, y: 45.7 },
+  rosa_home:     { name: 'home above the market', x: 51.5, y: 45.6, inside: true },
+  otto_home:     { name: 'home behind the workshop', x: 67.5, y: 45.6, inside: true },
   juniper_home:  { name: 'the potting shed', x: 63, y: 58, inside: true },
   mabel_home:    { name: 'her flat by City Hall', x: 139.5, y: 33.6, inside: true },
   mabel_desk:    { name: 'the City Hall front desk', x: 139.5, y: 34.8 },
   fountain:      { name: 'the fountain', x: 60.5, y: 55.6 },
   fountain_n:    { name: 'the fountain', x: 59.5, y: 50.4 },
-  square_w:      { name: 'the west side of the square', x: 44.5, y: 53.6 },
+  square_w:      { name: 'the west side of the square', x: 47.5, y: 54.6 },
   square_e:      { name: 'the east side of the square', x: 71.5, y: 53.5 },
   flowerbeds:    { name: 'the square’s flower beds', x: 63, y: 58 },
   park_bench_w:  { name: 'a bench in Willow Park', x: 125, y: 51.6, seat: [125, 50.6] },

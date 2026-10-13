@@ -466,7 +466,7 @@ test('land: grow into open land, shrink, merge with the empty plot next door, sp
   assert.match(landError(game.plots, null, { x: 120, y: 30, w: 10, h: 10 }, game.world), /public/);
   assert.match(landError(game.plots, null, { x: 0, y: 4, w: 10, h: 10 }, game.world), /forest/);
   // Plots may cover a road (it stays public).
-  assert.equal(landError(game.plots, null, { x: 31, y: 41, w: 12, h: 10 }, game.world), null);
+  assert.equal(landError({}, null, { x: 31, y: 37, w: 8, h: 8 }, game.world), null);
   // Shrinking from the north keeps furniture where it stands in the world.
   a.send({ type: 'resizePlot', plotId: 0, x: plot.x, y: plot.y + 2, w: plot.w, h: plot.h - 2 });
   assert.equal(plot.h, 15);
@@ -1456,9 +1456,9 @@ test('village life: fishing, trading, notice board, mail, co-op farms, storage',
   game.events.onStat = () => {};
 
   // Fishing at the square's pond: cast, wait for the bite, reel in.
-  sa.x = 53.5 * TILE; sa.y = 53.5 * TILE; // the pond's east shore
+  sa.x = 45 * TILE; sa.y = 53.5 * TILE; // the pond's east shore
   const { waterNear } = await import('../../shared/fishing.js');
-  for (let x = 52; x < 56 && !waterNear(game.world, sa.x, sa.y); x += 0.25) sa.x = x * TILE;
+  for (let x = 45; x < 50 && !waterNear(game.world, sa.x, sa.y); x += 0.25) sa.x = x * TILE;
   assert.ok(waterNear(game.world, sa.x, sa.y), 'at the water');
   a.send({ type: 'fishCast' });
   assert.equal(a.last('fishing').state, 'cast');

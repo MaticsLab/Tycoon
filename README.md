@@ -156,6 +156,14 @@ You can also befriend villagers whose personalities change based on how you trea
   - **Property tax:** the council can set it (0–20 coins per 10 tiles a month); it's collected on the first day of each month.
   - **Public projects:** the council can vote to spend the treasury on a Flower Garden (Willow Park), a Farmers' Market and a Village Library (City Hall lawn, walk-in, with books to read), or a Bandstand at the fair. Each appears in the world once it's built.
 - **Rosa reacts to supply.** Each morning she runs short of whatever in-season crop nobody's been bringing her and pays 50% more for it. She also brags about yesterday's best supplier.
+- **A bigger town square** (48×16) with room around the shops. The shop fronts are layered like a real high street:
+  - stone plinths, corner pilasters and cornices;
+  - a tall painted sign board above the glass doors;
+  - striped awnings and flower boxes over the windows;
+  - lanterns by the door that glow at night, and a front step;
+  - Otto's brick chimney.
+
+  Rosa has produce stands out front and Otto has porch chairs and a dresser, with benches, planters and lamps around the fountain.
 - **Walk-in village shops.** Rosa's Market and Otto's Furniture on the town square are real buildings: in through the glass double doors, the walls cut away like at home. Rosa's has shelves, produce stands and chilled cases stocked with what she buys and sells; Otto's is a furniture showroom with a fireplace and a piano. The keepers stand behind their counters during opening hours. Tap a shelf or the register (**🛒 Shop here**), or talk to the keeper from anywhere inside, to buy and sell. The shops belong to the village: nobody can claim or edit them.
 - **Watering.** Watered crops grow twice as fast while the soil stays wet (one in-game day; wet soil looks dark). Buy a **watering can** from Rosa and walking through your rows waters them.
 - **Water and electricity.** At City Hall, hook up **💧 water** (🪙100 setup + 🪙120 a month) or **⚡ electricity** (🪙150 + 🪙200 a month). Bills go to the city treasury every 28 days. If you can't pay, the service is cut off until you settle up at City Hall.
@@ -281,6 +289,15 @@ Players can also change the server under **Server** on the join screen.
 | Build mode      | B · H select/move · C copy (or Alt+click) · K sledgehammer · T design · L time of day · R or right-click rotate · V walls · PgUp/PgDn floors · Ctrl/Cmd+Z undo · Ctrl/Cmd+Y redo · Delete sells a held item · Enter or double-click finishes a custom room · Esc cancels · WASD or right-drag to pan | two-finger drag to pan, tool strip buttons |
 | Village map     | M, or click the minimap                       | tap the minimap                    |
 | Cheat console   | ⚙️ Settings → Cheats                           | ⚙️ Settings → Cheats               |
+
+
+### Playing on a phone
+The touch controls follow common mobile-game guidance: thumb-sized targets (44–48 pt or more, about 8 pt apart), the main actions in the bottom third of the screen, nothing placed by accident, and short vibrations as feedback.
+- **Tap to walk:** tap the ground to walk there (a ring marks the spot); long trips break into a run. The floating joystick still works and takes over the moment you use it.
+- **Tap to interact from afar:** tap a villager or a piece of furniture that's far away; you walk over and then talk to them or open its menu.
+- **Building with confirmation:** drag to aim. The preview sits above your finger so your thumb doesn't hide it, with a dotted line to show where it points. Lifting your finger doesn't place anything: a bar appears with **✓ place**, **↻ turn** and **✕ cancel**, and you can drag again to move it. Pinching or panning while you decide keeps the preview where it is.
+- **Long-press** any furniture in build mode to pick it up and move it.
+- **▾** folds the build tray down to show more of your plot. Buttons, tabs and item tiles are bigger on touch screens.
 
 ## Ideas for next steps
 

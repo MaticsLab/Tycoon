@@ -3,7 +3,7 @@ import {
   TILE, MAP_W, MAP_H, PLAYER_SPEED, RUN_MULT, WORLD_VERSION, DAY_MS,
 } from '@shared/world.js';
 import {
-  canStand, inInterior, key, placementError, objAt, footprint, canRotate, levelView, wallSideAt,
+  canStand, crossesWall, inInterior, key, placementError, objAt, footprint, canRotate, levelView, wallSideAt,
   LEVELS, wallError, lineEdges, rectEdges, roofError, roofAt, edgeKey,
   indexPlots, landError, contentFits, mergedRect, splitRects, hasContent, LAND_PRICE,
   stepLevel, heightAt, roadEditError, roadIn, plotEntrance, occChanged,
@@ -1159,6 +1159,7 @@ function cycleWalls() {
 }
 $('btn-walls').onclick = cycleWalls;
 
+const coarse = matchMedia('(pointer: coarse)').matches;
 function toolInfo(extra) {
   const t = S.tool, d = ITEMS[t.id];
   const msgs = {
@@ -1178,6 +1179,12 @@ function toolInfo(extra) {
     split: 'Drag across your plot to choose a cut line; the empty side goes up for sale.',
     none: '',
   };
+  // On a touch screen: drag to aim, then confirm.
+  if (coarse) {
+    if (t.kind === 'obj' && !d?.crop) msgs.obj = 'Drag to aim (it sits above your finger), then ✓ to place, ↻ to turn. Long-press any furniture to pick it up.';
+    if (staged) extra = '✓ to confirm, ✕ to cancel, or drag again to move it';
+    else if (S.held) extra = 'Drag it where you want it, then ✓';
+  }
   $('toolinfo').textContent = (S.freeBuild ? '🆓 Free build · ' : '') + (extra ? extra + ' · ' : '') + (S.level && !['resize', 'merge', 'split', 'pave', 'dig'].includes(t.kind) ? 'Upstairs · ' : '') + (msgs[t.kind] || '');
 }
 
@@ -2300,10 +2307,13 @@ cv.addEventListener('pointerdown', (e) => {
     refreshPreview();
     return;
   }
-  hover = { cx: e.clientX, cy: e.clientY };
+  const touch = e.pointerType !== 'mouse';
+  // On a touch screen the preview sits a little above your finger, so you can see it.
+  hover = touch && S.mode === 'build' ? { cx: e.clientX, cy: e.clientY - TOUCH_LIFT, fx: e.clientX, fy: e.clientY, touch: true } : { cx: e.clientX, cy: e.clientY };
   if (S.mode === 'build' && e.altKey) { eyedrop(hover); pointers.delete(e.pointerId); return; }
   if (S.mode === 'build') {
-    const q = pickLocal(e.clientX, e.clientY);
+    if (touch) startLongPress(e);
+    const q = pickLocal(hover.cx, hover.cy);
     if (q && S.tool.kind === 'remove' && !S.held) drag = { start: tileOf(q), cur: tileOf(q) };
     else if (q && S.tool.kind === 'wall' && (S.wallTool === 'chain' || S.wallTool === 'paint')) drag = null;
     else if (q && ['wall', 'floor', 'roof', 'pave', 'dig'].includes(S.tool.kind)) drag = { start: S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q), cur: S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q) };
@@ -2350,9 +2360,12 @@ cv.addEventListener('pointermove', (e) => {
     return;
   }
   if (S.mode === 'build') {
-    hover = { cx: e.clientX, cy: e.clientY };
+    const touch = e.pointerType !== 'mouse';
+    if (touch && !prev) return; // a finger that isn't down
+    hover = touch ? { cx: e.clientX, cy: e.clientY - TOUCH_LIFT, fx: e.clientX, fy: e.clientY, touch: true } : { cx: e.clientX, cy: e.clientY };
+    if (longPress && Math.hypot(e.clientX - longPress.x, e.clientY - longPress.y) > 10) cancelLongPress();
     if (drag && drag.start) {
-      const q = pickLocal(e.clientX, e.clientY);
+      const q = pickLocal(hover.cx, hover.cy);
       if (q) drag.cur = S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q);
       if (q && S.tool.kind === 'remove') drag.cur = tileOf(q);
     }
@@ -2377,14 +2390,28 @@ const endPointer = (e) => {
     if (g.button === 2 && S.mode === 'build' && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) < 6 && performance.now() - g.t < 450) {
       if (S.held || (S.tool.kind === 'obj' && canRotate(S.tool.id))) rotateItem(); else if (S.tool.kind === 'obj') toast('That item can’t be rotated');
     }
-    if (!pointers.size) gesture = null;
+    if (!pointers.size) { gesture = null; if (staged) restoreStage(); }
     return;
   }
   if (!had) return;
   if (S.mode === 'build') {
+    cancelLongPress();
+    const touch = e.pointerType !== 'mouse';
+    if (e.type === 'pointerup' && touch && stageable()) {
+      // Touch: nothing is placed yet. The preview stays put: ✓ to place, ↻ to turn,
+      // ✕ to cancel, or drag again to move it.
+      const wp = view.pick(hover.cx, hover.cy, S.level * LEVEL_H);
+      staged = { w: wp && { x: wp.x, z: wp.z }, h: { ...hover }, drag: drag ? { ...drag } : null, key: toolKey() };
+      showStage();
+      refreshPreview();
+      toolInfo();
+      return;
+    }
     if (e.type === 'pointerup') {
-      if (S.tool.kind === 'wall' && S.wallTool === 'chain' && !S.held) chainClick({ cx: e.clientX, cy: e.clientY });
-      else commit({ cx: e.clientX, cy: e.clientY });
+      const h = touch ? hover : { cx: e.clientX, cy: e.clientY };
+      if (S.tool.kind === 'wall' && S.wallTool === 'chain' && !S.held) chainClick(h);
+      else commit(h);
+      if (touch) haptic(12);
     }
     drag = null;
     if (e.pointerType !== 'mouse') hover = null;
@@ -2408,7 +2435,11 @@ function onTap(cx, cy) {
   if (u) {
     if (S.act) { toast(`You’re busy: ${ACTIVITIES[S.act].verb.toLowerCase()}`); return; }
     if (!u.uses.length) { toast('You can only use things in someone’s home while they’re in'); return; }
-    if (u.d > TILE * 1.5) { toast(`Walk up to the ${ITEMS[u.t].name.toLowerCase()} first`); return; }
+    if (u.d > TILE * 1.5) {
+      // Too far: walk over, then open its menu.
+      const [w, h] = footprint(u.t, (u.level ? u.plot.l1 : u.plot).obj[u.key]?.r || 0);
+      return walkTo((u.plot.x + u.lx + w / 2) * TILE, (u.plot.y + u.ly + h + 0.4) * TILE, () => { const v = nearestUsable(TILE * 1.6); if (v) { const p = view.toScreen(v.plot.x + v.lx + 0.5, 1, v.plot.y + v.ly + 0.5); openUseMenu(v, p.x, p.y - 10); } }, TILE * 1.2);
+    }
     openUseMenu(u, cx, cy - 10);
     return;
   }
@@ -2428,19 +2459,99 @@ function onTap(cx, cy) {
     const p = view.toScreen(U(n.x), 0.8, U(n.y));
     if (Math.hypot(p.x - cx, p.y - cy) < 34) {
       if (Math.hypot(n.x - S.me.x, n.y - S.me.y) < TILE * 3.4) send({ type: 'npcOpen', npc: n.id });
-      else toast(`Walk closer to ${n.name}`);
+      else walkTo(n.x, n.y, () => send({ type: 'npcOpen', npc: n.id }), TILE * 2.2);
       return;
     }
   }
-  if (S.myPlot == null) return;
-  const def = myDef();
-  const p = view.pick(cx, cy, 0);
+  const p = view.pick(cx, cy, (S.me.level || 0) * LEVEL_H);
   if (!p) return;
-  const lx = Math.floor(p.x - def.x), ly = Math.floor(p.z - def.y);
-  const hit = objAt(S.plots[S.myPlot], lx, ly);
-  if (hit && ITEMS[hit.obj.t]?.crop && cropStage(hit.obj, serverNow()) === 3 && Math.hypot(p.x * TILE - S.me.x, p.z * TILE - S.me.y) < TILE * 3) {
-    send({ type: 'harvest', plotId: S.myPlot, lx, ly });
+  const def = S.myPlot != null ? myDef() : null;
+  if (def) {
+    const lx = Math.floor(p.x - def.x), ly = Math.floor(p.z - def.y);
+    const hit = objAt(S.plots[S.myPlot], lx, ly);
+    if (hit && ITEMS[hit.obj.t]?.crop && cropStage(hit.obj, serverNow()) === 3 && Math.hypot(p.x * TILE - S.me.x, p.z * TILE - S.me.y) < TILE * 3) {
+      send({ type: 'harvest', plotId: S.myPlot, lx, ly });
+      return;
+    }
   }
+  // Tap the ground to walk there.
+  walkTo(p.x * TILE, p.z * TILE + 4, null, 3);
+}
+
+// ---------- tap to walk ----------
+// A path over tiles on your floor (walls and furniture in the way, doors open), then
+// straightened out. `near`: stop within this many px of the target.
+function findWalk(fx, fy, tx, ty, level, near) {
+  const sx = Math.floor(fx / TILE), sy = Math.floor(fy / TILE);
+  const ok = (x, y) => canStand(world, S.plots, (x + 0.5) * TILE, (y + 0.5) * TILE + 4, level);
+  const goal = (x, y) => Math.hypot((x + 0.5) * TILE - tx, (y + 0.5) * TILE - ty) <= Math.max(near, TILE * 0.75);
+  const R = 40, k = (x, y) => `${x},${y}`;
+  const from = new Map([[k(sx, sy), null]]);
+  const queue = [[sx, sy]];
+  let end = null;
+  for (let i = 0; i < queue.length && i < 9000; i++) {
+    const [x, y] = queue[i];
+    if (goal(x, y)) { end = [x, y]; break; }
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (Math.abs(nx - sx) > R || Math.abs(ny - sy) > R || from.has(k(nx, ny)) || !ok(nx, ny)) continue;
+      if (crossesWall(world, S.plots, (x + 0.5) * TILE, (y + 0.5) * TILE + 4, (nx + 0.5) * TILE, (ny + 0.5) * TILE + 4, level)) continue;
+      from.set(k(nx, ny), [x, y]);
+      queue.push([nx, ny]);
+    }
+  }
+  if (!end) return null;
+  const pts = [];
+  for (let c = end; c; c = from.get(k(...c))) pts.push([(c[0] + 0.5) * TILE, (c[1] + 0.5) * TILE + 4]);
+  pts.reverse();
+  pts.shift(); // the tile you're on
+  // Ending on open ground right where you tapped.
+  if (near <= 4 && canStand(world, S.plots, tx, ty, level)) { if (pts.length) pts[pts.length - 1] = [tx, ty]; else pts.push([tx, ty]); }
+  // Straighten: skip waypoints you can walk to in a straight line.
+  const clear = (ax, ay, bx, by) => {
+    const n = Math.ceil(Math.hypot(bx - ax, by - ay) / 4);
+    let px = ax, py = ay;
+    for (let i = 1; i <= n; i++) {
+      const x = ax + ((bx - ax) * i) / n, y = ay + ((by - ay) * i) / n;
+      if (!canStand(world, S.plots, x, y, level) || crossesWall(world, S.plots, px, py, x, y, level)) return false;
+      px = x; py = y;
+    }
+    return true;
+  };
+  const out = [];
+  let [ax, ay] = [fx, fy], i = 0;
+  while (i < pts.length) {
+    let j = pts.length - 1;
+    while (j > i && !clear(ax, ay, pts[j][0], pts[j][1])) j--;
+    out.push(pts[j]);
+    [ax, ay] = pts[j];
+    i = j + 1;
+  }
+  return out;
+}
+function walkTo(x, y, then = null, near = 3) {
+  const path = findWalk(S.me.x, S.me.y, x, y, S.me.level || 0, near);
+  if (!path) { toast('Can’t get there from here'); return; }
+  if (S.act) send({ type: 'stop' });
+  S.walk = { path, then, dest: { x, y }, tiles: path.reduce((a, p, i) => a + Math.hypot(p[0] - (i ? path[i - 1][0] : S.me.x), p[1] - (i ? path[i - 1][1] : S.me.y)), 0) / TILE, lastX: S.me.x, lastY: S.me.y, still: 0 };
+  if (!path.length) arrive();
+}
+function arrive() {
+  const w = S.walk;
+  S.walk = null;
+  w?.then?.();
+}
+// Next step along the path: a unit direction in world px, or null (arrived / stuck).
+function walkStep(dt) {
+  const w = S.walk;
+  while (w.path.length && Math.hypot(w.path[0][0] - S.me.x, w.path[0][1] - S.me.y) < 2.5) w.path.shift();
+  if (!w.path.length) { arrive(); return null; }
+  // Stuck behind something that moved in the way: give up.
+  if (Math.hypot(S.me.x - w.lastX, S.me.y - w.lastY) < 0.3) { w.still += dt; if (w.still > 0.6) { S.walk = null; return null; } } else w.still = 0;
+  w.lastX = S.me.x; w.lastY = S.me.y;
+  const [tx, ty] = w.path[0];
+  const d = Math.hypot(tx - S.me.x, ty - S.me.y);
+  return [(tx - S.me.x) / d, (ty - S.me.y) / d];
 }
 
 // Input in screen terms: x = right, y = down (towards the camera).
@@ -2518,14 +2629,17 @@ function update(dt) {
   me.act = S.ride ? 'drive' : ui.fish.state ? 'fish' : S.act || 0;
   autoHarvest();
   tractorWork();
-  me.moving = Math.hypot(v.x, v.y) > 0.1;
-  me.running = me.moving && !!v.run;
+  // Steering: the stick / keys, or a tap-to-walk path.
+  let wdir = null;
+  if (Math.hypot(v.x, v.y) > 0.1) { S.walk = null; const g = view.ground(); wdir = [g.rx * v.x - g.fx * v.y, g.rz * v.x - g.fz * v.y]; }
+  else if (S.walk && S.mode === 'walk' && !S.act) wdir = walkStep(dt);
+  me.moving = !!wdir;
+  me.running = me.moving && (!!v.run || (!!S.walk && S.walk.tiles > 8));
   if (me.moving) ui.onMove();
   if (me.moving) view.offset.multiplyScalar(Math.max(0, 1 - dt * 3));
   if (view.quadrant !== lastQuadrant) { lastQuadrant = view.quadrant; plotsDirty = true; }
   if (me.moving) {
-    const g = view.ground();
-    const wx = g.rx * v.x - g.fx * v.y, wz = g.rz * v.x - g.fz * v.y;
+    const [wx, wz] = wdir;
     const tired = S.needs && (S.needs.energy < 8 || S.needs.health < 20) ? 0.7 : 1; // exhausted or unwell: slower
     const sp = PLAYER_SPEED * (S.ride ? RUN_MULT : me.running ? RUN_MULT : 1) * (S.ride ? 1 : tired) * dt;
     const nx = me.x + wx * sp, ny = me.y + wz * sp;
@@ -3228,6 +3342,7 @@ function drawOverlay(now) {
     if (onScreen(p)) tag(`🏡 ${st.farm ? st.farm + ' Farm' : st.ownerName}`, p.x, p.y, 11, st.owner === S.me.id ? '#ffe08a' : '#fff');
   }
   drawFarmOverlay(onScreen, now);
+  drawTouchMarks(now);
   ui.drawFishing(octx, view, now, [S.me, ...S.players.values()]);
   octx.textAlign = 'center';
   // Goods on shelves (with price tags up close), machines at work, coins from sales.
@@ -3611,3 +3726,82 @@ function drawAnimals(now) {
 }
 
 ui = socialUI({ S, send, openModal, closeModal, modal: () => modalKind, toast, esc, itemRow, world, badges });
+
+// ---------- touch: staged placement, long press, haptics ----------
+const TOUCH_LIFT = 56; // CSS px the preview sits above your finger
+let staged = null, longPress = null;
+function haptic(ms = 10) { try { navigator.vibrate?.(ms); } catch { /* not supported */ } }
+const toolKey = () => `${S.mode}|${S.tool.kind}|${S.tool.id || ''}|${S.held ? S.held.kind : ''}|${S.level}|${S.wallTool}`;
+// Tools whose touch placement waits for ✓ (anything that builds, moves or destroys).
+function stageable() {
+  if (S.held) return true;
+  const k = S.tool.kind;
+  if (k === 'wall') return S.wallTool !== 'chain' && S.wallTool !== 'paint';
+  return ['obj', 'floor', 'roof', 'remove', 'feature', 'pave', 'dig', 'blueprint', 'movehouse', 'resize', 'merge', 'split'].includes(k);
+}
+function showStage() {
+  const bar = $('stagebar');
+  bar.hidden = false;
+  const tray = $('tray');
+  bar.style.bottom = `${(tray.hidden ? 0 : tray.getBoundingClientRect().height) + 12}px`;
+  $('stage-rot').hidden = !(S.held ? S.held.kind !== 'obj' || canRotate(S.held.t) : S.tool.kind === 'obj' ? canRotate(S.tool.id) : ['blueprint', 'movehouse'].includes(S.tool.kind));
+  haptic(8);
+}
+function dropStage() { staged = null; $('stagebar').hidden = true; }
+// The staged spot on screen now (it's anchored in the world, so panning and zooming
+// while you decide don't move it).
+function stagedH() {
+  if (!staged.w) return staged.h;
+  const p = view.toScreen(staged.w.x, S.level * LEVEL_H, staged.w.z);
+  return { ...staged.h, cx: p.x, cy: p.y, fx: null, fy: null };
+}
+function restoreStage() { hover = stagedH(); drag = staged.drag; refreshPreview(); }
+function confirmStage() {
+  if (!staged) return;
+  const st = staged, h = stagedH();
+  dropStage();
+  drag = st.drag;
+  hover = h;
+  commit(h);
+  drag = null; hover = null;
+  haptic(18);
+  refreshPreview(); toolInfo();
+}
+function cancelStage() { dropStage(); drag = null; hover = null; refreshPreview(); toolInfo(); }
+$('stage-ok').onclick = confirmStage;
+$('stage-no').onclick = cancelStage;
+$('stage-rot').onclick = () => { rotateItem(); if (staged) restoreStage(); haptic(6); };
+// A long press (without moving) picks up the furniture under your finger.
+function startLongPress(e) {
+  cancelLongPress();
+  if (S.held || S.tool.kind === 'remove') return;
+  const x = e.clientX, y = e.clientY;
+  longPress = { x, y, timer: setTimeout(() => {
+    longPress = null;
+    if (pointers.size !== 1 || S.held || S.mode !== 'build') return;
+    pickUp({ cx: x, cy: y });
+    if (S.held) { drag = null; haptic(25); hover = { cx: x, cy: y - TOUCH_LIFT, fx: x, fy: y, touch: true }; refreshPreview(); toolInfo(); }
+  }, 480) };
+}
+function cancelLongPress() { if (longPress) { clearTimeout(longPress.timer); longPress = null; } }
+// Switching tools, floors or modes drops a staged placement.
+setInterval(() => { if (staged && staged.key !== toolKey()) cancelStage(); }, 250);
+
+// Where your finger points while building (the lifted target), and where you're walking to.
+function drawTouchMarks(now) {
+  if (S.mode === 'build' && hover?.touch && (pointers.size === 1 || staged)) {
+    const h = staged ? stagedH() : hover;
+    octx.strokeStyle = 'rgba(255,255,255,.9)'; octx.lineWidth = 2;
+    octx.beginPath(); octx.arc(h.cx, h.cy, 7, 0, Math.PI * 2); octx.stroke();
+    if (!staged && h.fy) { octx.setLineDash([3, 4]); octx.beginPath(); octx.moveTo(h.fx, h.fy - 18); octx.lineTo(h.cx, h.cy + 8); octx.stroke(); octx.setLineDash([]); }
+  }
+  if (S.walk?.dest && S.mode === 'walk') {
+    const d = S.walk.dest, p = view.toScreen(d.x / TILE, (S.me.level || 0) * LEVEL_H + 0.02, d.y / TILE);
+    const r = 9 + Math.sin(now / 160) * 2;
+    octx.strokeStyle = 'rgba(255,230,120,.95)'; octx.lineWidth = 2.5;
+    octx.beginPath(); octx.ellipse(p.x, p.y, r, r * 0.5, 0, 0, Math.PI * 2); octx.stroke();
+  }
+}
+
+// The build tray folds down to show more of your plot.
+$('btn-traymin').onclick = () => { $('tray').classList.toggle('mini'); $('btn-traymin').textContent = $('tray').classList.contains('mini') ? '▴' : '▾'; if (staged) showStage(); };

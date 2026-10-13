@@ -251,6 +251,15 @@ export const grainTex = () => paintTex('grain', 16, 16, (c) => {
 export const blobTex = () => paintTex('blob', 16, 16, (c) => disc(c, 8, 8, 7, 5, 'rgba(20,12,6,0.32)'), false);
 
 // Pixel text on a plank (shop signs).
+// Striped canvas for awnings, with a scalloped edge (alpha) along the bottom.
+export function awningTex(a, b) {
+  return paintTex(`awning2|${a}|${b}`, 32, 16, (c) => {
+    for (let i = 0; i < 32; i += 4) r(c, i, 0, 4, 13, (i / 4) % 2 ? b : a);
+    for (let i = 0; i < 32; i += 4) { r(c, i, 13, 4, 1, (i / 4) % 2 ? b : a); r(c, i + 1, 14, 2, 1, (i / 4) % 2 ? b : a); }
+    r(c, 0, 0, 32, 1, 'rgba(255,255,255,.55)'); r(c, 0, 12, 32, 1, 'rgba(0,0,0,.18)');
+  }, false);
+}
+
 export function signTex(text, w = 96, h = 18) {
   return paintTex(`sign|${text}`, w, h, (c) => {
     r(c, 0, 0, w, h, '#4a2e18'); r(c, 1, 1, w - 2, h - 2, '#a8703f'); r(c, 1, 1, w - 2, 1, '#c99363');
