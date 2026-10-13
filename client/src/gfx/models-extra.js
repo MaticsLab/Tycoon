@@ -60,6 +60,75 @@ function splash(cx, cz, y, dx, dz, len, rise = 0.08, s = 0.05) {
 // A plus of something running N-S and E-W through the tile centre (flat: ≤ 0.03 tall).
 const plus = (t, y, h, col) => [[0.5 - t / 2, y, 0, t, h, 1, col], [0, y, 0.5 - t / 2, 1, h, t, col]];
 
+// ---------- shop display helpers ----------
+const WICK = '#c9a25a', WICK_L = '#dcb874', WICK_D = '#8a6a32', STRAW = '#e8c867', STRAW_D = '#c9a24c';
+const ZINC = '#aab4bc', ZINC_L = '#d3dbe0', ZINC_D = '#7f8a94', CHALKB = '#2e3b36', CHALK = '#e8e2d0', CHALK_D = '#cfc8b4';
+// A rectangular ring of four walls (outer size w x d, wall thickness t).
+const frame = (x, y, z, w, h, d, t, col) => [
+  [x, y, z, w, h, t, col], [x, y, z + d - t, w, h, t, col], [x, y, z + t, t, h, d - 2 * t, col], [x + w - t, y, z + t, t, h, d - 2 * t, col],
+];
+// The hollow rim of a `disc` of diameter s: four walls plus four corner blocks.
+const ring = (cx, cz, y, h, s, t, col) => {
+  const a = s / 2, b = s * 0.3, c = s * 0.42;
+  return [
+    [cx - b, y, cz + a - t, 2 * b, h, t, col], [cx - b, y, cz - a, 2 * b, h, t, col],
+    [cx - a, y, cz - b, t, h, 2 * b, col], [cx + a - t, y, cz - b, t, h, 2 * b, col],
+    ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => [cx + (sx < 0 ? -c : b), y, cz + (sz < 0 ? -c : b), c - b, h, c - b, col]),
+  ];
+};
+// An open woven basket whose floor (the stock surface) is at y, its rim `rim` above.
+// Stock slot: [x + 0.04, y, z + 0.04, w - 0.08, d - 0.08].
+function basket(x, y, z, w, d, rim = 0.1, floor = WICK_D) {
+  const t = 0.04, b = y - 0.07, h = y - b + rim;
+  const out = [
+    [x + 0.03, b - 0.02, z + 0.03, w - 0.06, 0.02, d - 0.06, WICK_D], [x + t, b, z + t, w - 2 * t, y - b, d - 2 * t, floor],
+    ...frame(x, b, z, w, h, d, t, WICK), ...frame(x - 0.01, y + rim - 0.03, z - 0.01, w + 0.02, 0.035, d + 0.02, t + 0.01, WICK_L),
+    // woven band and upright ribs on the front and sides
+    [x - 0.004, b + 0.04, z + d - 0.01, w + 0.008, 0.025, 0.016, WICK_D], [x - 0.006, b + 0.04, z + 0.02, 0.012, 0.025, d - 0.03, WICK_D],
+    [x + w - 0.006, b + 0.04, z + 0.02, 0.012, 0.025, d - 0.03, WICK_D],
+  ];
+  for (let i = 1; i < 5; i++) out.push([x + (w * i) / 5 - 0.008, b, z + d, 0.016, h - 0.04, 0.006, WICK_L]);
+  return out;
+}
+// A vertical (x-y plane) spoked cart wheel centred (cx, cy): an iron tyre slab from z to
+// z + 0.06, with the wooden face, spokes and hub on its outer side (dir +1 = south, -1 = north).
+function cartWheel(cx, cy, z, s, dir = 1) {
+  const face = dir > 0 ? z + 0.06 : z, at = (off, d) => (dir > 0 ? face + off : face - off - d), a = s / 2, i = s * 0.36;
+  return [
+    [cx - a, cy - s * 0.3, z, s, s * 0.6, 0.06, IRON], [cx - s * 0.3, cy - a, z, s * 0.6, s, 0.06, IRON], [cx - s * 0.42, cy - s * 0.42, z, s * 0.84, s * 0.84, 0.06, IRON],
+    [cx - a + 0.03, cy - s * 0.26, at(0, 0.006), s - 0.06, s * 0.52, 0.006, WOOD_D], [cx - s * 0.26, cy - a + 0.03, at(0, 0.006), s * 0.52, s - 0.06, 0.006, WOOD_D],
+    [cx - i, cy - i * 0.55, at(0.006, 0.004), i * 2, i * 1.1, 0.004, '#3a2414'], [cx - i * 0.55, cy - i, at(0.006, 0.004), i * 1.1, i * 2, 0.004, '#3a2414'],
+    [cx - 0.02, cy - i, at(0.01, 0.006), 0.04, i * 2, 0.006, WOOD_L], [cx - i, cy - 0.02, at(0.01, 0.006), i * 2, 0.04, 0.006, WOOD_L],
+    [cx - 0.05, cy - 0.05, at(0.01, 0.03), 0.1, 0.1, 0.03, IRON], [cx - 0.02, cy - 0.02, at(0.04, 0.006), 0.04, 0.04, 0.006, CHROME],
+  ];
+}
+// Striped awning steps sloping down to the front: n steps from (y0, z0), stripes along x.
+function awning(x0, x1, y0, z0, n, dz, dy, cols, stripe = 0.25) {
+  const out = [], k = Math.max(1, Math.round((x1 - x0) / stripe)), sw = (x1 - x0) / k;
+  for (let s = 0; s < n; s++) for (let i = 0; i < k; i++) out.push([x0 + i * sw, y0 - s * dy, z0 + s * dz, sw, 0.06, dz + 0.01, cols[i % cols.length]]);
+  return out;
+}
+// A scalloped valance hanging under a front edge at z (alternating tongues).
+function valance(x0, x1, y, z, cols, n = 8) {
+  const out = [], w = (x1 - x0) / n;
+  for (let i = 0; i < n; i++) {
+    const col = cols[i % cols.length];
+    out.push([x0 + i * w, y - 0.1, z, w, 0.1, 0.03, col], [x0 + i * w + w * 0.2, y - 0.14, z, w * 0.6, 0.04, 0.03, col]);
+  }
+  return out;
+}
+// Neon pixel letters, rows top to bottom, '#' = lit. Returns run-merged glow boxes.
+function neonText(rows, x0, yTop, z, p, col, d = 0.016) {
+  const out = [];
+  rows.forEach((row, j) => {
+    let start = -1;
+    for (let i = 0; i <= row.length; i++) {
+      if (row[i] === '#') { if (start < 0) start = i; } else if (start >= 0) { out.push([x0 + start * p, yTop - (j + 1) * p, z, (i - start) * p, p, d, col, true]); start = -1; }
+    }
+  });
+  return out;
+}
+
 export const EXTRA_MODELS = {
   // ---------- living ----------
   recliner: () => {
