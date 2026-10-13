@@ -453,7 +453,6 @@ const sysMsg = (text) => addLog(esc(text), 'sys');
 function updateHud() {
   $('coins').textContent = `🪙 ${S.coins}`;
   syncBuildBtn();
-  $('online').textContent = `👥 ${S.players.size + 1}`;
   refreshTrayAffordability();
 }
 
@@ -477,11 +476,9 @@ let lastAction = '';
 function updateContext() {
   if (!S.me) return;
   $('clock').textContent = fmtClock();
-  $('online').textContent = `👥 ${S.players.size + 1}`;
   syncBuildBtn();
   const here = plotIdAtPixel(world, S.me.x, S.me.y);
   const plot = here >= 0 ? S.plots[here] : null;
-  $('where').textContent = plot ? (plot.owner ? (plot.farm ? `${plot.farm} Farm` : `${plot.ownerName}'s home`) : `Plot ${here + 1} · For sale`) : 'Village';
   let action = '';
   const npc = nearestNpc();
   const usable = S.mode === 'walk' && !S.talk && !S.act ? nearestUsable() : null;

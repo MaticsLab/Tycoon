@@ -35,7 +35,9 @@ button { font: inherit; cursor: pointer; }
 .pill { background: var(--cream); border: 3px solid var(--wood); border-radius: 999px; padding: 4px 12px; font-weight: bold; font-size: 14px; box-shadow: 0 3px 0 rgba(0,0,0,.25); }
 .pill:empty { display: none; }
 
-#side { position: fixed; top: calc(8px + var(--sat)); right: calc(8px + var(--sar)); display: flex; flex-direction: column; gap: 8px; }
+#side { position: fixed; top: calc(8px + var(--sat)); right: calc(8px + var(--sar)); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+/* Coins sit in the top-right corner, above the buttons. */
+#side #coins { white-space: nowrap; pointer-events: none; }
 #side button { width: 62px; height: 62px; font-size: 24px; line-height: 1; background: var(--cream); border: 3px solid var(--wood); border-radius: 12px; box-shadow: 0 3px 0 rgba(0,0,0,.3); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--ink); }
 #side button small { font-size: 11px; font-weight: bold; }
 #side button:disabled { opacity: .45; }
