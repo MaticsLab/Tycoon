@@ -6,15 +6,17 @@ import {
   canStand, crossesWall, inInterior, key, placementError, objAt, footprint, canRotate, levelView, wallSideAt,
   LEVELS, wallError, lineEdges, rectEdges, roofError, roofAt, edgeKey,
   indexPlots, landError, contentFits, mergedRect, splitRects, hasContent, LAND_PRICE,
-  stepLevel, heightAt, roadEditError, roadIn, plotEntrance, occChanged,
+  stepLevel, heightAt, roadEditError, roadIn, plotEntrance, occChanged, wallRun, parseEdge, wallHeight,
 } from '@shared/plot.js';
 import { ITEMS, GOODS, CATEGORIES, cropStage, isWet, itemName } from '@shared/catalog.js';
 import { FARMHANDS, TRACTOR_MODES, SEEDS, connected, networks, UTILITIES, QUALITY, ANIMALS, seasonOf, seasonDay, inSeason, growsAt, seasonsLabel } from '@shared/farm.js';
 import { NPCS } from '@shared/npcs.js';
 import { itemIcon } from './sprites.js';
 import { View, LEVEL_H } from './gfx/view.js';
+import { lowered, LOW_H } from './gfx/houses.js';
 import { Ghost, Outline } from './gfx/ghost.js';
 import { slotFronts } from './gfx/goods.js';
+import { itemHeight } from './gfx/models.js';
 import { FENCE_MODELS } from './gfx/models-fences.js';
 import { modelIcon } from './modelicon.js';
 import { Minimap } from './minimap.js';
@@ -1244,6 +1246,7 @@ function itemTile(id) {
     store.set('recentItems', JSON.stringify(recent));
     for (const o of $('items').querySelectorAll('button[data-id]')) o.classList.toggle('sel', o === b);
     syncStrip(); renderTabs(); toolInfo(); renderDetail(); refreshPreview();
+    if (coarse && ['obj', 'feature'].includes(S.tool.kind)) stageAtCentre();
   };
   return b;
 }
@@ -1286,7 +1289,7 @@ function renderItems() {
 function renderDetail() {
   const el = $('detail');
   if (!el) return;
-  const selT = S.sel ? levelView(S.plots[S.myPlot], S.sel.level).obj[key(...S.sel.at)]?.t : null;
+  const selT = selObj()?.o.t || null;
   const id = detailHover || (ITEMS[S.tool.id] && S.tool.kind !== 'none' ? S.tool.id : null) || selT;
   if (!id || !ITEMS[id]) { el.innerHTML = '<div class="d-empty">Hover an item to see its size, price and how many you own.</div>'; return; }
   const d = ITEMS[id];
@@ -1382,8 +1385,9 @@ function toolInfo(extra) {
   };
   // On a touch screen: drag to aim, then confirm.
   if (coarse) {
-    if (t.kind === 'obj' && !d?.crop) msgs.obj = 'Drag to aim (it sits above your finger), then ✓ to place, ↻ to turn. Long-press any furniture to pick it up.';
-    if (staged) extra = '✓ to confirm, ✕ to cancel, or drag again to move it';
+    if (t.kind === 'obj' && !d?.crop) msgs.obj = staged ? '' : 'Drag anywhere to slide it into place, then ✓. ↻ turns it.';
+    msgs.select = 'Tap something to select it · long-press to grab and move it';
+    if (staged) extra = 'Drag anywhere to slide it · ✓ place · ↻ turn · ✕ cancel';
     else if (S.held) extra = 'Drag it where you want it, then ✓';
   }
   msgs.eyedrop = 'Copy: click anything to pick up another one like it';
@@ -1391,7 +1395,7 @@ function toolInfo(extra) {
   msgs.design = 'Design: click furniture or a roof to change its colour. Free';
   msgs.movehouse = 'Move house: your whole house follows the cursor; R turns it; click to set it down. Free';
   // A hint pill under the tool bar, for any tool but Select.
-  const text = t.kind === 'select' || t.kind === 'none' ? (extra || '') : (S.freeBuild ? '🆓 Free build · ' : '') + (extra ? extra + ' · ' : '') + (S.level && !['resize', 'merge', 'split', 'pave', 'dig'].includes(t.kind) ? 'Upstairs · ' : '') + (msgs[t.kind] || '');
+  const text = t.kind === 'select' || t.kind === 'none' ? (extra || (coarse ? msgs.select : '')) : [S.freeBuild && '🆓 Free build', extra, S.level && !['resize', 'merge', 'split', 'pave', 'dig'].includes(t.kind) && 'Upstairs', msgs[t.kind]].filter(Boolean).join(' · ');
   $('toolhint').textContent = text;
   $('toolhint').hidden = !text;
 }
@@ -1453,6 +1457,47 @@ function pickLocal(cx, cy, height = 0) {
   return p ? { fx: p.x - def.x, fz: p.z - def.y } : null;
 }
 const tileOf = (q) => [Math.floor(q.fx), Math.floor(q.fz)];
+// The furniture under the pointer, by its real 3D size: the ray from the camera is tested
+// against each object's box, and the first one it meets wins. So clicking the back of a
+// sofa or the top of a fridge picks it, not the floor (or room) behind it.
+function pickUnder(h, level = S.level) {
+  const plot = S.plots[S.myPlot];
+  if (!plot || !h) return null;
+  const base = level * LEVEL_H;
+  const a = view.pick(h.cx, h.cy, base), b = view.pick(h.cx, h.cy, base + 2);
+  if (!a || !b) return null;
+  // The ray as x(y), z(y) between the two picks (y = height above this floor). Higher up
+  // the ray is nearer the camera, so the hit with the highest y is the one you see.
+  const X = (y) => a.x + (b.x - a.x) * (y / 2), Z = (y) => a.z + (b.z - a.z) * (y / 2);
+  let best = null, bestY = -1;
+  for (const [k, o] of Object.entries(levelView(plot, level).obj)) {
+    if (!ITEMS[o.t] || ITEMS[o.t].crop) continue;
+    const [ax, ay] = k.split(',').map(Number);
+    const [w, d] = footprint(o.t, o.r || 0);
+    const x0 = plot.x + ax, z0 = plot.y + ay, top = itemHeight(o.t);
+    // Walk down the ray from the item's top: the first height inside its box is the hit.
+    for (let y = top; y >= 0; y -= 0.05) {
+      const x = X(y), z = Z(y);
+      if (x >= x0 && x <= x0 + w && z >= z0 && z <= z0 + d) { if (y > bestY) { bestY = y; best = { obj: { key: k, obj: o, at: [ax, ay] } }; } break; }
+    }
+  }
+  // Walls (as tall as they're drawn right now: cut away, down or up).
+  const g = view.ground(), cut = { mode: S.wallMode, fx: g.fx, fz: g.fz };
+  for (const [k, w] of Object.entries(plot.walls || {})) {
+    const e = parseEdge(k);
+    if (e.l !== level || ITEMS[w.m]?.fence) continue;
+    const H = lowered(plot, e, level, cut) ? LOW_H : wallHeight(plot, level, e.d, e.x, e.y, w);
+    const along = e.d === 'h' ? b.z - a.z : b.x - a.x;
+    if (Math.abs(along) < 1e-6) continue;
+    const y = 2 * ((e.d === 'h' ? plot.y + e.y - a.z : plot.x + e.x - a.x) / along);
+    if (y < 0 || y > H || y <= bestY) continue;
+    const t = e.d === 'h' ? X(y) - (plot.x + e.x) : Z(y) - (plot.y + e.y);
+    if (t < 0 || t > 1) continue;
+    bestY = y; best = { wall: [e.d, e.x, e.y] };
+  }
+  return best;
+}
+const objUnder = (h, level) => pickUnder(h, level)?.obj || null;
 const cornerOf = (q) => [Math.round(q.fx), Math.round(q.fz)];
 function edgeOf(q) {
   const lx = Math.floor(q.fx), ly = Math.floor(q.fz), ux = q.fx - lx, uz = q.fz - ly;
@@ -1525,7 +1570,17 @@ function refreshPreview() {
   try { previewInner(); } finally { drawTip(); }
 }
 
+// The selection glows: a box round furniture, the wall itself, or the room's floor.
+function markSel() {
+  const s = selNow();
+  if (!s) return;
+  const def = myDef(), l = S.sel.level;
+  if (s.kind === 'obj') { const [w, h] = footprint(s.o.t, s.o.r || 0); ghost.box(def.x + S.sel.at[0], def.y + S.sel.at[1], w, h, l * LEVEL_H, Math.min(2.2, itemHeight(s.o.t) + 0.1)); }
+  else if (s.kind === 'wall') ghost.walls([S.sel.edge], def, l, true, true);
+  else ghost.tiles([...s.tiles].map((k) => k.split(',').map(Number)), def, l, true, 0.03);
+}
 function previewInner() {
+  if (S.mode === 'build' && !S.held) markSel();
   if (S.mode !== 'build' || !hover) return;
   const plot = S.plots[S.myPlot], def = myDef(), t = S.tool;
   const d = ITEMS[t.id];
@@ -1575,7 +1630,7 @@ function previewInner() {
     if (!q) return;
     const [lx, ly] = tileOf(q);
     const v = levelView(plot, S.level);
-    const hit = objAt(v, lx, ly);
+    const hit = (t.kind !== 'saveRoom' && objUnder(hover)) || objAt(v, lx, ly);
     if (hit && t.kind !== 'saveRoom') {
       const [ax, ay] = hit.key.split(',').map(Number);
       const [w, h] = footprint(hit.obj.t, hit.obj.r || 0);
@@ -1592,7 +1647,7 @@ function previewInner() {
       const up = !S.level && plot.l1 && [...tiles].some((k) => plot.l1.floor[k]);
       ghost.box(def.x + x0, def.y + y0, Math.max(...xs) - x0 + 1, Math.max(...ys) - y0 + 1, S.level * LEVEL_H, up ? 5.3 : 2.6);
       if (t.kind === 'design') { tip(roofAt(plot, lx, ly, S.level) >= 0 ? '🎨 Click to change this roof’s colour' : '🎨 Point at furniture, a door, a window or a roof'); return; }
-      tip(t.kind === 'saveRoom' ? `📚 Save this room (${tiles.size} tiles)` : `👆 Room · ${tiles.size} tiles · click to pick it up`);
+      tip(t.kind === 'saveRoom' ? `📚 Save this room (${tiles.size} tiles)` : `👆 Room · ${tiles.size} tiles · click to select`);
       return;
     }
     if (t.kind === 'eyedrop' && v.floor[key(lx, ly)]) { tip(`💧 Copy ${ITEMS[v.floor[key(lx, ly)]].name}`); return; }
@@ -1691,7 +1746,7 @@ function previewInner() {
       || (d.crop && !growsAt(plot, lx, ly, d.crop, worldClock(serverNow(), S.epoch).day) ? `Out of season (grows in ${seasonsLabel(d.crop)}): plant it under a roof` : null)
       || (S.freeBuild ? null : d.shop ? (S.inv[t.id] > 0 ? null : `None left: buy more from ${NPCS[d.shop].name}`) : coinsErr(d.price));
     ghost.item(t.id, r, def, lx, ly, S.level, !bad);
-    tip(`${d.name} · ${d.shop ? `×${S.inv[t.id] || 0}` : `🪙${d.price}`}${w * h > 1 ? ` · ${w}×${h}` : ''}${canRotate(t.id) ? ' · R / right-click ↻' : ''}`, bad);
+    tip(`${d.name} · ${d.shop ? `×${S.inv[t.id] || 0}` : `🪙${d.price}`}${w * h > 1 ? ` · ${w}×${h}` : ''}${canRotate(t.id) && !coarse ? ' · R / right-click ↻' : ''}`, bad);
   } else if (t.kind === 'remove' || t.kind === 'roofRemove') {
     const target = removeTarget(hover);
     if (!target) { tip('Sledgehammer · point at something'); return; }
@@ -1844,59 +1899,131 @@ function pickUp(h) {
 
 // Select with nothing in hand: click furniture to select it (a popup over it rotates it
 // or picks it up), click a room's floor to lift the whole room, or empty ground to clear.
+const REPEAT = new Set(['pipe', 'cable', 'spout']);
 function selectAt(h) {
   const plot = S.plots[S.myPlot];
   const q = pickLocal(h.cx, h.cy);
-  if (!q) { S.sel = null; return; }
-  const [lx, ly] = tileOf(q);
-  const hit = objAt(levelView(plot, S.level), lx, ly);
-  if (hit) { S.sel = { at: hit.key.split(',').map(Number), level: S.level }; renderDetail(); return; }
-  S.sel = null; renderDetail();
-  if (roomRegion(plot, S.level, lx, ly)) pickUp(h);
+  // Whatever the pointer meets first: furniture (by its real size) or a wall, else the
+  // room's floor.
+  const under = pickUnder(h);
+  const hit = under?.obj || (!under?.wall && q && objAt(levelView(plot, S.level), ...tileOf(q)));
+  if (hit) { S.sel = { kind: 'obj', at: hit.key.split(',').map(Number), level: S.level }; renderDetail(); refreshPreview(); return; }
+  if (under?.wall) { S.sel = { kind: 'wall', edge: under.wall, level: S.level }; renderDetail(); refreshPreview(); return; }
+  const [lx, ly] = q ? tileOf(q) : [0, 0];
+  S.sel = q && roomRegion(plot, S.level, lx, ly) ? { kind: 'room', at: [lx, ly], level: S.level } : null;
+  renderDetail(); refreshPreview();
 }
 function selObj() {
-  if (!S.sel || S.mode !== 'build') return null;
+  if (!S.sel || S.mode !== 'build' || (S.sel.kind && S.sel.kind !== 'obj')) return null;
   const plot = S.plots[S.myPlot], o = plot && levelView(plot, S.sel.level).obj[key(...S.sel.at)];
   return o ? { plot, o } : null;
 }
-// Turn the selected object where it stands (d = +1 right, -1 left).
-function rotateSel(d) {
-  const s = selObj();
-  if (!s) return;
-  if (!canRotate(s.o.t)) return toast(`${ITEMS[s.o.t].name} doesn’t turn`);
-  const r0 = s.o.r || 0, r = (r0 + d + 4) % 4, base = { plotId: S.myPlot, level: S.sel.level };
-  send({ type: 'moveObj', ...base, from: S.sel.at, to: S.sel.at, r });
-  pushUndo(`turning ${ITEMS[s.o.t].name}`, [{ type: 'moveObj', ...base, from: S.sel.at, to: S.sel.at, r: r0 }]);
+// What's selected, checked against the plot now: { kind, plot, o?, w?, region? } or null.
+function selNow() {
+  if (!S.sel || S.mode !== 'build') return null;
+  const plot = S.plots[S.myPlot];
+  if (!plot) return null;
+  if (S.sel.kind === 'wall') { const w = plot.walls?.[edgeKey(S.sel.level, ...S.sel.edge)]; return w ? { kind: 'wall', plot, w } : null; }
+  if (S.sel.kind === 'room') { const tiles = roomTiles(plot, S.sel.level, ...S.sel.at); return tiles ? { kind: 'room', plot, tiles } : null; }
+  const so = selObj();
+  return so && { kind: 'obj', ...so };
 }
-function pickUpSel() {
-  const s = selObj();
+const base0 = () => ({ plotId: S.myPlot, level: S.sel.level });
+// Turn the selection where it stands (d = +1 right, -1 left): furniture or a whole room.
+function rotateSel(d) {
+  const s = selNow();
   if (!s) return;
-  const p = view.toScreen(s.plot.x + S.sel.at[0] + 0.5, S.sel.level * LEVEL_H, s.plot.y + S.sel.at[1] + 0.5);
+  if (s.kind === 'room') {
+    const rot = d > 0 ? 1 : 3;
+    send({ type: 'moveRegion', ...base0(), room: S.sel.at, dx: 0, dy: 0, rot });
+    pushUndo('turning the room', [{ type: 'moveRegion', ...base0(), room: S.sel.at, dx: 0, dy: 0, rot: 4 - rot }]);
+    return;
+  }
+  if (s.kind !== 'obj') return;
+  if (!canRotate(s.o.t)) return toast(`${ITEMS[s.o.t].name} doesn’t turn`);
+  const r0 = s.o.r || 0, r = (r0 + d + 4) % 4;
+  send({ type: 'moveObj', ...base0(), from: S.sel.at, to: S.sel.at, r });
+  pushUndo(`turning ${ITEMS[s.o.t].name}`, [{ type: 'moveObj', ...base0(), from: S.sel.at, to: S.sel.at, r: r0 }]);
+}
+// Pick the selection up to move it (it stays where it is until you set it down).
+function pickUpSel() {
+  const s = selNow();
+  if (!s || s.kind === 'wall') return;
+  const plot = s.plot, at = S.sel.at, level = S.sel.level;
   S.sel = null;
-  pickUp({ cx: p.x, cy: p.y });
-  renderDetail(); toolInfo();
+  if (s.kind === 'obj') {
+    if (ITEMS[s.o.t].stairs) return toast('Stairs can’t be moved: sledgehammer them and build new ones');
+    S.held = { kind: 'obj', from: at, level, t: s.o.t, r: s.o.r || 0, c: s.o.c || 0 };
+    S.rot = S.held.r;
+  } else {
+    const frag = extract(plot, roomRegion(plot, level, ...at));
+    if (!frag) return;
+    S.held = { kind: 'room', at, level, frag, rot: 0, grab: [at[0] - frag.ox + 0.5, at[1] - frag.oy + 0.5], ox: frag.ox, oy: frag.oy };
+  }
+  // Start the carried thing where it stands, so it doesn't jump.
+  const p = view.toScreen(plot.x + at[0] + 0.5, level * LEVEL_H, plot.y + at[1] + 0.5);
+  hover = { cx: p.x, cy: p.y, touch: coarse };
+  if (coarse) { staged = { w: { x: plot.x + at[0] + 0.5, z: plot.y + at[1] + 0.5 }, h: { ...hover }, drag: null, key: toolKey() }; showStage(); }
+  toast(coarse ? '✋ Drag anywhere to slide it, then ✓' : '✋ Click to set it down · R turns it · Esc cancels');
+  renderDetail(); toolInfo(); refreshPreview();
 }
 function sellSel() {
-  const s = selObj();
-  if (!s) return;
+  const s = selNow();
+  if (!s || s.kind !== 'obj') return;
   send({ type: 'remove', plotId: S.myPlot, level: S.sel.level, lx: S.sel.at[0], ly: S.sel.at[1] });
-  S.sel = null; renderDetail();
+  S.sel = null; renderDetail(); refreshPreview();
 }
 $('op-rotl').onclick = () => rotateSel(-1);
 $('op-rotr').onclick = () => rotateSel(1);
 $('op-move').onclick = pickUpSel;
-// Keep the popup 60px above the selected object, whatever the camera does.
+// Wall height bars (short, medium, tall) for a selected wall: set the whole run.
+function setWallHeight(h) {
+  const s = selNow();
+  if (s?.kind !== 'wall') return;
+  const [d, x, y] = S.sel.edge;
+  const plot = s.plot;
+  const before = wallRun(plot, S.sel.level, d, x, y).map((k) => [k, plot.walls[k]?.ht || 2]);
+  send({ type: 'wallHeight', ...base0(), d, x, y, h });
+  // Undo puts each wall back (they may have differed).
+  pushUndo(`${['', 'short', 'medium', 'tall'][h]} walls`, before.map(([k, ht]) => { const e = parseEdge(k); return { type: 'wallHeight', ...base0(), d: e.d, x: e.x, y: e.y, h: ht }; }));
+}
+// Keep the popup 60px above the selection, whatever the camera does.
 function placeObjPop() {
-  const pop = $('objpop'), s = selObj();
+  const pop = $('objpop'), s = selNow();
   if (!s || S.held) { pop.hidden = true; return; }
-  const [w, hh] = footprint(s.o.t, s.o.r || 0);
-  const p = view.toScreen(s.plot.x + S.sel.at[0] + w / 2, S.sel.level * LEVEL_H + 1.1, s.plot.y + S.sel.at[1] + hh / 2);
+  let wx, wz, top, title;
+  if (s.kind === 'obj') {
+    const [w, hh] = footprint(s.o.t, s.o.r || 0);
+    wx = s.plot.x + S.sel.at[0] + w / 2; wz = s.plot.y + S.sel.at[1] + hh / 2; top = Math.min(1.6, itemHeight(s.o.t)) + 0.2; title = ITEMS[s.o.t].name;
+  } else if (s.kind === 'wall') {
+    const [d, x, y] = S.sel.edge;
+    wx = s.plot.x + x + (d === 'h' ? 0.5 : 0); wz = s.plot.y + y + (d === 'v' ? 0.5 : 0); top = wallHeight(s.plot, S.sel.level, d, x, y) * (S.wallMode === 'up' ? 1 : 0.3); title = `wall:${s.w.ht || 2}`;
+  } else {
+    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+    for (const k of s.tiles) { const [x, y] = k.split(',').map(Number); x0 = Math.min(x0, x); x1 = Math.max(x1, x + 1); y0 = Math.min(y0, y); y1 = Math.max(y1, y + 1); }
+    wx = s.plot.x + (x0 + x1) / 2; wz = s.plot.y + (y0 + y1) / 2; top = 0.4; title = `Room · ${x1 - x0}×${y1 - y0}`;
+  }
+  const p = view.toScreen(wx, S.sel.level * LEVEL_H + top, wz);
   if (pop.hidden) pop.hidden = false;
-  const name = ITEMS[s.o.t].name;
-  if (pop.dataset.t !== name) { pop.dataset.t = name; pop.querySelector('.op-top').textContent = name; }
-  const turn = canRotate(s.o.t);
-  $('op-rotl').disabled = $('op-rotr').disabled = !turn;
-  $('op-rotl').style.opacity = $('op-rotr').style.opacity = turn ? '' : '.35';
+  if (pop.dataset.t !== title) {
+    pop.dataset.t = title;
+    const head = pop.querySelector('.op-top');
+    head.replaceChildren();
+    if (s.kind === 'wall') {
+      head.className = 'op-top bars';
+      [1, 2, 3].forEach((h) => {
+        const b = document.createElement('button');
+        b.className = 'hbar' + (h <= (s.w.ht || 2) ? ' on' : '');
+        b.style.height = `${[0, 13, 18, 23][h]}px`;
+        b.title = ['', 'Short walls', 'Medium walls', 'Tall walls'][h];
+        b.onclick = () => setWallHeight(h);
+        head.appendChild(b);
+      });
+    } else { head.className = 'op-top'; head.textContent = title; }
+  }
+  const turn = s.kind === 'room' || (s.kind === 'obj' && canRotate(s.o.t));
+  const move = s.kind !== 'wall' && !(s.kind === 'obj' && ITEMS[s.o.t].stairs);
+  for (const [id, ok] of [['op-rotl', turn], ['op-rotr', turn], ['op-move', move]]) { $(id).disabled = !ok; $(id).style.opacity = ok ? '' : '.35'; }
   pop.style.transform = `translate(${Math.round(p.x - 88)}px, ${Math.round(p.y - 60 - pop.offsetHeight - 8)}px)`;
 }
 
@@ -1968,7 +2095,7 @@ function paintTarget(h) {
 function designAt(h, base, send) {
   const plot = S.plots[S.myPlot];
   // Doors and windows first: cycle their paint.
-  const qw = pickLocal(h.cx, h.cy, 1.0);
+  const qw = !objUnder(h) && pickLocal(h.cx, h.cy, 1.0);
   if (qw) {
     const { edge, dist } = edgeOf(qw);
     const w = plot.walls?.[edgeKey(S.level, ...edge)];
@@ -1981,7 +2108,7 @@ function designAt(h, base, send) {
   const q = pickLocal(h.cx, h.cy);
   if (!q) return;
   const [lx, ly] = tileOf(q);
-  const hit = objAt(levelView(plot, S.level), lx, ly);
+  const hit = objUnder(h) || objAt(levelView(plot, S.level), lx, ly);
   if (hit && !ITEMS[hit.obj.t].crop) {
     const [ax, ay] = hit.key.split(',').map(Number);
     send({ type: 'design', ...base, lx: ax, ly: ay });
@@ -2241,7 +2368,7 @@ function eyedrop(h) {
   const v = levelView(plot, S.level);
   const [lx, ly] = tileOf(q);
   let id = null, rot = 0;
-  const hit = objAt(v, lx, ly);
+  const hit = objUnder(h) || objAt(v, lx, ly);
   if (hit) { id = hit.obj.t; rot = hit.obj.r || 0; }
   else if (qm && plot.walls?.[edgeKey(S.level, ...edgeOf(qm).edge)] && edgeOf(qm).dist < 0.25) { const w = plot.walls[edgeKey(S.level, ...edgeOf(qm).edge)]; id = w.f || w.m; }
   else if (v.floor[key(lx, ly)]) id = v.floor[key(lx, ly)];
@@ -2333,12 +2460,14 @@ function removeTarget(h) {
     return { roof: true, lx, ly, tiles, level: S.level + 1 };
   }
   const view_ = levelView(plot, S.level);
-  if (qm) {
+  const under = pickUnder(h), ray = under?.obj;
+  if (under?.wall) { const w = plot.walls[edgeKey(S.level, ...under.wall)]; return { edge: under.wall, featureOnly: !!w?.f }; }
+  if (qm && !ray) {
     const { edge, dist } = edgeOf(qm);
     const w = plot.walls?.[edgeKey(S.level, ...edge)];
     if (w && dist < 0.22) return { edge, featureOnly: !!w.f };
   }
-  const hit = objAt(view_, lx, ly);
+  const hit = ray || objAt(view_, lx, ly);
   if (hit) {
     const [ax, ay] = hit.key.split(',').map(Number);
     const [w, hh] = footprint(hit.obj.t, hit.obj.r || 0);
@@ -2415,6 +2544,13 @@ function commit(h) {
     if (!S.freeBuild && (d.shop ? !S.inv[t.id] : d.price > S.coins)) return toast(d.shop ? `None left — buy more from ${NPCS[d.shop].name}` : 'Not enough coins — sell some crops!');
     pushUndo(d.name, [{ type: 'remove', ...base, lx, ly }]);
     out({ type: 'place', ...base, lx, ly, item: t.id, r });
+    // Furniture drops from your hand and the new piece is selected (its popup turns or
+    // moves it); seeds, pipes and cables stay in hand for the next one.
+    if (!REPEAT.has(t.id) && !d.crop) {
+      S.tool = { kind: 'select' };
+      S.sel = { kind: 'obj', at: [lx, ly], level: S.level };
+      syncStrip(); renderItems();
+    }
   } else if (t.kind === 'remove' || t.kind === 'roofRemove') {
     const target = removeTarget(h);
     if (!target) return;
@@ -2634,6 +2770,15 @@ cv.addEventListener('pointerdown', (e) => {
   // On a touch screen the preview sits a little above your finger, so you can see it.
   hover = touch && S.mode === 'build' ? { cx: e.clientX, cy: e.clientY - TOUCH_LIFT, fx: e.clientX, fy: e.clientY, touch: true } : { cx: e.clientX, cy: e.clientY };
   if (S.mode === 'build' && e.altKey) { eyedrop(hover); pointers.delete(e.pointerId); return; }
+  if (S.mode === 'build' && touch) document.body.classList.add('touching');
+  // Touch: with something staged to place, a drag anywhere slides it (like a trackpad),
+  // so your finger never covers it and you don't have to hit an exact spot.
+  if (S.mode === 'build' && touch && staged && slidable()) {
+    nudge = { sx: e.clientX, sy: e.clientY, h0: stagedH() };
+    hover = { ...nudge.h0, touch: true };
+    refreshPreview();
+    return;
+  }
   if (S.mode === 'build') {
     if (touch) startLongPress(e);
     const q = pickLocal(hover.cx, hover.cy);
@@ -2685,6 +2830,11 @@ cv.addEventListener('pointermove', (e) => {
   if (S.mode === 'build') {
     const touch = e.pointerType !== 'mouse';
     if (touch && !prev) return; // a finger that isn't down
+    if (nudge) {
+      hover = { cx: nudge.h0.cx + e.clientX - nudge.sx, cy: nudge.h0.cy + e.clientY - nudge.sy, touch: true };
+      refreshPreview();
+      return;
+    }
     hover = touch ? { cx: e.clientX, cy: e.clientY - TOUCH_LIFT, fx: e.clientX, fy: e.clientY, touch: true } : { cx: e.clientX, cy: e.clientY };
     if (longPress && Math.hypot(e.clientX - longPress.x, e.clientY - longPress.y) > 10) cancelLongPress();
     if (drag && drag.start) {
@@ -2716,10 +2866,18 @@ const endPointer = (e) => {
     if (!pointers.size) { gesture = null; if (staged) restoreStage(); }
     return;
   }
+  if (!pointers.size) document.body.classList.remove('touching');
   if (!had) return;
   if (S.mode === 'build') {
     cancelLongPress();
     const touch = e.pointerType !== 'mouse';
+    if (nudge) {
+      nudge = null;
+      const wp = view.pick(hover.cx, hover.cy, S.level * LEVEL_H);
+      staged = { w: wp && { x: wp.x, z: wp.z }, h: { ...hover }, drag: null, key: toolKey() };
+      showStage(); refreshPreview(); haptic(6);
+      return;
+    }
     if (e.type === 'pointerup' && touch && stageable()) {
       // Touch: nothing is placed yet. The preview stays put: ✓ to place, ↻ to turn,
       // ✕ to cancel, or drag again to move it.
@@ -2731,7 +2889,8 @@ const endPointer = (e) => {
       return;
     }
     if (e.type === 'pointerup') {
-      const h = touch ? hover : { cx: e.clientX, cy: e.clientY };
+      const tapTool = ['select', 'design', 'eyedrop'].includes(S.tool.kind) && !S.held;
+      const h = touch && !tapTool ? hover : { cx: e.clientX, cy: e.clientY };
       if (S.tool.kind === 'wall' && S.wallTool === 'chain' && !S.held) chainClick(h);
       else commit(h);
       if (touch) haptic(12);
@@ -2936,16 +3095,15 @@ function syncPlots(force) {
   plotsDirty = false;
   lastPlotSync = now;
   const sNow = serverNow();
-  // Until the server answers a move, keep the old spot empty (but never for long).
+  // What you carry stays drawn where it is until you set it down (a ghost shows where
+  // it's going), so nothing seems to vanish when you pick it up.
   if (S.dropped && now - S.droppedAt > 4000) S.dropped = null;
-  const carried = S.held?.kind !== 'blueprint' && S.held || S.dropped;
   // Nearest plots first, and at most two rebuilds a frame so building never freezes the
   // game (the rest catch up over the next frames).
   const plots = Object.values(S.plots).sort((a, b) => plotDist(a) - plotDist(b));
   let rebuilt = 0;
   for (let st of plots) {
-    let variant = '';
-    if (carried && st.id === S.myPlot) { st = liftedPlot(st, carried); variant = `lift:${carried.kind}:${carried.from || ''}:${carried.ox},${carried.oy}`; }
+    const variant = '';
     const crops = Object.values(st.obj).filter((o) => ITEMS[o.t]?.crop || ITEMS[o.t]?.tree).map((o) => (ITEMS[o.t].tree ? `t${treeStage(o, sNow)}` : cropStage(o, sNow) + (isWet(o, sNow) ? 'w' : ''))).join('');
     const e = st.owner ? null : plotEntrance(world, st);
     if (view.setPlot(st, { ...plotOpts(st.id), crops, variant, entrance: e && { x: e.x / TILE, z: e.y / TILE } }) && ++rebuilt >= 2 && !force) {
@@ -4110,7 +4268,9 @@ ui = socialUI({ S, send, openModal, closeModal, modal: () => modalKind, toast, e
 
 // ---------- touch: staged placement, long press, haptics ----------
 const TOUCH_LIFT = 56; // CSS px the preview sits above your finger
-let staged = null, longPress = null;
+let staged = null, longPress = null, nudge = null;
+// Staged things that slide with a drag (rather than being drawn out like a wall or floor).
+const slidable = () => !!S.held || ['obj', 'feature', 'blueprint', 'movehouse'].includes(S.tool.kind);
 function haptic(ms = 10) { try { navigator.vibrate?.(ms); } catch { /* not supported */ } }
 const toolKey = () => `${S.mode}|${S.tool.kind}|${S.tool.id || ''}|${S.held ? S.held.kind : ''}|${S.level}|${S.wallTool}`;
 // Tools whose touch placement waits for ✓ (anything that builds, moves or destroys).
@@ -4129,6 +4289,14 @@ function showStage() {
   haptic(8);
 }
 function dropStage() { staged = null; $('stagebar').hidden = true; }
+// Phones: a freshly picked item appears in the middle of the view, ready to slide.
+function stageAtCentre() {
+  const top = 110, bottom = $('catalog').getBoundingClientRect().top - 60;
+  hover = { cx: innerWidth / 2, cy: (top + bottom) / 2, touch: true };
+  const wp = view.pick(hover.cx, hover.cy, S.level * LEVEL_H);
+  staged = { w: wp && { x: wp.x, z: wp.z }, h: { ...hover }, drag: null, key: toolKey() };
+  showStage(); refreshPreview(); toolInfo();
+}
 // The staged spot on screen now (it's anchored in the world, so panning and zooming
 // while you decide don't move it).
 function stagedH() {
@@ -4161,8 +4329,8 @@ function startLongPress(e) {
   longPress = { x, y, timer: setTimeout(() => {
     longPress = null;
     if (pointers.size !== 1 || S.held || S.mode !== 'build') return;
-    pickUp({ cx: x, cy: y });
-    if (S.held) { drag = null; haptic(25); audio.sfx('pickup'); hover = { cx: x, cy: y - TOUCH_LIFT, fx: x, fy: y, touch: true }; refreshPreview(); toolInfo(); }
+    selectAt({ cx: x, cy: y });
+    if (S.sel && S.sel.kind !== 'wall') { drag = null; pickUpSel(); if (S.held) { haptic(25); audio.sfx('pickup'); } }
   }, 480) };
 }
 function cancelLongPress() { if (longPress) { clearTimeout(longPress.timer); longPress = null; } }

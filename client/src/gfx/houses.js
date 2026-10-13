@@ -2,7 +2,7 @@
 // floors on two levels, wall segments on tile edges with real door/window openings,
 // Sims cutaway, gable roofs, furniture models and pixel-art cards for plants/crops.
 import { ITEMS, cropStage, isWet } from '@shared/catalog.js';
-import { parseEdge, levelView, footprint, LEVELS, LEVEL_H, featurePair, edgeKey, objAt } from '@shared/plot.js';
+import { parseEdge, levelView, footprint, LEVELS, LEVEL_H, featurePair, edgeKey, objAt, wallHeight } from '@shared/plot.js';
 import { wallTex, floorTex, roofTex, woodTex, signTex, doorTex, awningTex, stoneTex, WALL_H } from './textures.js';
 import { Batch, boxAt, gableRoof } from './geom.js';
 import { itemInto, hasModel, BILLBOARD, materials } from './models.js';
@@ -169,7 +169,7 @@ function wallPiece2(batch, m0, m1, e, ox, oz, base, a, b, y0, y1) {
 
 // Which walls get lowered in cutaway: a wall drops when the room behind it (on the
 // side away from the camera) has a floor, so you can see inside — just like The Sims.
-function lowered(plot, e, level, cut) {
+export function lowered(plot, e, level, cut) {
   if (cut.mode === 'down') return true;
   if (cut.mode !== 'cut') return false;
   const view = levelView(plot, level);
@@ -243,7 +243,7 @@ export function buildPlot(plot, opts) {
     }
     const base = e.l * LEVEL_H;
     const low = lowered(plot, e, e.l, opts.cut);
-    const H = low ? LOW_H : WALL_H;
+    const H = low ? LOW_H : wallHeight(plot, e.l, e.d, e.x, e.y, w);
     const m0 = wallMat(w.m), m1 = wallMat(w.o || w.m);
     const piece = (a, b, y0, y1) => wallPiece2(batch, m0, m1, e, ox, oz, base, a, b, y0, y1);
     const f = w.f, fc = w.fc || 0;
@@ -354,7 +354,14 @@ export function buildPlot(plot, opts) {
   if (opts.roofs) {
     for (const rf of plot.roofs || []) {
       if (rf.l > maxLevel) continue;
-      const y = rf.l * LEVEL_H + WALL_H;
+      // Roofs sit on the tallest wall under them.
+      let top = 0;
+      for (const [k, w] of Object.entries(plot.walls || {})) {
+        const e = parseEdge(k);
+        if (e.l !== rf.l || ITEMS[w.m]?.fence || e.x < rf.x || e.y < rf.y || e.x > rf.x + rf.w || e.y > rf.y + rf.h) continue;
+        top = Math.max(top, wallHeight(plot, e.l, e.d, e.x, e.y, w));
+      }
+      const y = rf.l * LEVEL_H + (top || WALL_H);
       gableRoof(batch, ox + rf.x, oz + rf.y, ox + rf.x + rf.w, oz + rf.y + rf.h, y, roofMat(rf.m), wallMat('wall_white'), trimMat());
     }
   }

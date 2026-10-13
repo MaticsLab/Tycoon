@@ -522,3 +522,10 @@ body.holding #game, body.holding #overlay { cursor: none; }
   #grouprail button span { font-size: 9px; }
   #buildcoins { height: 44px; }
 }
+#objpop .op-top.bars { gap: 6px; align-items: flex-end; padding-bottom: 8px; box-sizing: border-box; }
+#objpop .hbar { width: 10px; padding: 0; border: 0; border-radius: 2px; background: rgba(255,255,255,.9); cursor: pointer; box-shadow: 0 1px 1.5px rgba(0,0,0,.5); }
+#objpop .hbar.on { background: #3fa9f5; }
+#objpop .hbar:hover { outline: 2px solid rgba(255,255,255,.6); }
+/* Touch: while a finger is on the plot, the catalog fades back so you can see under it. */
+#catalog, #buildbar { transition: opacity .2s; }
+body.touching #catalog, body.touching #buildbar { opacity: .18; pointer-events: none; }

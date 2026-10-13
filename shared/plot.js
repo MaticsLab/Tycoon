@@ -202,6 +202,34 @@ export function plotEntrance(world, plot) {
 
 export const wallAt = (plot, level, d, x, y) => plot.walls?.[edgeKey(level, d, x, y)] || null;
 
+// Wall heights, like The Sims: short, medium (the default) and tall (w.ht = 1 | 2 | 3).
+// A tall wall can't poke through an upstairs floor, and shopfront glass needs medium.
+export const WALL_HEIGHTS = [0, 2.1, 2.5, 3.3];
+const NEEDS_MEDIUM = new Set(['window_shop', 'door_shop', 'door_shopdouble']);
+export function wallHeight(plot, level, d, x, y, w = wallAt(plot, level, d, x, y)) {
+  let ht = w?.ht || 2;
+  if (ht === 1 && NEEDS_MEDIUM.has(w?.f)) ht = 2;
+  if (ht === 3 && level + 1 < LEVELS) {
+    const up = levelView(plot, level + 1).floor;
+    const [ax, ay, bx, by] = d === 'h' ? [x, y - 1, x, y] : [x - 1, y, x, y];
+    if (up[key(ax, ay)] || up[key(bx, by)]) ht = 2;
+  }
+  return WALL_HEIGHTS[ht];
+}
+// Every wall joined to this one (end to end, on the same floor): what a height change sets.
+export function wallRun(plot, level, d, x, y) {
+  const out = new Set(), todo = [[d, x, y]];
+  const ends = (dd, xx, yy) => (dd === 'h' ? [[xx, yy], [xx + 1, yy]] : [[xx, yy], [xx, yy + 1]]);
+  const at = (cx, cy) => [['h', cx, cy], ['h', cx - 1, cy], ['v', cx, cy], ['v', cx, cy - 1]];
+  while (todo.length && out.size < 2000) {
+    const [dd, xx, yy] = todo.pop(), k = edgeKey(level, dd, xx, yy), w = plot.walls?.[k];
+    if (out.has(k) || !w || ITEMS[w.m]?.fence) continue;
+    out.add(k);
+    for (const [cx, cy] of ends(dd, xx, yy)) todo.push(...at(cx, cy));
+  }
+  return [...out];
+}
+
 // The edge between two orthogonally adjacent tiles.
 export function edgeBetween(ax, ay, bx, by) {
   if (bx === ax + 1 && by === ay) return ['v', bx, ay];

@@ -58,7 +58,12 @@ You can also befriend villagers whose personalities change based on how you trea
     - **Bottom:** a frosted catalog panel. The left rail picks a group (**Build**, **Home**, **Business**, **Outdoor**, **Mine**), the tabs pick a category (with item counts), and items sit in a two-row grid with price or "Owned ×N" and a ☆ to star them. The right column shows whatever you hover or hold: size (turned when rotated), how many you own, the cost, notes like "Glows at night · Rotates", and what placing it will leave you with. **Mine** holds Starred, Recent (your last 8 picks), In bag, and Rooms & Library. **Land** (resize, merge, split, roads, move house, lot info) lives under Build.
     - **Above the panel:** a search box that searches every item ("/" jumps to it) and your coins, which flash −45 or +45 as you build.
     - **While you hold an item,** a dashed box with its icon follows the cursor, labelled with the price (or "From bag"), R rotate and Esc cancel. Esc puts it down.
-    - **Click placed furniture with Select** to open a little popup above it: turn it left or right (Shift+R / R) or pick it up and move it. Delete sells it back.
+    - **Click with Select** to select what's under the pointer. The game tests each piece of furniture's real 3D shape (and the walls in front of it), so clicking the top of a fridge or the back of a sofa inside a house picks that, not the floor or the room behind it. A popup appears above the selection:
+      - **Furniture:** turn it left or right (Shift+R / R) or pick it up and move it. Delete sells it back.
+      - **A room's floor:** turn the whole room or pick it up and move it.
+      - **A wall:** three bars set **wall height** like The Sims: short, medium or tall. The whole run of joined walls changes together, roofs sit on top of tall walls, and a tall wall drops back to medium under an upstairs floor.
+    - **Nothing vanishes while you move it:** the furniture or room stays drawn where it is, and a ghost shows where it's going until you set it down.
+    - **After you place a piece of furniture** it drops from your hand and becomes selected, so you can turn or nudge it straight away. Seeds, pipes and cables stay in hand.
   - **The build tools:**
     - **👆 Select (H)** picks up furniture so you can move or turn it for free, with a green footprint and an arrow showing which way it faces. Click a room's floor instead to lift the **whole room** (walls, floor and furniture) in a white wireframe box, then move it and turn it with R or right-click. From the ground floor the room takes everything above it along too: its upstairs, stairs and roof. Whatever you carry disappears from its old spot until you set it down.
     - **💧 Copy (C)** copies whatever you click as your current tool. **🎨 Design (T)** cycles furniture through colour swatches and roofs through materials.
@@ -339,6 +344,7 @@ The touch controls follow common mobile-game guidance: thumb-sized targets (44�
 - **Tap to interact from afar:** tap a villager or a piece of furniture that's far away; you walk over and then talk to them or open its menu.
 - **Building with confirmation:** drag to aim. The preview sits above your finger so your thumb doesn't hide it, with a dotted line to show where it points. Lifting your finger doesn't place anything: a bar appears with **✓ place**, **↻ turn** and **✕ cancel**, and you can drag again to move it. Pinching or panning while you decide keeps the preview where it is.
 - **Long-press** any furniture in build mode to pick it up and move it.
+- **Placing on a phone:** tap an item and it appears in the middle of the screen. Drag anywhere (like a trackpad, so your finger never hides it) to slide it, then tap ✓; ↻ turns it and ✕ cancels. The catalog fades while your finger is on the plot. Tap something to select it, or long-press to grab it and slide it somewhere else.
 - The build HUD is see-through so more of your plot shows; on a phone the detail column folds away. Buttons, tabs and item tiles are at least 44px on touch screens.
 
 ## Ideas for next steps

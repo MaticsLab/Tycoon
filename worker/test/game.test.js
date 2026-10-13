@@ -1741,3 +1741,28 @@ test('fences go along the grid like walls: they block the way, gates open, and a
   a.send({ type: 'floorRect', plotId: 0, x: 3, y: 4, w: 1, h: 1, item: 'floor_stone' });
   assert.ok(roomRegion(plot, 0, 4, 4).tiles.has('3,4'), 'fences don’t close a room');
 });
+
+test('wall heights: a joined run of walls goes short, medium or tall together, and tall stops under an upstairs floor', async () => {
+  const { wallHeight, WALL_HEIGHTS } = await import('../../shared/plot.js');
+  const { game, join } = setup();
+  const a = await join({ name: 'Ana' });
+  a.send({ type: 'cheat', cmd: 'testingcheats true' });
+  a.send({ type: 'cheat', cmd: 'motherlode' });
+  a.send({ type: 'claim', plotId: 0 });
+  const plot = game.plots[0];
+  stand(game, a, 0, 1, 1);
+  const segs = [];
+  for (let i = 0; i < 3; i++) segs.push(['h', 4 + i, 4], ['h', 4 + i, 7], ['v', 4, 4 + i], ['v', 7, 4 + i]);
+  a.send({ type: 'walls', plotId: 0, segs, m: 'wall_white' });
+  a.send({ type: 'walls', plotId: 0, segs: [['h', 12, 4]], m: 'wall_white' }); // a wall on its own
+  a.send({ type: 'wallHeight', plotId: 0, d: 'h', x: 5, y: 4, h: 3 });
+  const tall = Object.entries(plot.walls).filter(([, w]) => w.ht === 3).length;
+  assert.equal(tall, 12, 'the whole room goes tall');
+  assert.equal(plot.walls['0:h:12:4'].ht, undefined, 'a separate wall stays medium');
+  assert.equal(wallHeight(plot, 0, 'h', 5, 4), WALL_HEIGHTS[3]);
+  // An upstairs floor over the room keeps those walls under it.
+  a.send({ type: 'floorRect', plotId: 0, level: 1, x: 4, y: 4, w: 3, h: 3, item: 'floor_wood' });
+  assert.equal(wallHeight(plot, 0, 'h', 5, 4), WALL_HEIGHTS[2]);
+  a.send({ type: 'wallHeight', plotId: 0, d: 'v', x: 4, y: 5, h: 2 });
+  assert.equal(Object.values(plot.walls).filter((w) => w.ht).length, 0, 'back to medium');
+});

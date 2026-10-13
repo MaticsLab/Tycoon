@@ -4,7 +4,7 @@ import { roomRegion, roomTiles as roomTilesOf, extract, stockFragment, rotateTim
 import { STYLED_ROOMS } from '../../shared/rooms.js';
 import { ITEMS, GOODS, CROPS, START_COINS, cropStage, isWet, isSoil, itemName } from '../../shared/catalog.js';
 import {
-  key, inInterior, tilesOf, footprint, objAt, featurePair, featureWidth, occChanged, placementError, canStand, levelView, canRotate,
+  key, inInterior, tilesOf, footprint, objAt, featurePair, wallRun, featureWidth, occChanged, placementError, canStand, levelView, canRotate,
   edgeKey, parseEdge, wallError, wallTouchesFeet, roofError, roofAt, indexPlots, roadIn, roadEditError, plotEntrance,
   landError, contentFits, shiftContent, mergedRect, splitRects, hasContent, LAND_PRICE, stepLevel,
 } from '../../shared/plot.js';
@@ -214,6 +214,7 @@ export class Game {
       case 'walls': return this.walls(s, msg);
       case 'feature': return this.feature(s, msg);
       case 'wallPaint': return this.wallPaint(s, msg);
+      case 'wallHeight': return this.wallHeight(s, msg);
       case 'roof': return this.roof(s, msg);
       case 'resizePlot': return this.resizePlot(s, msg);
       case 'mergePlot': return this.mergePlot(s, msg);
@@ -699,6 +700,17 @@ export class Game {
 
   // Wall paint: one face of a wall (side 0 = north/west, 1 = south/east), or with
   // fill 'room' every inside face of that room, or 'outside' every outward face.
+  // Short, medium or tall walls (free): the whole run of joined walls changes together.
+  wallHeight(s, { plotId, d, x, y, h, level = 0 }) {
+    const plot = this.ownPlot(s, plotId);
+    if (!plot || ![1, 2, 3].includes(h) || !['h', 'v'].includes(d)) return;
+    level = this.lvl(level);
+    const run = wallRun(plot, level, d, x, y);
+    if (!run.length) return;
+    for (const k of run) { if (h === 2) delete plot.walls[k].ht; else plot.walls[k].ht = h; }
+    this.plotChanged(plot);
+  }
+
   wallPaint(s, { plotId, d, x, y, side, m, fill, level = 0 }) {
     const plot = this.ownPlot(s, plotId);
     const def = ITEMS[m];

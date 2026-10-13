@@ -658,3 +658,14 @@ export function itemInto(batch, t, r, x, y, z, c = 0, boxes = null) {
     batch.add(mat, cl);
   }
 }
+
+// How tall an item stands (tiles), from its model: for picking what's under the pointer.
+const heightCache = new Map();
+export function itemHeight(t) {
+  if (!heightCache.has(t)) {
+    let h = 0.5;
+    if (MODELS[t]) { h = 0; for (const [, y, , , bh] of MODELS[t]()) h = Math.max(h, y + bh); }
+    heightCache.set(t, Math.min(2.4, Math.max(0.25, h)));
+  }
+  return heightCache.get(t);
+}
