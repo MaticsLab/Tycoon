@@ -14,7 +14,7 @@ import { itemIcon } from './sprites.js';
 import { View, LEVEL_H } from './gfx/view.js';
 import { Ghost, Outline } from './gfx/ghost.js';
 import { Minimap } from './minimap.js';
-import { roomTiles, extract, rotateTimes, fragmentValue, placeError as fragError } from '@shared/blueprint.js';
+import { roomTiles, roomRegion, extract, rotateTimes, fragmentValue, removeAt, stockFragment, placeError as fragError } from '@shared/blueprint.js';
 import { STYLED_ROOMS } from '@shared/rooms.js';
 import { drawFloor, drawObject } from './sprites.js';
 import { openCreator, closeCreator } from './creator.js';
@@ -213,6 +213,7 @@ function onMessage(m) {
       S.plots[m.plot.id] = m.plot;
       indexPlots(world, S.plots);
       plotsDirty = true;
+      if (m.plot.id === S.myPlot) S.dropped = null;
       if (S.mode === 'build') refreshPreview();
       break;
     case 'city':
@@ -270,6 +271,7 @@ function onMessage(m) {
       break;
     case 'error':
       toast(m.msg);
+      if (S.dropped) { S.dropped = null; plotsDirty = true; }
       if (S.talk?.waiting) { S.talk.waiting = false; renderLog(); }
       break;
   }
@@ -1010,11 +1012,7 @@ function previewInner() {
     if (!q) return;
     const [w, h] = footprint(H.t, S.rot);
     const lx = Math.round(q.fx - w / 2), ly = Math.round(q.fz - h / 2);
-    const v = levelView(plot, S.level);
-    const saved = v.obj[key(...H.from)];
-    delete v.obj[key(...H.from)]; occChanged(plot);
-    const bad = placementError(plot, lx, ly, H.t, S.rot, S.level, world);
-    v.obj[key(...H.from)] = saved; occChanged(plot);
+    const bad = placementError(liftedPlot(plot, H), lx, ly, H.t, S.rot, S.level, world);
     ghost.marker(def, H.from[0], H.from[1], S.level, 0.05);
     ghost.item(H.t, S.rot, def, lx, ly, S.level, !bad, H.c);
     tip(`Move ${ITEMS[H.t].name} · free${canRotate(H.t) ? ' · R / right-click ↻' : ''} · Esc cancels`, bad);
@@ -1025,8 +1023,13 @@ function previewInner() {
     if (!spot) return;
     let bad;
     if (S.held.kind === 'blueprint') {
-      bad = fragError(plot, spot.frag, spot.ox, spot.oy, world, { skipShop: true }) || coinsErr(S.freeBuild ? 0 : fragmentValue(spot.frag));
-      tip(`${S.tool.name} · 🪙${S.freeBuild ? 0 : fragmentValue(spot.frag)} · R / right-click ↻ · click to buy`, bad);
+      // Shop furniture comes from your bag: pieces you don't have are left out.
+      const stock = stockFragment(spot.frag, S.inv, S.freeBuild);
+      spot.frag = stock.frag;
+      const cost = S.freeBuild ? 0 : fragmentValue(spot.frag);
+      const nMissing = Object.values(stock.missing).reduce((a, b) => a + b, 0);
+      bad = fragError(plot, spot.frag, spot.ox, spot.oy, world) || coinsErr(cost);
+      tip(`${S.tool.name} · 🪙${cost}${nMissing ? ` · ${nMissing} shop piece${nMissing > 1 ? 's' : ''} not in your bag` : ''} · R / right-click ↻ · click to buy`, bad);
     } else {
       bad = heldMoveError(spot);
       tip(`Move ${S.held.kind === 'house' ? 'house' : 'room'} · free · R / right-click ↻ · Esc cancels`, bad);
@@ -1052,7 +1055,9 @@ function previewInner() {
     if (tiles && t.kind !== 'eyedrop') {
       const xs = [...tiles].map((k) => +k.split(',')[0]), ys = [...tiles].map((k) => +k.split(',')[1]);
       const x0 = Math.min(...xs), y0 = Math.min(...ys);
-      ghost.box(def.x + x0, def.y + y0, Math.max(...xs) - x0 + 1, Math.max(...ys) - y0 + 1, S.level * LEVEL_H);
+      // From the ground floor, a room takes its upstairs along: the box shows both storeys.
+      const up = !S.level && plot.l1 && [...tiles].some((k) => plot.l1.floor[k]);
+      ghost.box(def.x + x0, def.y + y0, Math.max(...xs) - x0 + 1, Math.max(...ys) - y0 + 1, S.level * LEVEL_H, up ? 5.3 : 2.6);
       if (t.kind === 'design') { tip(roofAt(plot, lx, ly, S.level) >= 0 ? '🎨 Click to change this roof’s colour' : '🎨 Point at furniture or a roof'); return; }
       tip(t.kind === 'saveRoom' ? `📚 Save this room (${tiles.size} tiles)` : `👆 Room · ${tiles.size} tiles · click to pick it up`);
       return;
@@ -1266,15 +1271,16 @@ function pickUp(h) {
     if (ITEMS[hit.obj.t].stairs) return toast('Stairs can’t be moved: sledgehammer them and build new ones');
     if (ITEMS[hit.obj.t].crop) return toast('Crops can’t be moved');
     const [ax, ay] = hit.key.split(',').map(Number);
-    S.held = { kind: 'obj', from: [ax, ay], t: hit.obj.t, r: hit.obj.r || 0, c: hit.obj.c || 0 };
+    S.held = { kind: 'obj', from: [ax, ay], level: S.level, t: hit.obj.t, r: hit.obj.r || 0, c: hit.obj.c || 0 };
     S.rot = S.held.r;
     toast(`👆 ${ITEMS[hit.obj.t].name}: click to put it down`);
   } else {
-    const tiles = roomTiles(plot, S.level, lx, ly);
-    if (!tiles) return toast('Click furniture or a room’s floor');
-    const frag = extract(plot, { level: S.level, tiles });
-    S.held = { kind: 'room', at: [lx, ly], frag, rot: 0, grab: [lx - frag.ox + 0.5, ly - frag.oy + 0.5], ox: frag.ox, oy: frag.oy };
-    toast('👆 Room picked up: click to set it down · R turns it');
+    const region = roomRegion(plot, S.level, lx, ly);
+    if (!region) return toast('Click furniture or a room’s floor');
+    const frag = extract(plot, region);
+    S.held = { kind: 'room', at: [lx, ly], level: S.level, frag, rot: 0, grab: [lx - frag.ox + 0.5, ly - frag.oy + 0.5], ox: frag.ox, oy: frag.oy };
+    const upper = Object.keys(frag.levels[1]?.floor || {}).length && !S.level;
+    toast(`👆 Room picked up${upper ? ' with its upstairs' : ''}: click to set it down · R turns it`);
   }
   refreshPreview();
 }
@@ -1288,22 +1294,19 @@ function heldSpot(h) {
   return { frag: f, ox: Math.round(q.fx - gx), oy: Math.round(q.fz - gy) };
 }
 
+// A copy of the plot with what you're carrying lifted out: the house draws like this
+// while you carry something, and moves are checked against it.
+function liftedPlot(plot, H) {
+  const copy = structuredClone(plot);
+  copy.l1 ||= { floor: {}, obj: {} };
+  if (H.kind === 'obj') { delete levelView(copy, H.level).obj[key(...H.from)]; occChanged(copy); }
+  else if (H.frag && H.ox != null) removeAt(copy, H.frag, H.ox, H.oy);
+  return copy;
+}
+
 // Would a held room/house fit at this spot (ignoring where it is now)?
 function heldMoveError(spot) {
-  const plot = S.plots[S.myPlot];
-  const copy = JSON.parse(JSON.stringify({ ...plot }));
-  copy.l1 ||= { floor: {}, obj: {} };
-  const H = S.held;
-  const parts = H.frag;
-  // lift the original out of the copy
-  parts.levels.forEach((v, l) => {
-    const view = l ? copy.l1 : copy;
-    for (const k of Object.keys(v.floor)) { const [x, y] = k.split(',').map(Number); delete view.floor[key(x + H.ox, y + H.oy)]; }
-    for (const k of Object.keys(v.obj)) { const [x, y] = k.split(',').map(Number); delete view.obj[key(x + H.ox, y + H.oy)]; }
-  });
-  for (const k of Object.keys(parts.walls)) { const [l, d, x, y] = k.split(':'); delete copy.walls[`${l}:${d}:${+x + H.ox}:${+y + H.oy}`]; }
-  if (H.kind === 'house') copy.roofs = [];
-  return fragError(copy, spot.frag, spot.ox, spot.oy, world);
+  return fragError(liftedPlot(S.plots[S.myPlot], S.held), spot.frag, spot.ox, spot.oy, world);
 }
 
 function dropHeld(h, base, send) {
@@ -1314,6 +1317,7 @@ function dropHeld(h, base, send) {
     const [w, hh] = footprint(H.t, S.rot);
     const lx = Math.round(q.fx - w / 2), ly = Math.round(q.fz - hh / 2);
     send({ type: 'moveObj', ...base, from: H.from, to: [lx, ly], r: S.rot });
+    S.dropped = H; S.droppedAt = performance.now();
     pushUndo(ITEMS[H.t].name, [{ type: 'moveObj', ...base, from: [lx, ly], to: H.from, r: H.r }]);
     S.held = null;
     return;
@@ -1325,6 +1329,7 @@ function dropHeld(h, base, send) {
   const dx = spot.ox - cx, dy = spot.oy - cy;
   const msg = H.kind === 'house' ? { type: 'moveRegion', ...base, all: true, dx, dy, rot: H.rot } : { type: 'moveRegion', ...base, room: H.at, dx, dy, rot: H.rot };
   send(msg);
+  S.dropped = H; S.droppedAt = performance.now();
   if (!H.rot) pushUndo(H.kind === 'house' ? 'moving the house' : 'moving the room', [{ ...msg, room: H.at && [H.at[0] + dx, H.at[1] + dy], dx: -dx, dy: -dy }]);
   S.held = null;
   if (S.tool.kind === 'movehouse') { S.tool = { kind: 'none' }; syncStrip(); renderItems(); }
@@ -2044,6 +2049,7 @@ function inputVector() {
 
 // ---------- Plots in 3D ----------
 let plotsDirty = true;
+let lastHeld = null;
 let lastPlotSync = 0;
 function plotOpts(id) {
   const base = { cut: 'up', maxLevel: LEVELS - 1, roofs: true, now: serverNow() };
@@ -2065,7 +2071,11 @@ function syncPlots(force) {
   plotsDirty = false;
   lastPlotSync = now;
   const sNow = serverNow();
-  for (const st of Object.values(S.plots)) {
+  // Until the server answers a move, keep the old spot empty (but never for long).
+  if (S.dropped && now - S.droppedAt > 4000) S.dropped = null;
+  const carried = S.held?.kind !== 'blueprint' && S.held || S.dropped;
+  for (let st of Object.values(S.plots)) {
+    if (carried && st.id === S.myPlot) st = liftedPlot(st, carried);
     const crops = Object.values(st.obj).filter((o) => ITEMS[o.t]?.crop).map((o) => cropStage(o, sNow)).join('');
     const e = st.owner ? null : plotEntrance(world, st);
     view.setPlot(st, { ...plotOpts(st.id), crops, entrance: e && { x: e.x / TILE, z: e.y / TILE } });
@@ -2114,6 +2124,7 @@ function update(dt) {
   for (const p of S.players.values()) { p.x += (p.tx - p.x) * k; p.y += (p.ty - p.y) * k; }
   for (const n of S.npcs.values()) { n.x += (n.tx - n.x) * k; n.y += (n.ty - n.y) * k; }
   updatePets(dt);
+  if (S.held !== lastHeld) { lastHeld = S.held; plotsDirty = true; }
   if (plotsDirty) syncPlots();
 }
 

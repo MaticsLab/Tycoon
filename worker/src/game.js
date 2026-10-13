@@ -1,6 +1,6 @@
 import { generateWorld, applyRoads, worldClock, publicAreaAt, TILE, PLAYER_SPEED, RUN_MULT, WORLD_VERSION, STARTER_PLOTS, MAP_W, CIVIC } from '../../shared/world.js';
 import { City } from './city.js';
-import { roomTiles, extract, rotateTimes, removeAt, placeError as fragError, applyAt, fragmentValue, cleanFragment } from '../../shared/blueprint.js';
+import { roomRegion, extract, stockFragment, rotateTimes, removeAt, placeError as fragError, applyAt, fragmentValue, cleanFragment } from '../../shared/blueprint.js';
 import { STYLED_ROOMS } from '../../shared/rooms.js';
 import { ITEMS, GOODS, CROPS, START_COINS, cropStage, itemName } from '../../shared/catalog.js';
 import {
@@ -642,14 +642,11 @@ export class Game {
     let region = null;
     if (!all) {
       if (!Array.isArray(room)) return;
-      const tiles = roomTiles(plot, level, room[0], room[1]);
-      if (!tiles) return s.send({ type: 'error', msg: 'Point at a room’s floor' });
-      region = { level, tiles };
+      region = roomRegion(plot, level, room[0], room[1]);
+      if (!region) return s.send({ type: 'error', msg: 'Point at a room’s floor' });
     }
     const frag = extract(plot, region);
     if (!frag) return s.send({ type: 'error', msg: all ? 'Nothing to move yet' : 'That room is empty' });
-    if (region && Object.values(frag.levels[level].obj).some((o) => ITEMS[o.t]?.stairs)) return s.send({ type: 'error', msg: 'Rooms with stairs move with the whole house' });
-    if (region && level === 0 && Object.keys(levelView(plot, 1).floor).some((k) => region.tiles.has(k))) return s.send({ type: 'error', msg: 'That room has an upstairs: move the whole house instead' });
     const turned = rotateTimes(frag, rot);
     // Turn about the room's centre, then shift.
     const ox = frag.ox + Math.round((frag.w - turned.w) / 2) + dx, oy = frag.oy + Math.round((frag.h - turned.h) / 2) + dy;
@@ -667,9 +664,8 @@ export class Game {
     level = this.lvl(level);
     let region = null;
     if (Array.isArray(room)) {
-      const tiles = roomTiles(plot, level, room[0], room[1]);
-      if (!tiles) return s.send({ type: 'error', msg: 'Point at a room’s floor' });
-      region = { level, tiles };
+      region = roomRegion(plot, level, room[0], room[1]);
+      if (!region) return s.send({ type: 'error', msg: 'Point at a room’s floor' });
     }
     const frag = extract(plot, region);
     if (!frag) return s.send({ type: 'error', msg: 'Nothing to save yet' });
@@ -697,13 +693,17 @@ export class Game {
     if (!plot || ![x, y, rot].every(Number.isInteger)) return;
     const bp = src === 'styled' ? STYLED_ROOMS[id]?.frag : (s.profile.library || [])[id]?.frag;
     if (!bp) return;
-    const frag = rotateTimes(bp, rot);
-    const err = fragError(plot, frag, x, y, this.world, { skipShop: true });
+    // Shop furniture comes out of your bag; pieces you don't have are left out.
+    const { frag, used, missing } = stockFragment(rotateTimes(bp, rot), s.profile.inv, s.cheats.build);
+    const err = fragError(plot, frag, x, y, this.world);
     if (err) return s.send({ type: 'error', msg: err });
     const cost = s.cheats.build ? 0 : fragmentValue(frag);
     if (cost > s.profile.coins) return s.send({ type: 'error', msg: `Not enough coins (needs 🪙${cost})` });
-    applyAt(plot, frag, x, y, { skipShop: true, now: this.now() });
+    applyAt(plot, frag, x, y, { now: this.now() });
     if (cost) this.coins(s, -cost);
+    for (const [t, n] of Object.entries(used)) this.bag(s, t, -n);
+    const gone = Object.entries(missing).map(([t, n]) => `${n > 1 ? `${n}× ` : ''}${ITEMS[t].name}`);
+    if (gone.length) s.send({ type: 'toast', text: `Placed without ${gone.join(', ')}: buy ${gone.length > 1 ? 'them' : 'it'} from ${NPCS[ITEMS[Object.keys(missing)[0]].shop].name}` });
     this.landChanged([plot]);
   }
 

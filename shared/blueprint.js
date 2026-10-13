@@ -16,6 +16,7 @@ import {
 
 const emptyLevels = () => Array.from({ length: LEVELS }, () => ({ floor: {}, obj: {} }));
 const parseKey = (k) => k.split(',').map(Number);
+const stairAt = (plot, x, y) => { const h = objAt(plot, x, y); return !!(h && ITEMS[h.obj.t]?.stairs); };
 
 // The tiles of the room around (lx, ly) on `level`: floor tiles joined without a wall
 // (or door) between them.
@@ -36,13 +37,22 @@ export function roomTiles(plot, level, lx, ly) {
   return seen;
 }
 
+// What clicking a room's floor picks up. On the ground floor that's the whole column:
+// the room plus everything above it (upstairs floor and furniture, stairs, roofs), so
+// two-storey rooms and rooms with stairs move as one piece.
+export function roomRegion(plot, level, lx, ly) {
+  const tiles = roomTiles(plot, level, lx, ly);
+  return tiles && { level, levels: level ? [level] : [...Array(LEVELS).keys()], tiles };
+}
+
 // Lift a fragment out of a plot (without changing the plot).
-// region: null for everything, or { level, tiles: Set of "x,y" } for one room.
+// region: null for everything, or { level, levels?, tiles: Set of "x,y" } for a room
+// (levels defaults to just `level`).
 export function extract(plot, region = null) {
   const parts = { levels: emptyLevels(), walls: {}, roofs: [] };
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   const grow = (x, y, w = 1, h = 1) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x + w); y1 = Math.max(y1, y + h); };
-  const levels = region ? [region.level] : [...Array(LEVELS).keys()];
+  const levels = region ? region.levels || [region.level] : [...Array(LEVELS).keys()];
   const inRegion = (x, y) => !region || region.tiles.has(key(x, y));
   for (const l of levels) {
     const view = levelView(plot, l);
@@ -61,7 +71,9 @@ export function extract(plot, region = null) {
     parts.walls[k] = { ...w };
     if (e.d === 'h') grow(e.x, e.y, 1, 0); else grow(e.x, e.y, 0, 1);
   }
-  if (!region) for (const rf of plot.roofs || []) { parts.roofs.push({ ...rf }); grow(rf.x, rf.y, rf.w, rf.h); }
+  // Roofs come along when they sit wholly over the picked tiles.
+  const roofIn = (rf) => { for (let y = rf.y; y < rf.y + rf.h; y++) for (let x = rf.x; x < rf.x + rf.w; x++) if (!inRegion(x, y)) return false; return true; };
+  for (const rf of plot.roofs || []) if (!region || (levels.includes(rf.l || 0) && roofIn(rf))) { parts.roofs.push({ ...rf }); grow(rf.x, rf.y, rf.w, rf.h); }
   if (x0 === Infinity) return null;
   // Re-base everything on the bounding box.
   const shift = (k) => { const [x, y] = parseKey(k); return key(x - x0, y - y0); };
@@ -115,6 +127,23 @@ export function fragmentValue(frag) {
   return v;
 }
 
+// Shop furniture (which can't be bought with coins) comes out of your bag. Returns the
+// fragment without the pieces you don't have, plus what it takes from the bag and what's
+// missing, as { type: count }. free (free build) keeps everything.
+export function stockFragment(frag, inv = {}, free = false) {
+  const left = { ...inv }, used = {}, missing = {};
+  const keep = (o) => {
+    if (free || !ITEMS[o.t]?.shop) return true;
+    const ok = (left[o.t] || 0) > 0;
+    if (ok) left[o.t]--;
+    const tally = ok ? used : missing;
+    tally[o.t] = (tally[o.t] || 0) + 1;
+    return ok;
+  };
+  const levels = frag.levels.map((v) => ({ floor: v.floor, obj: Object.fromEntries(Object.entries(v.obj).filter(([, o]) => keep(o))) }));
+  return { frag: { ...frag, levels }, used, missing };
+}
+
 // Delete what a fragment covers at (ox, oy) from the plot (used to pick a room up).
 export function removeAt(plot, frag, ox, oy) {
   frag.levels.forEach((v, l) => {
@@ -129,8 +158,8 @@ export function removeAt(plot, frag, ox, oy) {
 }
 
 // Can the fragment go down at (ox, oy)? Everything must land on empty land inside the
-// plot and off the public road. opts.skipShop leaves shop furniture out.
-export function placeError(plot, frag, ox, oy, world, opts = {}) {
+// plot and off the public road.
+export function placeError(plot, frag, ox, oy, world) {
   for (let l = 0; l < frag.levels.length; l++) {
     const v = frag.levels[l], view = levelView(plot, l);
     for (const k of Object.keys(v.floor)) {
@@ -139,15 +168,20 @@ export function placeError(plot, frag, ox, oy, world, opts = {}) {
       if (!inInterior(plot, tx, ty)) return 'It doesn’t fit on your plot';
       if (roadIn(world, plot, tx, ty)) return 'That’s a public road';
       if (view.floor[key(tx, ty)] || objAt(view, tx, ty)) return 'Clear the space first';
+      if (l > 0 && stairAt(plot, tx, ty)) return 'That’s the stairwell';
     }
     for (const [k, o] of Object.entries(v.obj)) {
-      if (opts.skipShop && ITEMS[o.t]?.shop) continue;
       const [x, y] = parseKey(k);
       for (const [tx, ty] of tilesOf(o.t, o.r || 0, x + ox, y + oy)) {
         if (!inInterior(plot, tx, ty)) return 'It doesn’t fit on your plot';
         if (roadIn(world, plot, tx, ty)) return 'That’s a public road';
         if (objAt(view, tx, ty)) return 'Clear the space first';
         if (l > 0 && !view.floor[key(tx, ty)] && !v.floor[key(tx - ox, ty - oy)]) return 'Upstairs furniture needs a floor';
+        if (l > 0 && stairAt(plot, tx, ty)) return 'That’s the stairwell';
+        if (ITEMS[o.t]?.stairs) {
+          const up = levelView(plot, 1);
+          if (up.floor[key(tx, ty)] || objAt(up, tx, ty)) return 'Stairs need a clear stairwell upstairs';
+        }
       }
     }
   }
@@ -172,7 +206,6 @@ export function applyAt(plot, frag, ox, oy, opts = {}) {
     const view = levelView(plot, l);
     for (const [k, f] of Object.entries(v.floor)) { const [x, y] = parseKey(k); view.floor[key(x + ox, y + oy)] = f; }
     for (const [k, o] of Object.entries(v.obj)) {
-      if (opts.skipShop && ITEMS[o.t]?.shop) continue;
       const [x, y] = parseKey(k);
       const n = { ...o };
       if (ITEMS[o.t]?.crop) n.p = opts.now ?? n.p;

@@ -804,3 +804,49 @@ test('Sims build tools: styled rooms, move/rotate rooms, move furniture, design,
   assert.equal(Object.keys(plot.walls).length + Object.keys(plot.obj).length + Object.keys(plot.floor).length, 0);
   assert.ok(a.last('coins').coins > c2, 'refunded');
 });
+
+test('rooms move with their upstairs, stairs and roof; blueprints use shop furniture from the bag', async () => {
+  const { ITEMS } = await import('../../shared/catalog.js');
+  const { game, join } = setup();
+  const a = await join({ name: 'Ana' });
+  a.send({ type: 'cheat', cmd: 'testingcheats true' });
+  a.send({ type: 'cheat', cmd: 'motherlode' });
+  a.send({ type: 'claim', plotId: 0 });
+  const plot = game.plots[0];
+  stand(game, a, 1, 2, 2);
+  // A two-storey bedroom (tiles 2..6 × 2..5) with stairs, upstairs furniture and a roof.
+  a.send({ type: 'placeBlueprint', plotId: 0, src: 'styled', id: 'bedroom', x: 2, y: 2 });
+  a.send({ type: 'floorRect', plotId: 0, x: 2, y: 2, w: 5, h: 4, item: 'floor_wood', level: 1 });
+  a.send({ type: 'place', plotId: 0, lx: 2, ly: 2, item: 'stairs' });
+  assert.equal(plot.obj['2,2'].t, 'stairs');
+  a.send({ type: 'place', plotId: 0, lx: 5, ly: 3, item: 'chair', level: 1 });
+  assert.equal(levelView(plot, 1).obj['5,3'].t, 'chair');
+  const roofMat = Object.keys(ITEMS).find((k) => ITEMS[k].layer === 'roof');
+  plot.roofs.push({ x: 2, y: 2, w: 5, h: 4, l: 1, m: roofMat });
+  // Pick it up from the ground floor and move it 8 east: everything comes along.
+  a.send({ type: 'moveRegion', plotId: 0, room: [3, 3], dx: 8, dy: 0 });
+  assert.equal(plot.obj['2,2'], undefined);
+  assert.equal(plot.obj['10,2'].t, 'stairs', 'stairs moved');
+  const up = levelView(plot, 1);
+  assert.equal(up.obj['13,3'].t, 'chair', 'upstairs furniture moved');
+  assert.equal(up.floor['10,3'], undefined, 'stairwell moved with the stairs');
+  assert.equal(up.floor['11,3'], 'floor_wood');
+  assert.equal(up.floor['3,3'], undefined, 'nothing left upstairs');
+  assert.deepEqual(plot.roofs.map((r) => [r.x, r.y]), [[10, 2]], 'roof moved');
+  // Shop furniture in a library blueprint comes from the bag.
+  a.session().profile.inv.grandclock = 1;
+  a.send({ type: 'place', plotId: 0, lx: 12, ly: 3, item: 'grandclock' });
+  assert.equal(plot.obj['12,3'].t, 'grandclock');
+  a.send({ type: 'saveBlueprint', plotId: 0, room: [11, 3], name: 'Loft' });
+  const bp = a.last('library').library[0].frag;
+  assert.ok(Object.values(bp.levels[0].obj).some((o) => o.t === 'grandclock'), 'shop piece saved');
+  assert.ok(Object.keys(bp.levels[1].floor).length, 'upstairs saved');
+  a.send({ type: 'placeBlueprint', plotId: 0, src: 'library', id: 0, x: 2, y: 2 });
+  assert.match(a.last('toast').text, /without Grandfather Clock/);
+  assert.equal(plot.obj['2,2'].t, 'stairs');
+  assert.equal(Object.values(plot.obj).filter((o) => o.t === 'grandclock').length, 1, 'none in the bag: left out');
+  a.session().profile.inv.grandclock = 1;
+  a.send({ type: 'placeBlueprint', plotId: 0, src: 'library', id: 0, x: 2, y: 8 });
+  assert.equal(Object.values(plot.obj).filter((o) => o.t === 'grandclock').length, 2, 'taken from the bag');
+  assert.equal(a.last('inv').inv.grandclock, undefined);
+});
