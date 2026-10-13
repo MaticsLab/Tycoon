@@ -247,12 +247,19 @@ export class Farm {
     }
     this.seasonTurn(day);
     this.animalsDay(day);
-    // The market: Rosa's pick of the day pays 50% more.
-    const crops = NPCS.rosa.buys;
-    this.market.pick = crops[Math.floor(Math.random() * crops.length)];
+    // The market: Rosa runs short of whatever nobody's been bringing her (in season),
+    // and pays 50% more for it today. Yesterday's best supplier gets a mention.
+    const crops = NPCS.rosa.buys.filter((i) => GOODS[i]?.kind === 'produce' && inSeason(i, day));
+    const pool = crops.length ? crops : NPCS.rosa.buys;
+    const least = Math.min(...pool.map((i) => this.market.sold[i] || 0));
+    const short = pool.filter((i) => (this.market.sold[i] || 0) === least);
+    this.market.pick = short[Math.floor(Math.random() * short.length)];
     this.market.day = day;
+    const top = Object.values(this.market.suppliers || {}).sort((a, b) => b.n - a.n)[0];
+    if (top) { g.addGossip('Rosa', `${top.name} sold me ${top.n} things yesterday, my best supplier!`); g.events?.note(`Rosa’s best supplier yesterday: ${top.name} (${top.n} items)`); }
+    this.market.suppliers = {};
     this.mark();
-    g.addGossip('Rosa', `Rosa is paying extra for ${itemName(this.market.pick)} today`);
+    g.addGossip('Rosa', `I’m all out of ${itemName(this.market.pick)}! Paying extra for it today`);
     for (const s of g.sessions.values()) this.send(s);
   }
 
@@ -436,7 +443,7 @@ export class Farm {
   // Things to do at a coop or barn: { plotId, lx, ly, act: buy | feed | pet | collect | sell, kind }.
   animal(s, { plotId, lx, ly, act, kind }) {
     const g = this.game;
-    const plot = g.ownPlot(s, plotId);
+    const plot = g.ownPlot(s, plotId, 'farm');
     if (!plot || !Number.isInteger(lx) || !Number.isInteger(ly) || s.level) return;
     const hit = objAt(plot, lx, ly);
     const def = hit && ITEMS[hit.obj.t];
@@ -492,7 +499,7 @@ export class Farm {
   mount(s, { plotId, lx, ly }) {
     const g = this.game;
     if (s.ride) return;
-    const plot = g.ownPlot(s, plotId);
+    const plot = g.ownPlot(s, plotId, 'farm');
     if (!plot || !Number.isInteger(lx) || !Number.isInteger(ly) || s.level) return;
     const hit = objAt(plot, lx, ly);
     if (!hit || hit.obj.t !== 'tractor') return;
@@ -529,7 +536,7 @@ export class Farm {
     const id = plotIdAtPixel(g.world, s.x, s.y);
     const plot = id >= 0 ? g.plots[id] : null;
     let parked = false;
-    if (plot && plot.owner === s.profile.id && !s.level && s.profile.inv.tractor > 0) {
+    if (plot && g.canWork(plot, s.profile.id) && !s.level && s.profile.inv.tractor > 0) {
       const r = s.dir === 2 || s.dir === 3 ? 1 : 0;
       const [w, h] = footprint('tractor', r);
       const fx = s.x / TILE - plot.x - w / 2, fy = s.y / TILE - plot.y - h / 2;
@@ -568,7 +575,7 @@ export class Farm {
     const g = this.game;
     if (!s.ride || s.level || !Array.isArray(tiles)) return;
     const plot = g.plots[plotId];
-    if (!plot || plot.owner !== s.profile.id) return;
+    if (!plot || !g.canWork(plot, s.profile.id)) return;
     const now = g.now(), mode = s.ride.mode;
     if (mode === 'water' && !plot.util?.water) return s.send({ type: 'error', msg: 'The tractor fills its tank from your water: get water at City Hall' });
     const got = {}, hq = [];
@@ -607,6 +614,9 @@ export class Farm {
       }
     }
     if (spent) g.coins(s, -spent);
+    if (mode === 'plant' && spent) g.count(s.profile, 'plant', Math.round(spent / ITEMS[s.ride.seed].price));
+    if (mode === 'water' && changed) g.count(s.profile, 'water', tiles.length);
+    if (hq.length) g.count(s.profile, 'harvest', hq.length);
     for (const [crop, q] of hq) g.bag(s, crop, 1, q);
     if (hq.length) s.send({ type: 'harvested', items: got, ...this.qualCount(hq), quiet: true });
     if (broke) s.send({ type: 'error', msg: 'Out of coins for seeds' });
@@ -623,8 +633,12 @@ export class Farm {
     const rare = CROP_SEASONS[item] && !inSeason(item, this.game.day()) ? 1.3 : 1; // out of season: scarce
     return f * rare * (this.market.pick === item ? 1.5 : 1);
   }
-  onSold(item, n) {
+  onSold(item, n, p) {
     this.market.sold[item] = (this.market.sold[item] || 0) + n;
+    if (p) {
+      const sup = (this.market.suppliers ||= {});
+      sup[p.id] = { name: p.name, n: (sup[p.id]?.n || 0) + n };
+    }
     this.mark();
   }
   marketView() {

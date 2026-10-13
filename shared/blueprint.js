@@ -224,7 +224,7 @@ export function applyAt(plot, frag, ox, oy, opts = {}) {
 // Strip the bookkeeping fields before storing a fragment.
 // A blueprint to keep: shape and furniture only (no stock on shelves, jobs in machines
 // or animals in barns).
-const bare = (o) => { const { stock, job, animals, goods, ...rest } = o; return rest; };
+const bare = (o) => { const { stock, job, animals, goods, inv, qual, ...rest } = o; return rest; };
 export const cleanFragment = (f) => ({
   w: f.w, h: f.h, walls: f.walls, roofs: f.roofs,
   levels: f.levels.map((l) => ({ ...l, obj: Object.fromEntries(Object.entries(l.obj || {}).map(([k, o]) => [k, bare(o)])) })),

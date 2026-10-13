@@ -87,7 +87,9 @@ function publicDecor(season) {
   // City Hall forecourt
   for (const x of [128, 149]) add('flagpole', x, 34);
   for (const x of [123, 155]) for (const y of [35, 39]) add('lamppost', x, y);
-  add('noticeboard', 136, 35); add('ballotbox', 141, 35);
+  add('noticeboard', 136, 35); add('ballotbox', 141, 35); add('mailbox', 134, 37);
+  // Town square: the village notice board (player market) and a post box.
+  add('noticeboard', 54, 55); add('mailbox', 57, 57);
   for (const x of [126, 152]) add('bench', x, 37);
   // Willow Park
   for (const [x, y] of [[121, 47], [121, 58], [156, 47], [156, 58], [138, 46], [138, 59]]) add('lamppost', x, y);

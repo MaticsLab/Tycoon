@@ -2148,13 +2148,119 @@ Object.assign(FACE, {
   },
 });
 
+// ---------- storage, prizes & small machines ----------
+const BAND = ['#23262b', '#3a3d44', '#5a5f68'];
+const GOLD = ['#8a6418', '#c8962a', '#f0c03a', '#ffe27a', '#fff6c8'];
+const MILLP = ['#1f5470', '#2c7096', '#3a8fb7', '#5aa9cf', '#8cc8e4'];
+const SACK = ['#a8946a', '#c9b48a', '#e6d6b0', '#f6ecd2'];
+
+Object.assign(OBJ, {
+  trophy(c) {
+    const G = GOLD;
+    r(c, 3, 8, 10, 7, W8[2]); r(c, 3, 8, 1, 7, W8[3]); r(c, 12, 8, 1, 7, W8[1]); r(c, 2, 7, 12, 2, W8[4]); r(c, 2, 14, 12, 1, W8[1]);
+    r(c, 7, 11, 5, 2, '#c9a24c'); r(c, 7, 11, 5, 1, '#e0c070');
+    disc(c, 5, 11, 2, 2, '#2f6fd0'); px(c, 5, 11, '#f4f6f7'); px(c, 4, 10, '#5a92e8'); r(c, 4, 13, 1, 3, '#2f6fd0'); r(c, 6, 13, 1, 3, '#5a92e8');
+    r(c, 5, 5, 6, 2, G[1]); r(c, 5, 5, 6, 1, G[2]); r(c, 7, 1, 2, 4, G[2]); r(c, 7, 1, 1, 4, G[3]); r(c, 6, 0, 4, 1, G[3]);
+    disc(c, 8, -4, 5, 4, G[1]); r(c, 3, -10, 10, 6, G[2]); disc(c, 8, -4, 4, 3, G[2]);
+    r(c, 3, -10, 2, 6, G[3]); r(c, 11, -10, 2, 6, G[1]); px(c, 4, -3, G[3]);
+    r(c, 2, -11, 12, 2, G[3]); r(c, 3, -11, 10, 1, G[4]); r(c, 3, -10, 10, 1, G[1]);
+    r(c, 0, -9, 2, 1, G[2]); r(c, 0, -9, 1, 5, G[2]); r(c, 0, -5, 3, 1, G[1]); r(c, 14, -9, 2, 1, G[2]); r(c, 15, -9, 1, 5, G[1]); r(c, 13, -5, 3, 1, G[1]);
+    r(c, 5, -8, 1, 5, G[4]); px(c, 6, -8, G[4]);
+    px(c, 9, -7, G[0]); r(c, 8, -6, 3, 1, G[0]); px(c, 9, -5, G[0]);
+  },
+  smoker(c, now) {
+    const S = 'rgba(232,236,238,0.9)', S2 = 'rgba(214,220,224,0.8)';
+    r(c, 1, 12, 14, 4, STN[2]); r(c, 1, 12, 14, 1, STN[3]); r(c, 1, 15, 14, 1, STN[1]);
+    r(c, 2, -5, 12, 17, W8[2]); r(c, 2, -5, 1, 17, W8[3]); r(c, 13, -5, 1, 17, W8[1]);
+    for (const x of [5, 8, 11]) r(c, x, -5, 1, 17, W8[1]);
+    r(c, 0, -8, 16, 3, '#2f3542'); r(c, 0, -8, 16, 1, '#4a5058'); r(c, 1, -10, 14, 2, '#6f7780'); r(c, 1, -10, 14, 1, '#9aa3ab');
+    // slot with three hanging fish
+    r(c, 3, -2, 10, 6, '#2a1a12'); r(c, 2, -3, 12, 1, W8[1]); r(c, 2, 4, 12, 1, W8[4]); r(c, 3, -2, 10, 1, '#c9d2d8');
+    for (const [i, x] of [4, 7, 10].entries()) {
+      const F = i === 1 ? ['#c87830', '#e8a050'] : ['#9aa3ab', '#c9d2d8'];
+      r(c, x, -1, 2, 4, F[1]); px(c, x, -1, F[0]); r(c, x - 0, 3, 2, 1, F[0]); px(c, x + 1, 0, '#2a1a12');
+    }
+    // fire door
+    r(c, 3, 6, 5, 5, '#2a2d33'); r(c, 4, 7, 3, 3, '#ff7a3a'); px(c, 5, 8, '#ffd04a'); r(c, 8, 8, 1, 1, '#c9a24c');
+    r(c, 10, 9, 5, 2, W8[1]); r(c, 10, 8, 4, 1, W8[4]);
+    // chimney and smoke
+    r(c, 10, -18, 3, 9, '#2a2d33'); r(c, 10, -18, 1, 9, '#4a5058'); r(c, 9, -19, 5, 2, '#6f7780'); r(c, 9, -19, 5, 1, '#9aa3ab');
+    c.fillStyle = S; c.fillRect(10, -22, 3, 3); c.fillRect(8, -25, 3, 3); c.fillStyle = S2; c.fillRect(11, -27, 2, 2); c.fillRect(13, -23, 2, 2);
+  },
+});
+
+Object.assign(FACE, {
+  chest: {
+    down(c) {
+      r(c, 1, 5, 14, 10, W8[3]); r(c, 1, 5, 1, 10, W8[4]); r(c, 14, 5, 1, 10, W8[1]); r(c, 1, 14, 14, 1, W8[1]);
+      r(c, 2, 9, 12, 1, W8[2]); r(c, 2, 12, 12, 1, W8[2]);
+      r(c, 1, 0, 14, 5, W8[4]); r(c, 2, -2, 12, 2, W8[4]); r(c, 3, -3, 10, 1, '#e0b07a'); r(c, 2, -2, 12, 1, '#e0b07a'); r(c, 1, 4, 14, 1, W8[2]);
+      r(c, 1, 5, 14, 1, BAND[1]);
+      for (const x of [3, 11]) { r(c, x, -3, 2, 18, BAND[1]); r(c, x, -3, 1, 18, BAND[2]); px(c, x + 1, 7, BAND[2]); px(c, x + 1, 12, BAND[2]); }
+      r(c, 7, 4, 2, 5, '#c9a24c'); px(c, 7, 4, '#f0d890'); px(c, 8, 7, '#8a6a22');
+    },
+    up(c) {
+      r(c, 1, 5, 14, 10, W8[2]); r(c, 1, 14, 14, 1, W8[1]); r(c, 2, 9, 12, 1, W8[1]); r(c, 2, 12, 12, 1, W8[1]);
+      r(c, 1, -1, 14, 6, W8[3]); r(c, 2, -3, 12, 2, W8[4]); r(c, 2, -3, 12, 1, '#e0b07a'); r(c, 1, 5, 14, 1, BAND[1]);
+      for (const x of [3, 11]) { r(c, x, -3, 2, 18, BAND[1]); r(c, x, -3, 1, 18, BAND[2]); }
+      r(c, 5, 4, 2, 2, BAND[0]); r(c, 9, 4, 2, 2, BAND[0]);
+    },
+    side(c) {
+      r(c, 3, 5, 10, 10, W8[3]); r(c, 3, 5, 1, 10, W8[4]); r(c, 12, 5, 1, 10, W8[1]); r(c, 3, 14, 10, 1, W8[1]);
+      r(c, 3, 0, 10, 5, W8[4]); r(c, 4, -2, 8, 2, W8[4]); r(c, 5, -3, 6, 1, '#e0b07a'); r(c, 3, 4, 10, 1, W8[2]);
+      r(c, 3, -1, 10, 1, BAND[1]); r(c, 3, 5, 10, 1, BAND[1]); r(c, 3, 10, 10, 1, BAND[1]);
+      r(c, 6, 7, 4, 1, BAND[0]); r(c, 2, 4, 1, 5, '#c9a24c');
+    },
+  },
+  mill: {
+    down(c) {
+      const P = MILLP;
+      r(c, 1, 13, 2, 3, '#2a2d33'); r(c, 13, 13, 2, 3, '#2a2d33'); r(c, 1, 11, 14, 2, '#6f7780'); r(c, 1, 11, 14, 1, '#9aa3ab');
+      r(c, 2, -3, 9, 14, P[2]); r(c, 2, -3, 1, 14, P[3]); r(c, 2, -4, 9, 1, P[4]); r(c, 10, -3, 1, 14, P[1]);
+      r(c, 11, 0, 4, 11, P[1]); r(c, 11, -1, 4, 1, P[2]); r(c, 15, 1, 1, 9, '#6f7780'); for (const y of [3, 5, 7]) px(c, 15, y, '#2a2d33');
+      r(c, 12, 2, 2, 2, '#2a2d33'); px(c, 12, 2, '#6cff8a'); px(c, 13, 2, '#bdffcb'); c.fillStyle = 'rgba(108,255,138,0.35)'; c.fillRect(11, 1, 4, 4);
+      r(c, 12, 6, 2, 2, '#c9d2d8'); px(c, 12, 6, '#d9443a');
+      // millstone housing
+      r(c, 1, -6, 11, 3, '#9aa3ab'); r(c, 1, -6, 11, 1, '#c9d2d8'); r(c, 1, -4, 11, 1, '#6f7780');
+      // hopper
+      r(c, 5, -9, 3, 3, '#c9d2d8'); r(c, 4, -11, 5, 2, '#c9d2d8'); r(c, 3, -13, 7, 2, '#c9d2d8'); r(c, 2, -15, 9, 2, '#c9d2d8'); r(c, 1, -17, 11, 2, '#dfe5ea');
+      r(c, 1, -17, 11, 1, '#9aa3ab'); r(c, 2, -16, 9, 1, '#d9a63a'); px(c, 4, -16, '#f0c860'); px(c, 8, -16, '#f0c860');
+      for (const [x, y] of [[2, -15], [3, -13], [4, -11]]) px(c, x, y, '#ffffff'); r(c, 9, -14, 1, 6, '#9aa3ab');
+      // spout and flour sack
+      r(c, 5, 1, 3, 3, '#c9d2d8'); px(c, 6, 4, '#f4f6f7');
+      r(c, 3, 7, 7, 8, SACK[2]); r(c, 3, 7, 1, 8, SACK[3]); r(c, 9, 7, 1, 8, SACK[1]); r(c, 4, 5, 5, 2, SACK[1]); r(c, 5, 5, 3, 1, '#fbf6ea');
+      r(c, 4, 10, 5, 2, P[2]); px(c, 6, 10, '#fbf6ea'); r(c, 3, 14, 7, 1, SACK[0]);
+    },
+    up(c) {
+      const P = MILLP;
+      r(c, 1, 13, 2, 3, '#2a2d33'); r(c, 13, 13, 2, 3, '#2a2d33'); r(c, 1, 11, 14, 2, '#6f7780');
+      r(c, 5, -3, 9, 14, P[1]); r(c, 5, -4, 9, 1, P[3]); r(c, 1, 0, 4, 11, P[0]); r(c, 1, -1, 4, 1, P[1]);
+      r(c, 4, -6, 11, 3, '#9aa3ab'); r(c, 4, -6, 11, 1, '#c9d2d8');
+      r(c, 8, -9, 3, 3, '#b9c1c8'); r(c, 7, -11, 5, 2, '#b9c1c8'); r(c, 6, -13, 7, 2, '#b9c1c8'); r(c, 5, -15, 9, 2, '#b9c1c8'); r(c, 4, -17, 11, 2, '#c9d2d8');
+      r(c, 8, 6, 1, 10, '#23262b');
+    },
+    side(c) {
+      const P = MILLP;
+      r(c, 2, 13, 2, 3, '#2a2d33'); r(c, 11, 13, 2, 3, '#2a2d33'); r(c, 2, 11, 11, 2, '#6f7780'); r(c, 2, 11, 11, 1, '#9aa3ab');
+      r(c, 3, -3, 9, 14, P[2]); r(c, 3, -3, 1, 14, P[3]); r(c, 3, -4, 9, 1, P[4]); r(c, 11, -3, 1, 14, P[1]);
+      r(c, 4, 1, 7, 8, P[1]); for (const y of [3, 5, 7]) r(c, 5, y, 5, 1, '#6f7780'); r(c, 6, 1, 2, 1, '#6cff8a');
+      r(c, 2, -6, 11, 3, '#9aa3ab'); r(c, 2, -6, 11, 1, '#c9d2d8');
+      r(c, 6, -9, 3, 3, '#c9d2d8'); r(c, 5, -11, 5, 2, '#c9d2d8'); r(c, 4, -13, 7, 2, '#c9d2d8'); r(c, 3, -15, 9, 2, '#c9d2d8'); r(c, 2, -17, 11, 2, '#dfe5ea');
+      r(c, 3, -16, 9, 1, '#d9a63a');
+      r(c, 0, 1, 3, 2, '#c9d2d8'); r(c, 0, 7, 4, 8, SACK[2]); r(c, 0, 7, 1, 8, SACK[3]); r(c, 0, 5, 3, 2, SACK[1]); r(c, 0, 10, 4, 2, P[2]);
+      r(c, 13, 8, 1, 8, '#23262b');
+    },
+  },
+});
+
 // ---------- icons ----------
 // How far tall items reach above their tile (px), so the icon fits them in.
 const ICON_TOP = { fireplace: 28, grandclock: 23, wardrobe: 30, shower: 22, fridge: 20, floorvase: 20,
   arcade: 24, arclamp: 21, trellis: 21, cattree: 19, easel: 19, vanity: 18, cactus: 16, pedestalsink: 13, lantern: 7,
   shelf: 23, coolercase: 22, producestand: 25, juicer: 20, bakeryoven: 19, soupot: 19, preservesjar: 17, register: 12,
   spout: 6, powerbox: 10, sprinkler: 7, bigsprinkler: 13, harvester: 11, pipe: 1, cable: 1,
-  coop: 25, barn: 42, cheesepress: 20, loom: 17 };
+  coop: 25, barn: 42, cheesepress: 20, loom: 17,
+  chest: 4, trophy: 12, mill: 17, smoker: 27 };
 export function itemIcon(itemId, size = 44) {
   const cv = document.createElement('canvas');
   cv.width = size; cv.height = size;

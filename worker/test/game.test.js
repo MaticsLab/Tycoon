@@ -1021,6 +1021,7 @@ test('villager requests: offered on talking, accepted, handed in, messages deliv
   const { game, join } = setup();
   const a = await join({ name: 'Ana' });
   const s = a.session();
+  game.events.onStat = () => {}; // (daily goals would pay out too: not what this test is about)
   // Talking to Rosa: she asks a favour.
   standBy(game, a, 'rosa');
   game.npcs.rosa.act = 'work';
@@ -1444,4 +1445,187 @@ test('seasons, greenhouses, crop quality and farm animals', async () => {
   assert.equal(plot.obj['3,12'], undefined, 'withered');
   assert.equal(plot.obj['4,12']?.t, 'seed_melon', 'safe in the greenhouse');
   assert.match(a.inbox.filter((m) => m.type === 'toast').map((m) => m.text).join('|'), /Summer has arrived/);
+});
+
+test('village life: fishing, trading, notice board, mail, co-op farms, storage', async () => {
+  const { BITE_MAX } = await import('../../shared/fishing.js');
+  const { game, join, advance } = setup();
+  const a = await join({ name: 'Ana' }), b = await join({ name: 'Ben' });
+  const sa = a.session(), sb = b.session();
+  for (const c of ['testingcheats true', 'motherlode', 'give rod 1', 'give turnip 10']) a.send({ type: 'cheat', cmd: c });
+  game.events.onStat = () => {};
+
+  // Fishing at the square's pond: cast, wait for the bite, reel in.
+  sa.x = 53.5 * TILE; sa.y = 53.5 * TILE; // the pond's east shore
+  const { waterNear } = await import('../../shared/fishing.js');
+  for (let x = 52; x < 56 && !waterNear(game.world, sa.x, sa.y); x += 0.25) sa.x = x * TILE;
+  assert.ok(waterNear(game.world, sa.x, sa.y), 'at the water');
+  a.send({ type: 'fishCast' });
+  assert.equal(a.last('fishing').state, 'cast');
+  assert.equal(game.publicPlayer(sa).act, 'fish');
+  for (let t = 0; t < BITE_MAX + 200 && a.last('fishing').state !== 'bite'; t += 100) { advance(100); game.tick(); }
+  assert.equal(a.last('fishing').state, 'bite');
+  a.send({ type: 'fishReel' });
+  const caught = a.last('fishing');
+  assert.equal(caught.state, 'caught');
+  assert.equal(sa.profile.inv[caught.fish], 1);
+  // Reeling before a bite scares it off.
+  a.send({ type: 'fishCast' }); a.send({ type: 'fishReel' });
+  assert.equal(a.last('fishing').state, 'early');
+
+  // Trading face to face: both sides must agree.
+  sb.x = sa.x + 20; sb.y = sa.y;
+  a.send({ type: 'tradeAsk', to: sb.profile.id });
+  assert.equal(b.last('trade').trade.with, 'Ana');
+  a.send({ type: 'tradeSet', items: { turnip: 4 } });
+  b.send({ type: 'tradeSet', coins: 100 });
+  a.send({ type: 'tradeOk' });
+  assert.equal(sa.profile.inv.turnip, 10, 'nothing moves until both agree');
+  b.send({ type: 'tradeOk' });
+  assert.equal(sa.profile.inv.turnip, 6);
+  assert.equal(sb.profile.inv.turnip, 4);
+  assert.equal(sb.profile.coins, 400);
+
+  // The notice board: Ana posts turnips, Ben buys two (Ana gets paid and a letter).
+  sa.x = 100 * TILE; sa.y = 43 * TILE;
+  a.send({ type: 'boardPost', item: 'turnip', n: 3, price: 20 });
+  assert.match(a.last('error').msg, /notice board/);
+  sa.x = 55 * TILE; sa.y = 56.6 * TILE; sb.x = sa.x; sb.y = sa.y;
+  a.send({ type: 'boardPost', item: 'turnip', n: 3, price: 20 });
+  assert.equal(game.social.board.length, 1);
+  const coinsA = sa.profile.coins;
+  b.send({ type: 'boardBuy', id: game.social.board[0].id, n: 2 });
+  assert.equal(sb.profile.inv.turnip, 6);
+  assert.equal(sa.profile.coins, coinsA + 40);
+  assert.equal(game.social.board[0].n, 1);
+  assert.match(a.last('mail').mail.at(-1).text, /Ben bought 2/);
+  a.send({ type: 'boardCancel', id: game.social.board[0].id });
+  assert.equal(sa.profile.inv.turnip, 4);
+
+  // Mail from the square's post box, with a gift attached; delivered even offline.
+  sa.x = 57.5 * TILE; sa.y = 58.4 * TILE;
+  a.send({ type: 'mailSend', to: 'ben', text: 'Thanks for the trade!', item: 'turnip', n: 2 });
+  const letter = sb.profile.mail.at(-1);
+  assert.equal(letter.from, 'Ana');
+  assert.deepEqual(letter.items, { turnip: 2 });
+  b.send({ type: 'mailTake', id: letter.id });
+  assert.equal(sb.profile.inv.turnip, 8);
+
+  // Co-op farm: Ben may farm Ana's plot, not build on it.
+  a.send({ type: 'claim', plotId: 0 });
+  const plot = game.plots[0];
+  a.send({ type: 'place', plotId: 0, lx: 2, ly: 12, item: 'soil' });
+  a.send({ type: 'place', plotId: 0, lx: 2, ly: 12, item: 'seed_turnip' });
+  a.send({ type: 'helperAdd', plotId: 0, name: 'Ben', role: 'farm' });
+  assert.equal(plot.helpers[sb.profile.id].role, 'farm');
+  advance(61_000);
+  b.send({ type: 'harvest', plotId: 0, lx: 2, ly: 12 });
+  assert.equal(sb.profile.inv.turnip, 9, 'Ben harvested on Ana’s farm');
+  b.send({ type: 'place', plotId: 0, lx: 5, ly: 5, item: 'lamp' });
+  assert.equal(plot.obj['5,5'], undefined, 'but can’t build');
+
+  // A chest holds things; removing it gives them back.
+  a.send({ type: 'place', plotId: 0, lx: 8, ly: 8, item: 'chest' });
+  sa.x = (plot.x + 8.5) * TILE; sa.y = (plot.y + 9.6) * TILE;
+  a.send({ type: 'cheat', cmd: 'give turnip 1' });
+  a.send({ type: 'store', plotId: 0, lx: 8, ly: 8, item: 'turnip', n: 3, put: true });
+  assert.equal(plot.obj['8,8'].inv.turnip, 3);
+  assert.equal(sa.profile.inv.turnip, undefined);
+  a.send({ type: 'store', plotId: 0, lx: 8, ly: 8, item: 'turnip', n: 1, put: false });
+  assert.equal(sa.profile.inv.turnip, 1);
+  a.send({ type: 'remove', plotId: 0, lx: 8, ly: 8 });
+  assert.equal(sa.profile.inv.turnip, 3, 'contents back in the bag');
+  // The fridge only takes food.
+  a.send({ type: 'place', plotId: 0, lx: 10, ly: 8, item: 'fridge' });
+  a.send({ type: 'cheat', cmd: 'give rod 1' });
+  sa.x = (plot.x + 10.5) * TILE;
+  a.send({ type: 'store', plotId: 0, lx: 10, ly: 8, item: 'rod', n: 1, put: true });
+  assert.match(a.last('error').msg, /food/);
+});
+
+test('village calendar: festivals, goals, newspaper, friendship, loans, tax and public projects', async () => {
+  const { HOUR_MS } = await import('../../shared/needs.js');
+  const { eventOn } = await import('../../shared/events.js');
+  const { worldClock } = await import('../../shared/world.js');
+  const { game, join, advance } = setup();
+  const a = await join({ name: 'Ana' });
+  const sa = a.session();
+  a.send({ type: 'cheat', cmd: 'testingcheats true' });
+  a.send({ type: 'cheat', cmd: 'motherlode' });
+  a.send({ type: 'claim', plotId: 0 });
+  const toNoon = () => { while (worldClock(game.now(), game.epoch).hours < 12 || worldClock(game.now(), game.epoch).hours > 13) { advance(HOUR_MS / 2); game.tick(); } };
+
+  // Daily goals pay out when done.
+  game.tick();
+  const goals = a.last('goals').goals;
+  assert.equal(goals.daily.length, 3);
+  const g0 = goals.daily[0];
+  const coins = sa.profile.coins;
+  game.count(sa.profile, ({ harvest: 'harvest', sell: 'sold', cook: 'cook', fish: 'fish', water: 'water', talk: 'talk', pet: 'pet', craft: 'craft', plant: 'plant', gift: 'gift' })[g0.id], g0.n);
+  assert.equal(sa.profile.coins, coins + g0.reward);
+  assert.ok(a.last('goals').goals.daily[0].done);
+
+  // Festival day: enter at the fair, judged at 6 PM, prize and trophy by mail.
+  while (!eventOn(game.day())) { advance(24 * HOUR_MS); game.tick(); }
+  toNoon();
+  const ev = game.events.s.fest;
+  assert.equal(ev.day, game.day());
+  const entry = { harvest: 'pumpkin', derby: 'pike', bakeoff: 'cake', fair: 'wool' }[ev.id];
+  a.send({ type: 'cheat', cmd: `give ${entry} 1` });
+  sa.x = 100 * TILE; sa.y = 43 * TILE;
+  a.send({ type: 'festEnter', item: entry });
+  assert.match(a.last('error').msg, /Harvest Fair/);
+  sa.x = 135 * TILE; sa.y = 70 * TILE;
+  a.send({ type: 'festEnter', item: entry });
+  assert.equal(Object.keys(ev.entries).length, 1);
+  while (worldClock(game.now(), game.epoch).hours < 18.2) { advance(HOUR_MS / 4); game.tick(); }
+  assert.ok(ev.judged);
+  const prize = sa.profile.mail.find((m) => m.from === 'The Festival Committee');
+  assert.equal(prize.coins, 500);
+  assert.deepEqual(prize.items, { trophy: 1 });
+  a.send({ type: 'mailTake', id: prize.id });
+  a.send({ type: 'place', plotId: 0, lx: 3, ly: 3, item: 'trophy' });
+  assert.equal(game.plots[0].obj['3,3'].t, 'trophy', 'the trophy goes on display');
+
+  // The morning paper (scripted without the AI).
+  advance(24 * HOUR_MS); game.tick();
+  assert.equal(a.last('paper').paper.day, game.day());
+  assert.ok(a.last('paper').paper.stories.length >= 1);
+
+  // Friendship: at 3 hearts Otto sends a chest; at 5 you can ask him out.
+  const otto = game.npcs.otto;
+  otto.rel(sa.profile).affinity = 65;
+  game.hearts(sa.profile, otto);
+  assert.ok(sa.profile.mail.some((m) => m.from === 'Otto' && m.items?.chest === 1));
+  sa.x = otto.x; sa.y = otto.y + 12; otto.act = 'work';
+  a.send({ type: 'date', npc: 'otto' });
+  assert.match(a.last('error').msg, /5 ♥/);
+  otto.rel(sa.profile).affinity = 95;
+  await a.send({ type: 'date', npc: 'otto' });
+  assert.equal(otto.rel(sa.profile).dates, 1);
+
+  // City Hall: a loan from the treasury, paid back with interest.
+  sa.x = 139.5 * TILE; sa.y = 37.5 * TILE;
+  game.city.s.treasury = 5000;
+  a.send({ type: 'loanTake', amount: 1000 });
+  assert.equal(sa.profile.loan.owed, 1100);
+  assert.equal(game.city.s.treasury, 4000);
+  a.send({ type: 'loanRepay', amount: 1100 });
+  assert.equal(sa.profile.loan, null);
+  assert.equal(game.city.s.treasury, 5100);
+  // A public project, passed by the (AI) council: the Flower Garden appears.
+  game.city.s.officials.council = [];
+  game.city.isRegistered = () => true;
+  a.send({ type: 'cityPropose', kind: 'project', project: 'garden' });
+  const pr = game.city.s.proposals.at(-1);
+  assert.equal(pr.kind, 'project');
+  game.city.closeBill(pr, game.day());
+  assert.ok(game.city.s.projects.includes('garden'));
+  assert.equal(game.city.s.treasury, 5100 - 1500);
+  assert.ok(Object.values(game.plots).some((p) => p.town === 'garden'));
+  // Property tax, set by the council, collected at the start of the month.
+  game.city.s.taxRate = 10;
+  const before = sa.profile.coins;
+  game.city.money(29);
+  assert.equal(sa.profile.coins, before - game.plots[0].w * game.plots[0].h);
 });

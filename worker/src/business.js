@@ -232,6 +232,7 @@ export class Business {
     const rec = RECIPES[msg.recipe];
     if (!isMachine(hit.obj.t) || !rec || rec.machine !== hit.obj.t) return;
     if (hit.obj.job) return s.send({ type: 'error', msg: 'It’s already busy' });
+    if (ITEMS[hit.obj.t].needs === 'power' && !(!msg.level && plot.util?.power && connected(plot, hit.key, 'power'))) return s.send({ type: 'error', msg: `The ${ITEMS[hit.obj.t].name} needs electricity: get power at City Hall and run a cable to it` });
     const p = s.profile;
     for (const [k, n] of Object.entries(rec.needs)) if ((p.inv[k] || 0) < n) return s.send({ type: 'error', msg: `You need ${Object.entries(rec.needs).map(([kk, nn]) => `${nn} × ${GOODS[kk].name}`).join(' and ')}` });
     for (const [k, n] of Object.entries(rec.needs)) this.game.bag(s, k, -n);

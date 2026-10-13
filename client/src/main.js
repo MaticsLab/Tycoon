@@ -24,6 +24,7 @@ import { RECIPES, STAFF, OPEN_HOURS, recipesFor, sellable, valueOf, slotsOf, isM
 import { drawFloor, drawObject } from './sprites.js';
 import { openCreator, closeCreator } from './creator.js';
 import { renderCity } from './cityui.js';
+import { socialUI } from './social-ui.js';
 import { drawLook } from './people.js';
 import { sanitizeLook, randomLook, PETS } from '@shared/look.js';
 import { httpBase, signInGuest, signIn, signUp, getSession, signOut } from './auth.js';
@@ -72,6 +73,9 @@ const S = {
   ride: null,          // driving the tractor: { mode, seed }
 };
 const afford = (cost) => S.freeBuild || cost <= S.coins;
+let ui = null; // village life UI (social-ui.js), set up at the end
+// Your role on a plot: 'build' (yours, or a co-builder), 'farm' (a farmhand friend) or null.
+const roleOn = (plot) => (!plot || !S.me ? null : plot.owner === S.me.id ? 'build' : plot.helpers?.[S.me.id]?.role || null);
 const serverNow = () => Date.now() + S.timeOffset;
 
 // ---------- Networking ----------
@@ -145,6 +149,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) chec
 addEventListener('online', () => { if (!S.connected && S.me) { failures = 0; connect(); } });
 
 function onMessage(m) {
+  if (ui?.handle(m)) return;
   switch (m.type) {
     case 'welcome': {
       if (m.worldVersion !== WORLD_VERSION) toast('A new version of the game is available — please reload');
@@ -305,6 +310,8 @@ function onMessage(m) {
       if (m.plot.id === S.myPlot) S.dropped = null;
       if (S.stockRedraw && (modalKind === 'stock' || modalKind === 'browse')) S.stockRedraw();
       if (S.mode === 'build') refreshPreview();
+      if (modalKind === 'store') ui.showStore();
+      if (modalKind === 'lot' && m.plot.id === S.myPlot) showLot();
       break;
     case 'city':
       S.city = m.city;
@@ -343,6 +350,8 @@ function onMessage(m) {
       if (S.mode === 'build' && S.cat === 'special') renderItems();
       if (S.talk?.extra) renderExtra();
       if (modalKind === 'bag') showBag();
+      if (modalKind === 'store') ui.showStore();
+      if (modalKind === 'trade') ui.showTrade();
       break;
     case 'claimed':
       S.myPlot = S.homePlot = m.plotId;
@@ -521,8 +530,10 @@ function updateContext() {
   const usable = S.mode === 'walk' && !S.talk && !S.act ? nearestUsable() : null;
   if (S.mode !== 'walk' || S.talk) action = '';
   else if (S.act) action = `stop:${S.act}`;
+  else if (ui.fish.state) action = `ui:${ui.contextAction().id}`;
   else if (npc) action = `talk:${npc.id}`;
   else if (usable) action = `use:${usable.plot.id}:${usable.level}:${usable.key}`;
+  else if (ui.contextAction()) action = `ui:${ui.contextAction().id}`;
   else if (S.carry) action = `eatHere:${S.carry.food}`;
   else if (plot && !plot.owner && S.homePlot == null) action = 'claim';
   else if (plot && !plot.owner && S.biz && S.biz.plotId == null) action = 'claimShop';
@@ -537,6 +548,7 @@ function updateContext() {
     if (action === 'claim') btn.textContent = '🏡 Claim this plot';
     else if (action === 'claimShop') btn.textContent = `🏪 Open my shop here (🪙${plot.w * plot.h * landPrice()})`;
     else if (action.startsWith('harvest')) btn.textContent = `🌾 Harvest (${action.split(':')[1]})`;
+    else if (action.startsWith('ui:')) btn.textContent = ui.contextAction()?.label || '…';
     else if (action.startsWith('talk')) btn.textContent = `💬 Talk to ${NPCS[action.split(':')[1]].name}`;
     else if (action === 'pet') btn.textContent = `🐾 Pet your ${PETS[petOf(S.me)].kind}`;
     else if (action.startsWith('eatHere')) { const pl = PLATES[S.carry.food]; btn.textContent = `${pl.icon} Eat ${pl.name.toLowerCase()} here`; }
@@ -551,6 +563,7 @@ function updateContext() {
 }
 $('action').onclick = () => {
   if (lastAction.startsWith('stop')) { send({ type: 'stop' }); return; }
+  if (lastAction.startsWith('ui:')) { ui.runAction(lastAction.slice(3)); return; }
   if (lastAction.startsWith('eatHere')) { send({ type: 'use', act: 'eatHere' }); return; }
   if (lastAction.startsWith('use')) {
     const u = nearestUsable();
@@ -571,7 +584,7 @@ $('btn-build').onclick = () => setMode(S.mode === 'build' ? 'walk' : 'build');
 function ownPlotHere() {
   if (!S.me) return null;
   const id = plotIdAtPixel(world, S.me.x, S.me.y);
-  return id >= 0 && S.plots[id]?.owner === S.me.id ? id : null;
+  return id >= 0 && roleOn(S.plots[id]) === 'build' ? id : null;
 }
 // Build only shows while you're on land you can build on (and while building, to leave).
 function syncBuildBtn() {
@@ -682,6 +695,14 @@ function showQuests() {
   }
 }
 $('btn-quests').onclick = () => (modalKind === 'quests' ? closeModal() : showQuests());
+$('btn-journal').onclick = () => (modalKind === 'journal' ? closeModal() : ui.showJournal());
+$('btn-mail').onclick = () => (modalKind === 'mail' ? closeModal() : ui.showMail());
+// Little numbers on the side buttons: unread letters, a new paper.
+function badges() {
+  if (!ui) return;
+  $('btn-mail').dataset.n = ui.unread() || '';
+  $('btn-journal').dataset.n = S.paper && S.paperSeen !== S.paper.day ? '!' : '';
+}
 
 function npcSaid(m) {
   if (!S.talk || S.talk.npc !== m.npc) return;
@@ -702,14 +723,21 @@ $('npc-close').onclick = closeTalk;
 
 function renderStatus() {
   const v = S.talk.view;
-  const hearts = Math.max(0, Math.min(5, Math.round((v.affinity + 100) / 40)));
+  const hearts = v.hearts ?? Math.max(0, Math.min(5, Math.round((v.affinity + 100) / 40)));
   const parts = [
     `<span>${v.mood.emoji} ${esc(v.mood.label)}</span>`,
     `<span title="Friendship">${'❤️'.repeat(hearts)}${'🤍'.repeat(5 - hearts)} ${esc(v.friendship)}</span>`,
     ...v.personality.map((w) => `<span class="trait">${esc(w)}</span>`),
   ];
   if (v.likes) parts.push(`<span>💝 loves ${esc(v.likes.join(', '))}</span>`);
+  if (v.dating) parts.push('<span>💕 sweethearts</span>');
   $('npc-status').innerHTML = parts.join('');
+  if (v.canDate) {
+    const b = document.createElement('button');
+    b.className = 'chip'; b.textContent = v.dating ? '💕 Spend the afternoon together' : '💕 Ask out';
+    b.onclick = () => { send({ type: 'date', npc: S.talk.npc }); S.talk.waiting = true; renderLog(); };
+    $('npc-status').appendChild(b);
+  }
 }
 
 function renderLog() {
@@ -903,14 +931,17 @@ function showBag() {
       const c = Math.floor(Number(prompt(`How many coins for ${S.players.get(bagTo)?.name}?`, '50')));
       if (c > 0) send({ type: 'giveTo', to: bagTo, coins: c });
     };
-    bar.append(sel, coins);
+    const trade = document.createElement('button');
+    trade.className = 'chip'; trade.textContent = '🤝 Trade';
+    trade.onclick = () => send({ type: 'tradeAsk', to: bagTo });
+    bar.append(sel, coins, trade);
   } else bar.append(Object.assign(document.createElement('span'), { textContent: '· stand near someone to give them things', className: 'muted small' }));
   body.appendChild(bar);
   if (!entries.length) body.insertAdjacentHTML('beforeend', '<p class="muted">Empty. Harvest crops, or buy gifts and furniture in the town square.</p>');
   const list = document.createElement('div');
   list.className = 'list';
   for (const [k, n] of entries) {
-    const sub = ITEMS[k] ? 'Furniture · place it from the Bag tab in Build mode' : GOODS[k].kind === 'tool' ? 'Tool · walk through your crops to water them' : GOODS[k].kind === 'feed' ? 'Animal feed · feed your animals at their coop or barn' : GOODS[k].kind === 'animal' ? 'From your animals · Rosa buys these, or make cheese, cloth and cake' : GOODS[k].kind === 'produce' ? 'Crop · Rosa buys these, or sell them in your shop' : GOODS[k].kind === 'product' ? 'Homemade · sell it in your shop or to Rosa' : 'Gift · give it to a villager';
+    const sub = ITEMS[k] ? 'Furniture · place it from the Bag tab in Build mode' : GOODS[k].kind === 'tool' ? 'Tool · walk through your crops to water them' : GOODS[k].kind === 'fish' ? 'Fish · Rosa buys these, eat them, smoke them or enter the Fishing Derby' : GOODS[k].kind === 'feed' ? 'Animal feed · feed your animals at their coop or barn' : GOODS[k].kind === 'animal' ? 'From your animals · Rosa buys these, or make cheese, cloth and cake' : GOODS[k].kind === 'produce' ? 'Crop · Rosa buys these, or sell them in your shop' : GOODS[k].kind === 'product' ? 'Homemade · sell it in your shop or to Rosa' : 'Gift · give it to a villager';
     const food = FOODS[k];
     const gives = food ? Object.entries(food).map(([nd, v]) => `+${v} ${(NEEDS.find((x) => x.id === nd) || HEALTH).icon}`).join(' ') : '';
     const ql = S.qual?.[k];
@@ -1857,6 +1888,28 @@ function showLot() {
     row.appendChild(b);
   }
   body.appendChild(row);
+  if (plot.owner === S.me.id) {
+    // Co-op: friends who can farm (or also build) here.
+    body.insertAdjacentHTML('beforeend', '<h3>🤝 Co-op helpers</h3>');
+    for (const [id, h] of Object.entries(plot.helpers || {})) {
+      const r = document.createElement('div');
+      r.className = 'row';
+      r.innerHTML = `<span class="grow">${esc(h.name)} · ${h.role === 'build' ? 'farms and builds' : 'farms'}</span>`;
+      const x = document.createElement('button'); x.className = 'chip'; x.textContent = 'Remove';
+      x.onclick = () => send({ type: 'helperRemove', plotId: plot.id, id });
+      r.appendChild(x); body.appendChild(r);
+    }
+    const r = document.createElement('div');
+    r.className = 'row';
+    const name = Object.assign(document.createElement('input'), { placeholder: 'Villager name', maxLength: 30 });
+    name.addEventListener('keydown', (e) => e.stopPropagation());
+    const role = document.createElement('select');
+    role.add(new Option('can farm', 'farm')); role.add(new Option('can farm & build', 'build'));
+    const add = document.createElement('button'); add.className = 'chip sel'; add.textContent = 'Add';
+    add.onclick = () => name.value.trim() && send({ type: 'helperAdd', plotId: plot.id, name: name.value.trim(), role: role.value });
+    r.append(name, role, add);
+    body.appendChild(r);
+  }
   body.insertAdjacentHTML('beforeend', '<p class="muted small">Change your farm name from ⚙️ Settings → 👤 Me → Change look.</p>');
 }
 $('btn-lot').onclick = () => (modalKind === 'lot' ? closeModal() : showLot());
@@ -2462,11 +2515,12 @@ function update(dt) {
     if (Math.hypot(v.x, v.y) > 0.1 && !S.stopSent) { S.stopSent = true; send({ type: 'stop' }); }
     v = { x: 0, y: 0 };
   }
-  me.act = S.ride ? 'drive' : S.act || 0;
+  me.act = S.ride ? 'drive' : ui.fish.state ? 'fish' : S.act || 0;
   autoHarvest();
   tractorWork();
   me.moving = Math.hypot(v.x, v.y) > 0.1;
   me.running = me.moving && !!v.run;
+  if (me.moving) ui.onMove();
   if (me.moving) view.offset.multiplyScalar(Math.max(0, 1 - dt * 3));
   if (view.quadrant !== lastQuadrant) { lastQuadrant = view.quadrant; plotsDirty = true; }
   if (me.moving) {
@@ -2553,6 +2607,7 @@ const SHOP_ACTS = {
   'shop:wait': { icon: '⏳', label: 'Working…' },
   'shop:keeper': { icon: '🛒', label: 'Shop here' },
   'farm:drive': { icon: '🚜', label: 'Drive' },
+  'store:open': { icon: '📦', label: 'Open' },
   'animal:feed': { icon: '🌿', label: 'Feed (hay or wheat)' },
   'animal:pet': { icon: '❤️', label: 'Pet them' },
   'animal:collect': { icon: '🧺', label: 'Collect' },
@@ -2567,9 +2622,11 @@ function actionsFor(plot, o) {
   const out = canUseOn(plot) ? usesNow(o.t).filter((id) => !ACTIVITIES[id].shop || (mine && plot.biz)) : [];
   if (slotsOf(o.t) || (plot.town && o.t === 'register')) { if (mine) out.push('shop:stock'); else if (plot.biz) out.push('shop:browse'); else if (plot.town) out.push('shop:keeper'); }
   if (isMachine(o.t) && mine) out.push(o.job ? (serverNow() >= o.job.ready ? 'shop:collect' : 'shop:wait') : 'shop:make');
-  if (o.t === 'tractor' && mine && !S.ride) out.push('farm:drive');
+  const role = roleOn(plot);
+  if (o.t === 'tractor' && role && !S.ride) out.push('farm:drive');
+  if (ITEMS[o.t]?.store && role === 'build') out.push('store:open');
   const home = ITEMS[o.t]?.animals;
-  if (home && mine) {
+  if (home && role) {
     const list = o.animals || [];
     if (o.goods?.length) out.push('animal:collect');
     if (list.length) out.push('animal:feed', 'animal:pet');
@@ -2582,7 +2639,7 @@ function actionsFor(plot, o) {
 // You can use things at home, or in someone's home while they're in.
 function canUseOn(plot) {
   if (!plot?.owner) return false;
-  if (plot.owner === S.me.id) return true;
+  if (plot.owner === S.me.id || plot.town || roleOn(plot)) return true;
   const host = S.players.get(plot.owner);
   return !!host && plotIdAtPixel(world, host.x, host.y) === plot.id;
 }
@@ -2638,6 +2695,7 @@ function useThing(u, act) {
     return send({ type: 'npcOpen', npc: n.id });
   }
   if (act === 'farm:drive') return send({ type: 'drive', plotId: u.plot.id, lx: u.lx, ly: u.ly });
+  if (act === 'store:open') return ui.showStore(u);
   if (act.startsWith('animal:')) {
     const [, what, kind] = act.split(':');
     return send({ type: 'animal', plotId: u.plot.id, lx: u.lx, ly: u.ly, act: what, kind });
@@ -2845,11 +2903,11 @@ function autoHarvest() {
   if (S.mode !== 'walk' || S.act || S.ride || (S.me.level || 0)) return;
   const id = plotIdAtPixel(world, S.me.x, S.me.y);
   const plot = id >= 0 ? S.plots[id] : null;
-  if (!plot || plot.owner !== S.me.id) return;
+  if (!roleOn(plot)) return;
   const fx = S.me.x / TILE - plot.x, fy = S.me.y / TILE - plot.y - 0.3;
   const now = performance.now(), sNow = serverNow();
   // With a watering can, dry crops count too: the row gets watered as you go.
-  const can = S.inv.wateringcan > 0;
+  const can = S.inv.wateringcan > 0 || S.inv.bigcan > 0;
   const ripe = (x, y) => { const o = plot.obj[key(x, y)]; return !!o && !!ITEMS[o.t]?.crop && (cropStage(o, sNow) >= 3 || (can && !isWet(o, sNow + DAY_MS * 0.3))) && now - (harvestSent.get(`${id}:${x},${y}`) || 0) > 1500; };
   // The tile under your feet and any you brush past.
   for (const [dx, dy] of [[0, 0], [-0.35, 0], [0.35, 0], [0, -0.35], [0, 0.35]]) {
@@ -2858,6 +2916,10 @@ function autoHarvest() {
     const [sx, sy] = S.me.dir === 2 || S.me.dir === 3 ? [1, 0] : [0, 1];
     const tiles = [[lx, ly]];
     for (const sgn of [-1, 1]) for (let n = 1; n < 32 && ripe(lx + sx * n * sgn, ly + sy * n * sgn); n++) tiles.push([lx + sx * n * sgn, ly + sy * n * sgn]);
+    // The scythe sweeps the rows either side too; the big can waters three rows.
+    if (S.inv.scythe > 0 || S.inv.bigcan > 0) {
+      for (const [x, y] of [...tiles]) for (const o of [-1, 1]) { const tx = x + sy * o, ty = y + sx * o; if (ripe(tx, ty) && tiles.length < 64) tiles.push([tx, ty]); }
+    }
     for (const [x, y] of tiles) harvestSent.set(`${id}:${x},${y}`, now);
     send({ type: 'harvest', plotId: id, tiles });
     return;
@@ -3166,6 +3228,8 @@ function drawOverlay(now) {
     if (onScreen(p)) tag(`🏡 ${st.farm ? st.farm + ' Farm' : st.ownerName}`, p.x, p.y, 11, st.owner === S.me.id ? '#ffe08a' : '#fff');
   }
   drawFarmOverlay(onScreen, now);
+  ui.drawFishing(octx, view, now, [S.me, ...S.players.values()]);
+  octx.textAlign = 'center';
   // Goods on shelves (with price tags up close), machines at work, coins from sales.
   const cam = view.target;
   octx.textAlign = 'center';
@@ -3431,7 +3495,7 @@ function tractorWork() {
   if (now - workAt < 120) return;
   const id = plotIdAtPixel(world, S.me.x, S.me.y);
   const plot = id >= 0 ? S.plots[id] : null;
-  if (!plot || plot.owner !== S.me.id) return;
+  if (!roleOn(plot)) return;
   workAt = now;
   const sNow = serverNow(), mode = S.ride.mode;
   const cx = Math.floor(S.me.x / TILE) - plot.x, cy = Math.floor(S.me.y / TILE) - plot.y;
@@ -3545,3 +3609,5 @@ function drawAnimals(now) {
     }
   }
 }
+
+ui = socialUI({ S, send, openModal, closeModal, modal: () => modalKind, toast, esc, itemRow, world, badges });

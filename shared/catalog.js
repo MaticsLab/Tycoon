@@ -80,7 +80,7 @@ export const ITEMS = {
   lamp:          { name: 'Lamp',         cat: 'furniture', layer: 'obj', price: 20, solid: true, light: true },
   bookshelf:     { name: 'Bookshelf',    cat: 'furniture', layer: 'obj', price: 40, solid: true },
   tv:            { name: 'TV',           cat: 'furniture', layer: 'obj', price: 80, solid: true, rot: 'face' },
-  fridge:        { name: 'Fridge',       cat: 'kitchen', layer: 'obj', price: 70, solid: true },
+  fridge:        { name: 'Fridge',       cat: 'kitchen', layer: 'obj', price: 70, solid: true, store: 'food' },
   stove:         { name: 'Stove',        cat: 'kitchen', layer: 'obj', price: 65, solid: true },
   counter:       { name: 'Counter',      cat: 'kitchen', layer: 'obj', price: 25, solid: true },
   dresser:       { name: 'Dresser',      cat: 'furniture', layer: 'obj', price: 35, solid: true },
@@ -90,6 +90,8 @@ export const ITEMS = {
   sink:          { name: 'Vanity Sink',  cat: 'kitchen', layer: 'obj', price: 40, solid: true, rot: 'face' },
   towelrack:     { name: 'Towel Rack',   cat: 'kitchen', layer: 'obj', price: 15, solid: true, rot: 'face' },
   bathmat:       { name: 'Bath Mat',     cat: 'kitchen', layer: 'obj', price: 8, flat: true, rot: 'turn' },
+  chest:         { name: 'Storage Chest', cat: 'decor', layer: 'obj', price: 60, solid: true, rot: 'face', store: 'any' },
+  trophy:        { name: 'Festival Trophy', cat: 'decor', layer: 'obj', price: 0, solid: true, shop: 'juniper' },
   nightstand:    { name: 'Nightstand',   cat: 'decor', layer: 'obj', price: 20, solid: true, rot: 'face' },
   wardrobe:      { name: 'Wardrobe',     cat: 'decor', layer: 'obj', price: 55, solid: true, rot: 'face' },
   coffeetable:   { name: 'Coffee Table', cat: 'decor', layer: 'obj', price: 25, solid: true, size: [2, 1], rot: 'turn' },
@@ -187,6 +189,8 @@ export const ITEMS = {
   juicer:        { name: 'Juice Press',    cat: 'shop', layer: 'obj', price: 75, solid: true, rot: 'face', machine: true },
   bakeryoven:    { name: 'Bakery Oven',    cat: 'shop', layer: 'obj', price: 140, solid: true, rot: 'face', machine: true, light: true },
   soupot:        { name: 'Soup Pot',       cat: 'shop', layer: 'obj', price: 50, solid: true, machine: true },
+  mill:          { name: 'Electric Mill',  cat: 'shop', layer: 'obj', price: 300, solid: true, rot: 'face', machine: true, needs: 'power' },
+  smoker:        { name: 'Fish Smoker',    cat: 'shop', layer: 'obj', price: 120, solid: true, machine: true },
   cheesepress:   { name: 'Cheese Press',   cat: 'shop', layer: 'obj', price: 160, solid: true, rot: 'face', machine: true },
   loom:          { name: 'Loom',           cat: 'shop', layer: 'obj', price: 220, solid: true, size: [2, 1], rot: 'face', machine: true },
 
@@ -238,8 +242,23 @@ export const GOODS = {
   cheese:    { name: 'Cheese',         kind: 'product', value: 230, icon: '🧀' },
   cloth:     { name: 'Cloth',          kind: 'product', value: 330, icon: '🧵' },
   cake:      { name: 'Farmhouse Cake', kind: 'product', value: 380, icon: '🎂' },
+  flour:     { name: 'Flour',          kind: 'product', value: 35, icon: '🥡' },
+  smokedfish: { name: 'Smoked Fish',   kind: 'product', value: 180, icon: '🍢' },
+  fishstew:  { name: 'Fish Stew',      kind: 'product', value: 150, icon: '🍲' },
+  // Fish (see shared/fishing.js)
+  sunfish:   { name: 'Sunfish',  kind: 'fish', value: 25, icon: '🐠' },
+  carp:      { name: 'Carp',     kind: 'fish', value: 40, icon: '🐟' },
+  bass:      { name: 'Bass',     kind: 'fish', value: 70, icon: '🐟' },
+  trout:     { name: 'Trout',    kind: 'fish', value: 85, icon: '🐟' },
+  catfish:   { name: 'Catfish',  kind: 'fish', value: 120, icon: '🐡' },
+  pike:      { name: 'Pike',     kind: 'fish', value: 150, icon: '🦈' },
+  koi:       { name: 'Koi',      kind: 'fish', value: 300, icon: '🎏' },
+  whiskers:  { name: 'Old Whiskers', kind: 'fish', value: 1200, icon: '🐋' },
   // Tools: kept in the bag.
   wateringcan: { name: 'Watering Can', kind: 'tool', value: 40, icon: '🚿' },
+  bigcan:    { name: 'Big Watering Can', kind: 'tool', value: 150, icon: '🪣' },
+  scythe:    { name: 'Scythe',       kind: 'tool', value: 90, icon: '🌙' },
+  rod:       { name: 'Fishing Rod',  kind: 'tool', value: 60, icon: '🎣' },
 };
 
 export const CROPS = {

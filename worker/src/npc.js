@@ -8,7 +8,7 @@
 //            and the last few lines of conversation.
 //   diary    the NPC's memories of how they've changed and why.
 // Villagers also share a gossip feed, so what you tell one NPC can reach the others.
-import { NPCS, TRAITS, traitBand, personalityWords, moodLabel, friendshipLabel } from '../../shared/npcs.js';
+import { NPCS, TRAITS, traitBand, personalityWords, moodLabel, friendshipLabel, heartsOf } from '../../shared/npcs.js';
 import { GOODS, ITEMS, itemName } from '../../shared/catalog.js';
 import { canStand } from '../../shared/plot.js';
 import { worldClock, TILE } from '../../shared/world.js';
@@ -91,7 +91,8 @@ export class Npc {
     const base = ITEMS[item]?.price ?? GOODS[item]?.value ?? 0;
     const a = this.affinity(profile) / 100;
     const g = (this.s.traits.generosity - 50) / 100;
-    const f = selling ? clamp(1.1 - g * 0.5 - a * 0.2, 0.7, 1.5) : clamp(0.9 + g * 0.5 + a * 0.2, 0.5, 1.3);
+    let f = selling ? clamp(1.1 - g * 0.5 - a * 0.2, 0.7, 1.5) : clamp(0.9 + g * 0.5 + a * 0.2, 0.5, 1.3);
+    if (this.affinity(profile) >= 80) f *= selling ? 0.85 : 1.1; // a close friend's price
     return Math.max(1, Math.round(base * f * (selling ? 1 : marketMult(item))));
   }
 
@@ -142,6 +143,9 @@ export class Npc {
       mood: moodLabel(this.mood(now)),
       friendship: friendshipLabel(affinity),
       affinity,
+      hearts: heartsOf(affinity),
+      dating: !!r?.dating,
+      canDate: affinity >= 90,
       personality: personalityWords(this.s.traits),
       likes: affinity >= 40 ? this.def.likes.map(itemName) : null,
       sells: this.def.sells.map((item) => ({ item, name: itemName(item), price: this.price(profile, item, true) })),

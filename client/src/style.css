@@ -342,8 +342,8 @@ body.building #needs { display: none; }
 .qcard .row { display: flex; gap: 6px; }
 .qcard .chip { justify-self: start; }
 @keyframes qpop { from { transform: scale(.94); opacity: 0; } }
-#btn-quests { position: relative; }
-#btn-quests[data-n]:not([data-n=""])::after { content: attr(data-n); position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; border-radius: 9px; background: #d9534f; color: #fff; font-size: 11px; font-weight: bold; display: grid; place-items: center; }
+#btn-quests, #btn-mail, #btn-journal { position: relative; }
+#btn-quests[data-n]:not([data-n=""])::after, #btn-mail[data-n]:not([data-n=""])::after, #btn-journal[data-n]:not([data-n=""])::after { content: attr(data-n); position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; border-radius: 9px; background: #d9534f; color: #fff; font-size: 11px; font-weight: bold; display: grid; place-items: center; }
 
 /* ---- Shops ---- */
 .item-row input.price, .item-row input.qty { width: 58px; padding: 4px; border: 2px solid #d8b98c; border-radius: 6px; font-size: 13px; }
@@ -365,3 +365,15 @@ body.night-skip::after { opacity: 1; transition: opacity .25s; }
 .bag-bar select { padding: 4px; border-radius: 8px; border: 2px solid var(--wood-light); }
 .util-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
 .util-row .grow { flex: 1; }
+
+/* Journal, mail, paper */
+.goal { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; margin: 6px 0; }
+.goal i { grid-column: 1 / -1; height: 6px; background: #e8dcc0; border-radius: 3px; overflow: hidden; }
+.goal i b { display: block; height: 100%; background: #5fc44a; }
+.goal.done span { text-decoration: line-through; opacity: .7; }
+.qcard.unread { border-color: #d98a2b; }
+.paper { background: #fbf6e9; border: 2px solid #d8c9a3; border-radius: 8px; padding: 10px 14px; font-family: Georgia, serif; }
+.paper h2 { margin: 0; text-align: center; border-bottom: 2px solid #333; }
+.paper h4 { margin: 10px 0 2px; }
+.paper p { margin: 0 0 6px; }
+#modal-body textarea, #modal-body input:not([type]), #modal-body input[type=text] { width: 100%; box-sizing: border-box; margin: 4px 0; padding: 6px; border: 2px solid #d8b98c; border-radius: 8px; font: inherit; }

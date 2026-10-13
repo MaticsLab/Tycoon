@@ -296,6 +296,7 @@ export class Life {
     this.game.coins(s, q.reward);
     const giver = this.npcs[q.npc];
     const changes = giver ? giver.feel(p, 2, this.game.now(), `${p.name} did me a favour`, this.game.epoch) : [];
+    if (giver) this.game.hearts(p, giver);
     if (giver) { giver.rel(p).affinity = Math.min(100, giver.rel(p).affinity + 6); this.game.mark(`npc:${giver.id}`); }
     p.questsDone = (p.questsDone || 0) + 1;
     this.trim(p);
@@ -319,6 +320,7 @@ export class Life {
     const p = this.state(s.profile);
     p.stats[act] = (p.stats[act] || 0) + 1;
     this.game.markProfile(p);
+    this.game.events.onStat(p);
     if (p.quests.some((q) => q.status === 'active' && q.kind === 'do' && q.act === act)) this.send(s);
   }
 

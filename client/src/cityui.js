@@ -2,6 +2,7 @@
 // council proposals and the city's data. Rendered into the shared modal sheet.
 import { ROAD_ROWS, ROAD_COLS, ROAD_W, MAP_W, STEP_MS, DAY_STEPS } from '@shared/world.js';
 import { UTILITIES, FARMHANDS, MONTH_DAYS } from '@shared/farm.js';
+import { PROJECTS } from '@shared/townshops.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const ROW_NAMES = ['North Road', 'Market Road', 'South Road', 'Far South Road'];
@@ -47,6 +48,40 @@ function overview(el, ctx) {
   overviewInner(el, ctx);
   bizCard(el, ctx);
   farmCard(el, ctx);
+  bankCard(el, ctx);
+}
+
+// The village bank: loans from the treasury, property tax, and public projects.
+function bankCard(el, { city, send }) {
+  const c = document.createElement('div');
+  c.className = 'city-card';
+  const loan = city.loan;
+  c.innerHTML = `<b>🏦 Village bank & taxes</b>
+    <div>Property tax: <b>${city.taxRate ? `🪙${city.taxRate} per 10 tiles a month` : 'none'}</b> (set by the council)</div>
+    <div class="muted small">Loans: 🪙100–${city.loanMax} from the treasury, pay back ${Math.round(city.loanRate * 100)}% more within ${MONTH_DAYS} days (late loans grow 10% a week).</div>`;
+  const row = document.createElement('div');
+  row.className = 'row';
+  if (loan) {
+    row.innerHTML = `<span class="grow">You owe <b>🪙${loan.owed}</b>, due day ${loan.due}</span>`;
+    const pay = document.createElement('button'); pay.className = 'chip sel'; pay.textContent = 'Repay';
+    pay.onclick = () => { const n = Number(prompt('Repay how much?', String(loan.owed))); if (n > 0) send({ type: 'loanRepay', amount: n }); };
+    row.appendChild(pay);
+  } else {
+    const amt = document.createElement('input');
+    amt.type = 'number'; amt.min = 100; amt.max = city.loanMax; amt.step = 100; amt.value = 500; amt.className = 'qty';
+    amt.addEventListener('keydown', (e) => e.stopPropagation());
+    const take = document.createElement('button'); take.className = 'chip sel'; take.textContent = 'Borrow';
+    take.onclick = () => send({ type: 'loanTake', amount: Number(amt.value) });
+    row.append(Object.assign(document.createElement('span'), { textContent: 'Borrow 🪙' }), amt, take);
+  }
+  c.appendChild(row);
+  const built = Object.entries(PROJECTS).filter(([id]) => city.projects.includes(id));
+  const todo = Object.entries(PROJECTS).filter(([id]) => !city.projects.includes(id));
+  c.insertAdjacentHTML('beforeend', `<div><b>🏗️ Public projects</b> · treasury 🪙${city.treasury.toLocaleString()}</div>
+    ${built.map(([, p]) => `<div>✅ ${p.icon} ${esc(p.name)} at ${esc(p.where)}</div>`).join('')}
+    ${todo.map(([, p]) => `<div class="muted small">${p.icon} ${esc(p.name)} · 🪙${p.cost.toLocaleString()} · ${esc(p.line)}</div>`).join('')}
+    ${todo.length ? '<div class="muted small">Propose one to the council (Council tab); it’s built when it passes and the treasury can pay.</div>' : ''}`);
+  el.appendChild(c);
 }
 
 // Utilities (water, electricity: monthly bills to the city) and the farmhand job board.
@@ -236,15 +271,21 @@ function council(el, { city, me, myPlot, plots, send }) {
     <select name="kind">
       <option value="closeRoad">Close the road across my plot</option>
       <option value="landPrice">Set the price of land</option>
+      <option value="tax">Set property tax</option>
+      <option value="project">Build a public project</option>
       <option value="resolution">A resolution (anything else)</option>
     </select>
     <input name="title" maxlength="60" placeholder="Title">
     <input name="price" type="number" min="1" max="20" placeholder="Coins per tile (1–20)" hidden>
+    <input name="rate" type="number" min="0" max="20" placeholder="Coins per 10 tiles a month (0–20)" hidden>
+    <select name="project" hidden>${Object.entries(PROJECTS).filter(([id]) => !city.projects.includes(id)).map(([id, p]) => `<option value="${id}">${p.icon} ${esc(p.name)} (🪙${p.cost.toLocaleString()})</option>`).join('')}</select>
     <input name="text" maxlength="280" placeholder="Why? (the council and caretakers will read this)">
     <button class="primary">Submit to the council</button>`;
   const sync = () => {
     const k = f.kind.value;
     f.price.hidden = k !== 'landPrice';
+    f.rate.hidden = k !== 'tax';
+    f.project.hidden = k !== 'project';
     f.title.hidden = k !== 'resolution';
   };
   f.kind.onchange = sync;
@@ -252,7 +293,7 @@ function council(el, { city, me, myPlot, plots, send }) {
   f.onsubmit = (ev) => {
     ev.preventDefault();
     const k = f.kind.value;
-    send({ type: 'cityPropose', kind: k, plotId: own?.id, price: Number(f.price.value), title: k === 'resolution' ? f.title.value.trim() : '', text: f.text.value.trim() });
+    send({ type: 'cityPropose', kind: k, plotId: own?.id, price: Number(f.price.value), rate: Number(f.rate.value), project: f.project.value, title: k === 'resolution' ? f.title.value.trim() : '', text: f.text.value.trim() });
   };
   el.appendChild(f);
 }

@@ -11,6 +11,10 @@
 //   Mabel the clerk (an AI villager) sees all of it, and so do AI votes.
 import { DAYS_PER_YEAR, MAP_W, PUBLIC_AREAS, T, isRoad } from '../../shared/world.js';
 import { landError, roadIn } from '../../shared/plot.js';
+import { PROJECTS } from '../../shared/townshops.js';
+import { MONTH_DAYS } from '../../shared/farm.js';
+
+export const LOAN_MAX = 3000, LOAN_RATE = 0.1;
 
 export const TERM_YEARS = 4;
 export const TERM_DAYS = TERM_YEARS * DAYS_PER_YEAR;
@@ -24,7 +28,7 @@ const clean = (s, max) => String(s ?? '').replace(/[\u0000-\u001f<>]/g, '').trim
 
 export function blankCity() {
   return {
-    landPrice: 2, treasury: 0,
+    landPrice: 2, treasury: 0, taxRate: 0, projects: [],
     officials: { mayor: AI_MAYOR, council: [] },
     term: { n: 1, start: 1, end: 1 + TERM_DAYS },
     election: null, lastElection: null,
@@ -68,6 +72,7 @@ export class City {
       const st = S.stats;
       for (const [k, v] of Object.entries(st.roadUse)) { const n = Math.floor(v * 0.8); if (n) st.roadUse[k] = n; else delete st.roadUse[k]; }
       if (st.day) st.history.push({ day: st.day, players: this.game.sessions.size, coins: this.totalCoins(), treasury: S.treasury, ...st.econ });
+      if (st.day) this.money(day);
       if (st.history.length > 14) st.history.splice(0, st.history.length - 14);
       st.econ = { earned: 0, spent: 0, land: 0 };
       st.day = day;
@@ -177,6 +182,18 @@ export class City {
       if (!Number.isInteger(price) || price < 1 || price > 20) return 'Land price must be 1 to 20 coins a tile';
       p.price = price;
       p.title ||= `Set the price of land to 🪙${price} a tile`;
+    } else if (kind === 'tax') {
+      const rate = Number(msg.rate);
+      if (!Number.isInteger(rate) || rate < 0 || rate > 20) return 'Property tax must be 0 to 20 coins per 10 tiles a month';
+      p.rate = rate;
+      p.title ||= rate ? `Set property tax to 🪙${rate} per 10 tiles a month` : 'Abolish property tax';
+    } else if (kind === 'project') {
+      const pr = PROJECTS[msg.project];
+      if (!pr) return 'Unknown project';
+      if (this.s.projects.includes(msg.project)) return `The ${pr.name} is already built`;
+      if (this.s.proposals.some((o) => o.kind === 'project' && o.project === msg.project && (o.status === 'open' || o.status === 'awaiting'))) return 'That project is already before the council';
+      p.project = msg.project;
+      p.title ||= `Build the ${pr.name} (🪙${pr.cost} from the treasury)`;
     } else if (kind === 'resolution') {
       if (p.title.length < 4) return 'Give your resolution a title';
     } else return 'Unknown kind of proposal';
@@ -228,6 +245,21 @@ export class City {
       const plot = this.game.plots[p.plotId];
       if (plot) this.game.closeRoadsOn(plot);
     } else if (p.kind === 'landPrice') this.s.landPrice = p.price;
+    else if (p.kind === 'tax') this.s.taxRate = p.rate;
+    else if (p.kind === 'project') {
+      const pr = PROJECTS[p.project];
+      if (this.s.treasury < pr.cost) {
+        p.status = 'failed';
+        this.news(day, `${p.title}: passed, but the treasury can’t afford it yet (🪙${this.s.treasury} of 🪙${pr.cost}).`);
+        this.mark();
+        return;
+      }
+      this.s.treasury -= pr.cost;
+      this.s.projects.push(p.project);
+      this.game.addTownPlots();
+      this.game.addGossip('City Hall', `The ${pr.name} has been built at ${pr.where}!`);
+      this.game.events?.note(`The village built the ${pr.name} at ${pr.where}`);
+    }
     this.news(day, `${p.title}: ${how}.`);
     this.mark();
   }
@@ -264,7 +296,73 @@ export class City {
       const ok = p.price >= 1 && p.price <= 6;
       return { recommend: ok ? 'yes' : 'no', reason: ok ? 'A fair price that keeps land affordable.' : 'That would price newcomers out of land.' };
     }
+    if (p.kind === 'tax') {
+      const ok = p.rate <= 6;
+      return { recommend: ok ? 'yes' : 'no', reason: ok ? 'A modest tax that pays for nice things without hurting farmers.' : 'Too steep: it would squeeze the village’s farmers.' };
+    }
+    if (p.kind === 'project') {
+      const pr = PROJECTS[p.project];
+      const ok = this.s.treasury >= pr.cost;
+      return { recommend: ok ? 'yes' : 'no', reason: ok ? `The treasury can afford it (🪙${this.s.treasury}) and everyone gets to enjoy it.` : `The treasury only has 🪙${this.s.treasury} of the 🪙${pr.cost} needed.` };
+    }
     return { recommend: 'yes', reason: 'A harmless resolution that the village can rally around.' };
+  }
+
+  // ---------- money: loans and property tax ----------
+  // Borrow from the treasury: pay back 10% more within a month (interest-free if Mabel
+  // is a close friend). Late loans grow 10% a week.
+  loan(s, amount, day) {
+    const p = s.profile;
+    amount = Math.floor(Number(amount));
+    if (p.loan) return `You already owe 🪙${p.loan.owed}: pay that back first`;
+    if (!(amount >= 100 && amount <= LOAN_MAX)) return `Loans are 🪙100 to 🪙${LOAN_MAX}`;
+    if (this.s.treasury < amount) return `The treasury only has 🪙${this.s.treasury} to lend`;
+    const friend = (this.game.npcs.mabel?.affinity(p) || 0) >= 80;
+    const owed = Math.round(amount * (friend ? 1 : 1 + LOAN_RATE));
+    this.s.treasury -= amount;
+    p.loan = { owed, due: day + MONTH_DAYS, took: amount };
+    this.game.coins(s, amount);
+    this.game.markProfile(p);
+    this.mark();
+    s.send({ type: 'toast', text: `🏦 Borrowed 🪙${amount}. Pay back 🪙${owed} by day ${day + MONTH_DAYS}${friend ? ' (no interest: Mabel likes you!)' : ''}.` });
+    return null;
+  }
+  repay(s, amount) {
+    const p = s.profile;
+    if (!p.loan) return 'You don’t owe anything';
+    amount = Math.min(p.loan.owed, Math.floor(Number(amount)) || p.loan.owed, p.coins);
+    if (!(amount > 0)) return 'Not enough coins';
+    this.game.coins(s, -amount);
+    this.s.treasury += amount;
+    p.loan.owed -= amount;
+    if (p.loan.owed <= 0) { p.loan = null; s.send({ type: 'toast', text: '🏦 Loan paid off. Thank you!' }); }
+    this.game.markProfile(p);
+    this.mark();
+    return null;
+  }
+  // Each morning: collect loans that are due; on the first day of each month, property tax.
+  money(day) {
+    const g = this.game;
+    for (const p of Object.values(g.profiles)) {
+      if (p.loan && day >= p.loan.due) {
+        const take = Math.min(p.coins, p.loan.owed);
+        if (take) { g.farm.pay(p, -take); this.s.treasury += take; p.loan.owed -= take; }
+        if (p.loan.owed <= 0) p.loan = null;
+        else { p.loan.owed = Math.round(p.loan.owed * 1.1); p.loan.due = day + 7; g.social?.mail(p, { from: 'City Hall', text: `Your loan is overdue: you still owe 🪙${p.loan.owed} (10% late fee). It’s due again on day ${p.loan.due}.` }); }
+        g.markProfile(p);
+      }
+      if (this.s.taxRate && (day - 1) % MONTH_DAYS === 0) {
+        const tiles = [p.plotId, p.biz?.plotId].map((id) => g.plots[id]).filter((pl) => pl?.owner === p.id).reduce((a, pl) => a + pl.w * pl.h, 0);
+        const tax = Math.round((tiles * this.s.taxRate) / 10);
+        if (tax) {
+          const take = Math.min(p.coins, tax);
+          if (take) { g.farm.pay(p, -take); this.s.treasury += take; }
+          g.social?.mail(p, { from: 'City Hall', text: take < tax ? `Property tax: 🪙${tax} for ${tiles} tiles. You could only pay 🪙${take}; the council has kindly let the rest go this time.` : `Property tax paid: 🪙${tax} for ${tiles} tiles (🪙${this.s.taxRate} per 10 tiles). Thank you for keeping the village lovely!` });
+          g.markProfile(p);
+        }
+      }
+    }
+    this.mark();
   }
 
   async review(p) {
@@ -325,6 +423,7 @@ export class City {
     const traffic = Object.entries(S.stats.roadUse).sort((a, b) => b[1] - a[1]).slice(0, 40).map(([i, n]) => [+i, n]);
     return {
       day, landPrice: S.landPrice, treasury: S.treasury, term: S.term, seats: SEATS,
+      taxRate: S.taxRate || 0, projects: S.projects || [], loan: forProfile?.loan || null, loanMax: LOAN_MAX, loanRate: LOAN_RATE,
       officials: S.officials,
       election: e && {
         n: e.n, founding: e.founding, phase: this.phase(day), filingEnd: e.filingEnd, votingEnd: e.votingEnd,

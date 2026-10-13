@@ -15,7 +15,7 @@ export const NPCS = {
     bio: 'You run Rosa’s Market in the town square. You buy villagers’ crops and sell gifts. You grew up in the village, know everyone, love a bit of gossip and cooking, and worry that the young folks work too hard.',
     base: { warmth: 72, cheer: 66, trust: 62, generosity: 58, energy: 70 },
     likes: ['bouquet', 'tea', 'berry'], dislikes: ['bookgift'],
-    buys: ['turnip', 'carrot', 'berry', 'pumpkin', 'wheat', 'corn', 'melon', 'kale', 'egg', 'milk', 'wool', 'jam', 'juice', 'pie', 'bread', 'soup', 'cheese', 'cloth', 'cake'],
+    buys: ['turnip', 'carrot', 'berry', 'pumpkin', 'wheat', 'corn', 'melon', 'kale', 'egg', 'milk', 'wool', 'sunfish', 'carp', 'bass', 'trout', 'catfish', 'pike', 'koi', 'whiskers', 'jam', 'juice', 'pie', 'bread', 'soup', 'cheese', 'cloth', 'cake', 'flour', 'smokedfish', 'fishstew'],
     sells: ['bouquet', 'honeycake', 'tea', 'bookgift', 'wateringcan', 'hay'],
   },
   otto: {
@@ -41,7 +41,7 @@ export const NPCS = {
     bio: 'You are Juniper, the village gardener who tends the town square. You are dreamy, curious and talk to plants. You hear everything that happens in the village and love passing news along.',
     base: { warmth: 64, cheer: 74, trust: 70, generosity: 66, energy: 80 },
     likes: ['berry', 'pumpkin', 'tea'], dislikes: ['honeycake'],
-    buys: [], sells: [],
+    buys: [], sells: ['rod', 'scythe', 'bigcan'],
   },
   mabel: {
     name: 'Mabel',
@@ -88,3 +88,13 @@ export function friendshipLabel(a) {
   if (a > -45) return 'on bad terms';
   return 'can’t stand you';
 }
+
+// Friendship hearts (0-5) from affinity. 3 ♥: a letter and a gift, 4 ♥: a friend's
+// discount, 5 ♥: best friends, and you can ask them out (three dates: sweethearts).
+export const heartsOf = (a) => (a >= 90 ? 5 : a >= 80 ? 4 : a >= 60 ? 3 : a >= 40 ? 2 : a >= 20 ? 1 : 0);
+export const HEART_GIFTS = {
+  rosa: { 3: { items: { honeycake: 3 }, text: 'You’re one of my favourite customers, so here are some of my honey cakes. Don’t tell the others!' }, 4: { text: 'From now on I’ll pay you a little extra for your produce and give you a friend’s price. Family looks after family.' } },
+  otto: { 3: { items: { chest: 1 }, text: 'Made you a chest. Solid oak. Don’t put it in the damp. ...I mean it.' }, 4: { text: 'Friends get my good prices. Don’t spread it around.' } },
+  juniper: { 3: { items: { bigcan: 1 }, text: 'Your crops deserve better than that little can. Have my old big one, it waters three rows at once!' }, 4: { text: 'Friends get the tools at cost. Well, nearly at cost.' } },
+  mabel: { 3: { coins: 150, text: 'A small grant from the village beautification fund, for being such an upstanding citizen. All above board, I assure you.' }, 4: { text: 'I’ve noted in the records that City Hall lends to you interest-free from now on.' } },
+};

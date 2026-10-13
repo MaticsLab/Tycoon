@@ -8,13 +8,16 @@ import {
   edgeKey, parseEdge, wallError, wallTouchesFeet, roofError, roofAt, indexPlots, roadIn, roadEditError, plotEntrance,
   landError, contentFits, shiftContent, mergedRect, splitRects, hasContent, LAND_PRICE, stepLevel,
 } from '../../shared/plot.js';
-import { NPCS } from '../../shared/npcs.js';
+import { NPCS, heartsOf, HEART_GIFTS } from '../../shared/npcs.js';
 import { HOUR_MS, NEEDS, ACTIVITIES, FOODS, PLATES, sanitizeNeeds, usesOf, advanceNeeds, activityDone, fullNeeds } from '../../shared/needs.js';
 import { sanitizeLook, randomLook, shirtColor } from '../../shared/look.js';
 import { Npc, parseAiReply, REPLY_SCHEMA, setMarket } from './npc.js';
 import { Life } from './life.js';
 import { Business } from './business.js';
 import { Farm } from './farm.js';
+import { Social } from './social.js';
+import { Fishing } from './fishing.js';
+import { Events } from './events.js';
 import { townShopPlots, TOWN_PLOT_BASE } from '../../shared/townshops.js';
 import { waterCrop, WET_MS, QUALITY, ANIMALS } from '../../shared/farm.js';
 import { NPC_ACTS, readTone, blendTone } from '../../shared/village.js';
@@ -89,7 +92,7 @@ export class Game {
     }
     // The village shops (walk-in buildings) are rebuilt from their layout every start.
     for (const id of Object.keys(this.plots)) if (Number(id) >= TOWN_PLOT_BASE) delete this.plots[id];
-    for (const p of townShopPlots()) this.plots[p.id] = p;
+    for (const p of townShopPlots(saved.city?.projects || [])) this.plots[p.id] = p;
     indexPlots(this.world, this.plots);
     // v3 -> v4: roads got wider and plots lost their fences. Plots keep their place;
     // anything now standing on a public road is packed up and refunded.
@@ -105,6 +108,9 @@ export class Game {
     this.life = new Life(this);
     this.biz = new Business(this);
     this.farm = new Farm(this, saved.farm);
+    this.social = new Social(this, saved.social);
+    this.fishing = new Fishing(this);
+    this.events = new Events(this, saved.events);
     setMarket((item) => this.farm.sellMult(item));
     for (const id of Object.keys(NPCS)) this.npcs[id] = new Npc(id, saved.npcs?.[id]);
     this.sessions = new Map(); // player id -> session
@@ -126,6 +132,8 @@ export class Game {
       else if (k === 'roads') out[k] = this.roads;
       else if (k === 'city') out[k] = this.city.s;
       else if (k === 'farm') out[k] = this.farm.save();
+      else if (k === 'social') out[k] = this.social.save();
+      else if (k === 'events') out[k] = this.events.save();
       else if (kind === 'plot') { if (this.plots[id]?.town) continue; out[k] = this.plots[id] ?? null; }
       else if (kind === 'profile') out[k] = this.profiles[id] ?? null;
       else if (kind === 'npc') out[k] = this.npcs[id].s;
@@ -145,6 +153,8 @@ export class Game {
       else if (kind === 'roads') saved.roads = v;
       else if (kind === 'city') saved.city = v;
       else if (kind === 'farm') saved.farm = v;
+      else if (kind === 'social') saved.social = v;
+      else if (kind === 'events') saved.events = v;
       else if (kind === 'plot') saved.plots[id] = v;
       else if (kind === 'profile') saved.profiles[id] = v;
       else if (kind === 'npc') saved.npcs[id] = v;
@@ -160,7 +170,7 @@ export class Game {
 
   publicPlayer(s) {
     const p = s.profile;
-    return { id: p.id, name: p.name, color: p.color, look: p.look, x: s.x, y: s.y, dir: s.dir, moving: s.moving, level: s.level, act: s.ride ? 'drive' : s.act?.id || 0, carry: s.carry?.food || 0 };
+    return { id: p.id, name: p.name, color: p.color, look: p.look, x: s.x, y: s.y, dir: s.dir, moving: s.moving, level: s.level, act: s.ride ? 'drive' : s.fish ? 'fish' : s.act?.id || 0, carry: s.carry?.food || 0 };
   }
 
   // identity: { userId, name, username, isAnonymous } — verified by the host.
@@ -252,6 +262,27 @@ export class Game {
       case 'rideMode': return this.farm.rideMode(s, msg);
       case 'farmWork': return this.farm.work(s, msg);
       case 'animal': return this.farm.animal(s, msg);
+      case 'tradeAsk': return this.social.tradeAsk(s, msg);
+      case 'tradeSet': return this.social.tradeSet(s, msg);
+      case 'tradeOk': return this.social.tradeOk(s);
+      case 'tradeCancel': return this.social.tradeCancel(s);
+      case 'boardPost': return this.social.boardPost(s, msg);
+      case 'boardBuy': return this.social.boardBuy(s, msg);
+      case 'boardCancel': return this.social.boardCancel(s, msg);
+      case 'mailSend': return this.social.mailSend(s, msg);
+      case 'mailTake': return this.social.mailTake(s, msg);
+      case 'mailRead': return this.social.mailRead(s, msg);
+      case 'mailDelete': return this.social.mailDelete(s, msg);
+      case 'helperAdd': return this.social.helperAdd(s, msg);
+      case 'helperRemove': return this.social.helperRemove(s, msg);
+      case 'store': return this.social.store(s, msg);
+      case 'fishCast': return this.fishing.cast(s);
+      case 'fishReel': return this.fishing.reel(s);
+      case 'fishStop': return this.fishing.stop(s);
+      case 'festEnter': return this.events.enter(s, msg);
+      case 'date': return this.date(s, msg);
+      case 'loanTake': return this.cityAction(s, () => this.city.loan(s, msg.amount, this.day()));
+      case 'loanRepay': return this.cityAction(s, () => this.city.repay(s, msg.amount));
     }
   }
 
@@ -367,6 +398,8 @@ export class Game {
     this.life.send(s);
     this.biz.send(s);
     this.farm.syncUtil(profile);
+    this.social.sendMail(s); this.social.sendBoard(s);
+    this.events.send(s); this.events.sendGoals(s); this.events.sendPaper(s);
     if (profile.plotId != null) this.broadcast({ type: 'plot', plot: this.plots[profile.plotId] });
   }
 
@@ -374,6 +407,8 @@ export class Game {
     if (!s.profile || this.sessions.get(s.profile.id) !== s) return;
     if (s.act) this.stopActivity(s, false);
     if (s.ride) this.farm.park(s, true);
+    if (s.trade) this.social.tradeCancel(s);
+    s.fish = null;
     this.sessions.delete(s.profile.id);
     s.profile.x = s.x; s.profile.y = s.y; s.profile.level = s.level;
     this.markProfile(s.profile);
@@ -421,14 +456,44 @@ export class Game {
   }
 
   // ---------- plots ----------
-  ownPlot(s, plotId) {
+  // A plot you may work on: your own, or one whose owner made you a helper (need:
+  // 'farm' for farming, 'build' for building).
+  ownPlot(s, plotId, need = 'build') {
     const plot = this.plots[plotId];
     if (!plot) return null;
-    if (plot.owner !== s.profile.id) { s.send({ type: 'error', msg: "That isn't your plot" }); return null; }
+    if (!this.canWork(plot, s.profile.id, need)) { s.send({ type: 'error', msg: "That isn't your plot" }); return null; }
     return plot;
   }
+  canWork(plot, pid, need = 'farm') {
+    if (!plot?.owner) return false;
+    if (plot.owner === pid) return true;
+    const h = plot.helpers?.[pid];
+    return !!h && (h.role === 'build' || need === 'farm');
+  }
 
-  coins(s, delta) {
+  // Count something a player did (for goals and quests).
+  count(p, key, n = 1) {
+    if (!p || !n) return;
+    p.stats ||= {};
+    p.stats[key] = (p.stats[key] || 0) + n;
+    this.markProfile(p);
+    this.events.onStat(p);
+  }
+
+  // Village plots for public projects the council has built.
+  addTownPlots() {
+    let added = false;
+    for (const p of townShopPlots(this.city.s.projects)) {
+      if (this.plots[p.id]) continue;
+      this.plots[p.id] = p;
+      added = true;
+      this.broadcast({ type: 'plot', plot: p });
+    }
+    if (added) indexPlots(this.world, this.plots);
+  }
+
+  coins(s, delta, quiet = false) {
+    if (delta > 0 && !quiet) this.count(s.profile, 'earned', delta);
     s.profile.coins += delta;
     this.city.onCoins(delta);
     s.send({ type: 'coins', coins: s.profile.coins });
@@ -483,11 +548,12 @@ export class Game {
     level = this.lvl(level);
     const def = ITEMS[item];
     const err = placementError(plot, lx, ly, item, r, level, this.world) || (def?.crop && this.farm.seasonError(def.crop, plot, lx, ly));
+    const fromBag = def && (def.shop || (def.layer === 'obj' && !def.crop && s.profile.inv[item] > 0));
     if (err) return s.send({ type: 'error', msg: err });
     const view = levelView(plot, level);
     const k = key(lx, ly);
     const free = s.cheats.build;
-    if (def.shop && !free) {
+    if (fromBag && !free) {
       if (!s.profile.inv[item]) return s.send({ type: 'error', msg: `Buy a ${def.name} from ${NPCS[def.shop].name} first` });
     } else if (!free) {
       const refund = def.layer === 'floor' && view.floor[k] ? ITEMS[view.floor[k]].price : 0;
@@ -508,8 +574,9 @@ export class Game {
           if (f) { delete up.floor[key(tx, ty)]; if (!free) this.coins(s, ITEMS[f].price); }
         }
       }
-      if (free) { /* bb.enablefreebuild */ } else if (def.shop) this.bag(s, item, -1);
+      if (free) { /* bb.enablefreebuild */ } else if (fromBag) this.bag(s, item, -1);
       else this.coins(s, -def.price);
+      if (def.crop) this.count(s.profile, 'plant');
     }
     this.plotChanged(plot);
   }
@@ -695,6 +762,7 @@ export class Game {
     const hit = objAt(view, lx, ly);
     if (hit?.obj.animals?.length) return s.send({ type: 'error', msg: `Sell or move out the animals first (tap the ${ITEMS[hit.obj.t].name.toLowerCase()})` });
     if (hit) {
+      if (hit.obj.inv) this.social.emptyInto(s, hit.obj);
       delete view.obj[hit.key];
       const def = ITEMS[hit.obj.t];
       // Shop items go back in the bag, crops are lost, everything else is refunded.
@@ -777,6 +845,7 @@ export class Game {
         const def = ITEMS[o.t];
         if (terrain && !def.crop) continue;
         if (def.stairs && terrain) continue;
+        if (o.inv) this.social.emptyInto(s, o);
         delete view.obj[k];
         if (def.shop) bag[o.t] = (bag[o.t] || 0) + 1; else if (!def.crop) coins += def.price;
         for (const a of o.animals || []) coins += Math.round(ANIMALS[a.k].price / 2); // sold off
@@ -1020,7 +1089,7 @@ export class Game {
     }
     if (!s.cheats.testing) return say('Type "testingcheats true" first.');
     const MAX = 99_999_999;
-    const set = (n) => this.coins(s, Math.max(0, Math.min(MAX, n)) - s.profile.coins);
+    const set = (n) => this.coins(s, Math.max(0, Math.min(MAX, n)) - s.profile.coins, true);
     switch (c) {
       case 'money': {
         const n = Number(args[0]);
@@ -1073,13 +1142,13 @@ export class Game {
   // Produce goes into the bag; sell it at Rosa's Market.
   // Harvest one tile (lx, ly), a list of tiles (a row you walked into), or everything.
   harvest(s, { plotId, lx, ly, tiles }) {
-    const plot = this.ownPlot(s, plotId);
+    const plot = this.ownPlot(s, plotId, 'farm');
     if (!plot) return;
     const now = this.now();
     const keys = Array.isArray(tiles) ? tiles.slice(0, 64).filter((t) => Array.isArray(t) && t.every(Number.isInteger)).map(([x, y]) => key(x, y))
       : Number.isInteger(lx) ? [key(lx, ly)] : Object.keys(plot.obj);
     const got = {}, hq = [];
-    const can = s.profile.inv.wateringcan > 0;
+    const can = s.profile.inv.wateringcan > 0 || s.profile.inv.bigcan > 0;
     let watered = 0;
     for (const k of keys) {
       const o = plot.obj[k];
@@ -1094,7 +1163,9 @@ export class Game {
       hq.push([crop, q]);
       delete plot.obj[k];
     }
+    if (watered) this.count(s.profile, 'water', watered);
     if (!Object.keys(got).length) { if (watered) this.plotChanged(plot); return; }
+    this.count(s.profile, 'harvest', hq.length);
     for (const [crop, q] of hq) this.bag(s, crop, 1, q);
     s.send({ type: 'harvested', items: got, ...this.farm.qualCount(hq) });
     this.plotChanged(plot);
@@ -1130,6 +1201,9 @@ export class Game {
     if (!n) return;
     if (n.asleep) return s.send({ type: 'error', msg: `${n.def.name} is fast asleep. Zzz… (try again in the morning)` });
     this.hold(n, s);
+    const today = this.day();
+    if (s.talkedDay !== today) { s.talkedDay = today; s.talked = new Set(); }
+    if (!s.talked.has(n.id)) { s.talked.add(n.id); this.count(s.profile, 'talk'); }
     const greeting = n.greeting(s.profile, this.now());
     s.send({ type: 'npc', ...n.view(s.profile, this.now()), doing: n.doing(), thought: n.thought, say: greeting });
     this.broadcast({ type: 'npcBubble', id: n.id, text: greeting });
@@ -1168,6 +1242,46 @@ export class Game {
     this.mark('gossip');
   }
 
+  // Friendship milestones: a letter (and a gift) the first time you reach 3, 4 and 5 hearts.
+  hearts(p, n) {
+    const r = n.rel(p);
+    const h = heartsOf(r.affinity);
+    r.hearts ||= 0;
+    while (r.hearts < h) {
+      r.hearts++;
+      const gift = HEART_GIFTS[n.id]?.[r.hearts];
+      if (gift) this.social.mail(p, { from: n.def.name, text: gift.text, items: gift.items || null, coins: gift.coins || 0 });
+      else if (r.hearts === 5) this.social.mail(p, { from: n.def.name, text: `I don’t say this to many people, ${p.name}, but you’re my best friend in this village. If you ever fancy spending an afternoon together… just ask.` });
+      if (r.hearts >= 3) this.events.note(`${p.name} and ${n.def.name} have become ${r.hearts === 5 ? 'best friends' : 'good friends'}`);
+    }
+    this.mark(`npc:${n.id}`);
+  }
+
+  // Spend the afternoon with a best friend (5 hearts). Three dates and you're sweethearts.
+  async date(s, { npc }) {
+    const n = this.nearNpc(s, npc);
+    if (!n || s.busy) return;
+    if (n.asleep) return s.send({ type: 'error', msg: `${n.def.name} is asleep` });
+    const r = n.rel(s.profile);
+    if (r.affinity < 90) return s.send({ type: 'error', msg: `You and ${n.def.name} aren’t that close yet (5 ♥)` });
+    const day = this.day();
+    if (r.dateDay === day) return s.send({ type: 'error', msg: `You’ve already spent today together. Maybe tomorrow?` });
+    r.dateDay = day;
+    r.dates = (r.dates || 0) + 1;
+    const nd = s.profile.needs;
+    nd.fun = Math.min(100, nd.fun + 40);
+    this.sendNeeds(s);
+    if (r.dates >= 3 && !r.dating) {
+      r.dating = true;
+      this.addGossip(n.def.name, `${s.profile.name} and ${n.def.name} are sweethearts now!`);
+      this.events.note(`${s.profile.name} and ${n.def.name} are an item, the whole village is talking`);
+      s.send({ type: 'toast', text: `💕 You and ${n.def.name} are sweethearts!` });
+    } else s.send({ type: 'toast', text: `💕 A lovely afternoon with ${n.def.name} (+40 fun)` });
+    this.mark(`npc:${n.id}`);
+    s.busy = true;
+    try { await this.converse(s, n, r.dating ? '*spends a sweet afternoon with you, holding hands*' : '*asks you to spend the afternoon together*', 2); } finally { s.busy = false; }
+  }
+
   // Ask the NPC's mind for a reply. `forced` overrides the sentiment (used for gifts).
   async converse(s, n, text, forced) {
     const now = this.now();
@@ -1188,6 +1302,7 @@ export class Game {
     if (res.bit) n.addBit(s.profile, res.bit);
     if (res.gossip) this.addGossip(n.def.name, res.gossip);
     const changes = n.feel(s.profile, sentiment, this.now(), sentiment >= 0 ? `${s.profile.name} was kind to me` : `${s.profile.name} upset me`, this.epoch);
+    this.hearts(s.profile, n);
     this.mark(`npc:${n.id}`);
     this.hold(n, s);
     if (this.sessions.get(s.profile.id) === s) {
@@ -1215,6 +1330,7 @@ export class Game {
     if (!n || s.busy || !GOODS[item] || !s.profile.inv[item]) return;
     s.busy = true;
     this.bag(s, item, -1);
+    this.count(s.profile, 'gift');
     const sentiment = n.def.likes.includes(item) ? 2 : n.def.dislikes.includes(item) ? -1 : 1;
     try { await this.converse(s, n, `*gives you a ${GOODS[item].name} as a gift*`, sentiment); } finally { s.busy = false; }
   }
@@ -1239,7 +1355,8 @@ export class Game {
     const unit = n.price(s.profile, item, false);
     const took = this.bag(s, item, -qty, 0, true); // the best ones first
     const price = took.reduce((a, k, q) => a + k * Math.round(unit * QUALITY[q].mult), 0);
-    this.farm.onSold(item, qty);
+    this.farm.onSold(item, qty, s.profile);
+    this.count(s.profile, 'sold', qty);
     this.coins(s, price);
     this.trade(s, n, 0.3, `${s.profile.name} sold me good produce`, `${qty} ${itemName(item)}${qty > 1 ? 's' : ''}? Lovely — here's ${price} coins.`);
   }
@@ -1247,6 +1364,7 @@ export class Game {
   trade(s, n, sentiment, why, line) {
     this.hold(n, s);
     const changes = n.feel(s.profile, sentiment, this.now(), why, this.epoch);
+    this.hearts(s.profile, n);
     this.mark(`npc:${n.id}`);
     s.send({ type: 'npcSay', text: line, sentiment, changes, ...n.view(s.profile, this.now()) });
   }
@@ -1322,7 +1440,7 @@ export class Game {
     const plot = this.plots[plotId];
     if (!plot || !Number.isInteger(lx) || !Number.isInteger(ly)) return;
     level = this.lvl(level);
-    if (plot.owner !== s.profile.id) {
+    if (plot.owner !== s.profile.id && !plot.town && !this.canWork(plot, s.profile.id)) {
       const host = plot.owner && this.sessions.get(plot.owner);
       if (!host || plotIdAtPixel(this.world, host.x, host.y) !== plot.id) return s.send({ type: 'error', msg: 'You can only use things in someone’s home while they’re in' });
     }
@@ -1445,6 +1563,8 @@ export class Game {
     if (this.city.statsDirty && now - (this.lastCitySave || 0) > 30_000) { this.lastCitySave = now; this.city.statsDirty = false; this.mark('city'); }
     this.biz.tick(now);
     this.farm.tick(now);
+    this.events.tick(now);
+    this.fishing.tick(now);
     if (!this.sessions.size) return;
     // Drop players we haven't heard from for 450 ticks, about 45 s (a phone that went to
     // sleep mid-game). Counted in ticks so a stalled server never drops everyone at once.
@@ -1480,7 +1600,7 @@ export class Game {
     const rows = [], changed = new Set();
     this.lastRows ||= new Map();
     for (const o of this.sessions.values()) {
-      const row = [o.profile.id, round(o.x), round(o.y), o.dir, o.moving || 0, o.level || 0, o.ride ? 'drive' : o.act?.id || 0, o.carry?.food || 0];
+      const row = [o.profile.id, round(o.x), round(o.y), o.dir, o.moving || 0, o.level || 0, o.ride ? 'drive' : o.fish ? 'fish' : o.act?.id || 0, o.carry?.food || 0];
       const k = row.join(',');
       if (this.lastRows.get(o.profile.id) !== k) { changed.add(o.profile.id); this.lastRows.set(o.profile.id, k); }
       rows.push([o, row]);

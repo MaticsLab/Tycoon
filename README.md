@@ -118,6 +118,44 @@ You can also befriend villagers whose personalities change based on how you trea
     - **Bakery Oven:** wheat, eggs and milk → Farmhouse Cake; wheat → bread.
     - **Juice Press:** melon juice.
     - **Soup Pot:** corn & kale soup.
+- **Fishing.** Buy a rod from Juniper and stand at the water's edge (the square's pond or Willow Lake), then tap **🎣 Fish**. When the **❗** appears, tap **Reel in!** quickly; a faster reel can land a better-quality fish. What bites depends on the water, the season and the time of day:
+  - sunfish, carp, bass, trout and pike;
+  - catfish (at night) and koi (in the pond);
+  - and the legendary **Old Whiskers** (Willow Lake, fall nights).
+
+  Rosa buys fish. You can eat them, smoke them in a **Fish Smoker**, or make **Fish Stew**.
+- **Trading.** In the bag, choose someone standing near you and tap **🤝 Trade**. Each side puts items and coins in a two-sided window, and nothing changes hands until both agree.
+- **The notice board** (town square or City Hall) is a player market. Post items at your price, up to 5 notices each. Anyone can buy them, and you're paid even when offline, with a letter to tell you.
+- **Mail** (📬). Write letters from any mailbox (the square, City Hall, or one on someone's plot) and attach items or coins; postage is 🪙5. Letters wait in the recipient's mail even if they're offline. Bills, festival prizes and villagers' letters arrive here too.
+- **Co-op farms.** In build mode, open **Lot** and add friends by name, either as farm helpers or co-builders:
+  - **Farm helpers** can harvest, water, plant, look after animals and drive your tractor.
+  - **Co-builders** can do all of that and build too.
+
+  Whoever does the work keeps the harvest and pays for what they build.
+- **Storage.** A **Storage Chest** holds 300 of anything (30 kinds), and the fridge holds food. Quality is kept. Removing a chest gives its contents back.
+- **Festivals.** Every 7th day there's a contest at the Harvest Fair (or the square), rotating through:
+  - the Harvest Festival (crops);
+  - the Fishing Derby (fish);
+  - the Great Bake-Off (homemade products);
+  - the Animal Fair (eggs, milk, wool).
+
+  Enter before 6 PM. Entries are judged on value × quality, and the top three win 🪙500 / 🪙250 / 🪙100, with a **Festival Trophy** for first place.
+- **Journal** (📖):
+  - **Daily and weekly goals:** 3 small goals a day and 1 bigger one a week, paid as soon as you finish.
+  - **The festival:** entries and results.
+  - **The Village Gazette:** a morning newspaper the AI writes from what really happened (winners, new sweethearts, Rosa's best supplier, council news).
+- **Friendship and dating.** Villagers' hearts (0–5) grow as you're kind to them:
+  - **3 ♥:** a letter with a gift (Rosa's honey cakes, a chest from Otto, Juniper's big watering can, a grant from Mabel).
+  - **4 ♥:** a friend's discount, or interest-free loans from Mabel.
+  - **5 ♥:** best friends. You can **💕 ask them out** (once a day, +40 fun). After three dates, you're sweethearts.
+- **More tools and machines.**
+  - **Juniper's cart** sells a **Scythe** (harvests the rows either side of the one you walk) and a **Big Watering Can** (waters three rows).
+  - **Electric Mill** (needs power): wheat → flour. Flour goes into Farmhouse Cake and wheat bread.
+- **The village bank and public projects** (City Hall):
+  - **Loans:** borrow 🪙100–3,000 from the treasury and pay back 10% more within 28 days.
+  - **Property tax:** the council can set it (0–20 coins per 10 tiles a month); it's collected on the first day of each month.
+  - **Public projects:** the council can vote to spend the treasury on a Flower Garden (Willow Park), a Farmers' Market and a Village Library (City Hall lawn, walk-in, with books to read), or a Bandstand at the fair. Each appears in the world once it's built.
+- **Rosa reacts to supply.** Each morning she runs short of whatever in-season crop nobody's been bringing her and pays 50% more for it. She also brags about yesterday's best supplier.
 - **Walk-in village shops.** Rosa's Market and Otto's Furniture on the town square are real buildings: in through the glass double doors, the walls cut away like at home. Rosa's has shelves, produce stands and chilled cases stocked with what she buys and sells; Otto's is a furniture showroom with a fireplace and a piano. The keepers stand behind their counters during opening hours. Tap a shelf or the register (**🛒 Shop here**), or talk to the keeper from anywhere inside, to buy and sell. The shops belong to the village: nobody can claim or edit them.
 - **Watering.** Watered crops grow twice as fast while the soil stays wet (one in-game day; wet soil looks dark). Buy a **watering can** from Rosa and walking through your rows waters them.
 - **Water and electricity.** At City Hall, hook up **💧 water** (🪙100 setup + 🪙120 a month) or **⚡ electricity** (🪙150 + 🪙200 a month). Bills go to the city treasury every 28 days. If you can't pay, the service is cut off until you settle up at City Hall.
