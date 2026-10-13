@@ -34,7 +34,7 @@ You can also befriend villagers whose personalities change based on how you trea
     AI caretakers vote as a bloc on advice from Workers AI, which weighs the city data. A player mayor signs or vetoes; unsigned bills become law after a day.
   - **City data**: road traffic, visits to public places, the economy and the treasury (land payments go to the city). Mabel sees all of it and answers questions about it.
   - Only villagers with an account can run, vote or bring proposals.
-- **Village map.** A minimap in the corner shows the whole village: roads, public places, every plot (yours in gold, land for sale dashed), houses, and live dots for you, other players, townsfolk and pets.
+- **Village map.** A square minimap in the corner follows you as you walk, and the full map (M) shows the whole village: roads, public places, every plot (yours in gold, land for sale dashed), houses, and live dots for you, other players, townsfolk and pets.
   Tap it or press **M** for the full map with labels and a legend.
 - **Village clock:** a day runs from 5:00 AM to 5:00 AM. The clock moves in 10-minute steps, about 6 real seconds each, and there are 112 days in a year.
 - **Sims-style build mode** on your own plot:
@@ -74,7 +74,7 @@ You can also befriend villagers whose personalities change based on how you trea
   - Each NPC has five traits: warmth, cheer, trust, generosity and energy. Kindness, insults and gifts shift those traits over time, and the NPC keeps a diary of how and why they changed.
   - They remember facts about you, keep the last few lines of your conversation, and pass gossip to each other.
   - Their mood and how much they like you change their shop prices.
-- **Needs, like The Sims.** Hunger, energy, bladder, hygiene and fun run down while you play (one in-game hour is 36 seconds), shown in the **Needs** panel under the map with a plumbob that turns from green to red as your mood drops. **Health** falls while any need is empty and recovers while they're all okay; if it hits zero you faint and wake up at home, patched up by the village doctor for 🪙25. Being exhausted or unwell also slows you down.
+- **Needs, like The Sims.** Hunger, energy, bladder, hygiene and fun run down while you play (one in-game hour is 36 seconds), shown in the **Needs** panel under the map with a plumbob that turns from green to red as your mood drops. **Health** falls while any need is empty and recovers while they're all okay; you get a warning when it drops low, and if it hits zero you faint and the village doctor patches you up right where you are for 🪙25. Being exhausted or unwell also slows you down.
   Walk up to furniture and use the action button, or tap it for a menu:
   - **Fridge**: grab a sandwich (🪙5) or cook a meal (🪙15, needs a stove); the stove cooks and the BBQ grill grills too. When it's ready you're holding a plate (everyone can see it), so carry it anywhere and **sit and eat** on a chair, sofa, stool, bench or picnic table, or eat standing up. Walk off before it's ready and you get your coins back.
   - **Toilet**, **shower**, **bathtub** and **sink** fill bladder and hygiene; showers and baths steam.
@@ -163,7 +163,7 @@ You can also befriend villagers whose personalities change based on how you trea
   - lanterns by the door that glow at night, and a front step;
   - Otto's brick chimney.
 
-  Rosa has produce stands out front and Otto has porch chairs and a dresser, with benches, planters and lamps around the fountain.
+  Rosa has a market stall, a produce cart, barrels and crates piled with produce, flower buckets, a chalkboard and bunting out front, a fishmonger's stall sits by the pond, and Otto has porch chairs, a dresser and an OPEN sign, with benches, planters and lamps around the fountain.
 - **Woods, chopping and mining.** Groves of trees and rocky outcrops cover the open land. Buy an **axe** or a **pickaxe** from Juniper, walk up and tap **🪓 Chop tree** / **⛏️ Break rock**, or tap the tree itself; if you're far away, you walk over first.
   - A tree takes 3 swings (3–5 wood, sometimes an oak sapling) and a rock takes 4 (2–4 stone). Otto buys wood and stone.
   - Claiming land clears it, and the wood and stone go to you.
@@ -194,7 +194,7 @@ You can also befriend villagers whose personalities change based on how you trea
     Everything is muffled when you're indoors.
   - **Effects:** chopping, a tree falling, mining, fishing splashes and bites, placing and picking up, and coins when trading.
   - **Volumes:** set music, ambience and effects in ⚙️ Settings → Game.
-- **Walk-in village shops.** Rosa's Market and Otto's Furniture on the town square are real buildings: in through the glass double doors, the walls cut away like at home. Rosa's has shelves, produce stands and chilled cases stocked with what she buys and sells; Otto's is a furniture showroom with a fireplace and a piano. The keepers stand behind their counters during opening hours. Tap a shelf or the register (**🛒 Shop here**), or talk to the keeper from anywhere inside, to buy and sell. The shops belong to the village: nobody can claim or edit them.
+- **Walk-in village shops.** Rosa's Market and Otto's Furniture on the town square are real buildings: in through the glass double doors, the walls cut away like at home. Rosa's has wall shelving, shelves, produce stands, end caps, chilled cases and a bakery case, all filled with real goods you can see (turnips heaped in crates, loaves in the bakery case, milk bottles in the chiller); Otto's is a furniture showroom with a fireplace and a piano. The keepers stand behind their counters during opening hours. Tap a shelf or the register (**🛒 Shop here**), or talk to the keeper from anywhere inside, to buy and sell. The shops belong to the village: nobody can claim or edit them.
 - **Watering.** Watered crops grow twice as fast while the soil stays wet (one in-game day; wet soil looks dark). Buy a **watering can** from Rosa and walking through your rows waters them.
 - **Water and electricity.** At City Hall, hook up **💧 water** (🪙100 setup + 🪙120 a month) or **⚡ electricity** (🪙150 + 🪙200 a month). Bills go to the city treasury every 28 days. If you can't pay, the service is cut off until you settle up at City Hall.
   - Water gives you a **ground spout** and electricity a **power box**. Place either anywhere on your plot from Build → Bag.
@@ -218,7 +218,8 @@ You can also befriend villagers whose personalities change based on how you trea
 - **The market.** Selling lots of one crop lowers what Rosa pays for it for a while (it recovers hour by hour). Each morning she names a **⭐ pick of the day** that she pays 50% more for. Her stall shows the trends.
 - **Run a business.** Get a licence at City Hall (🪙500, paid to the treasury). Then stand on a plot that's for sale and tap **Open my shop here**; the land costs the usual price per tile.
   - **Build it** like a house. In build mode the **🏠 Home ⇄ 🏪** button switches which plot you're building.
-  - **Shop & Machines** tab: shop shelves, produce stands, display tables, chilled cases, a cash register and a shop sign.
+  - **Shop & Machines** tab: indoor displays (shop shelves, wall shelving, produce stands, display tables, gondola end caps, basket stands, chilled cases, a bakery case), outdoor displays (market stall, produce cart, barrel display, crate stack, fish stall), a cash register and a shop sign.
+  - **Shop Decor** tab: chalkboard sign, bunting, flower buckets, an OPEN sign, basket stacks, a market parasol and a weighing scale.
   - **Machines** turn crops into products over a few in-game hours:
 
     | Machine | Makes |
@@ -229,7 +230,7 @@ You can also befriend villagers whose personalities change based on how you trea
     | Soup pot | veggie soup |
 
     Products sell for more than raw crops, and you can eat them or sell them to Rosa.
-  - **Shelves:** tap one to stock it from your bag and set your own prices. Customers see the goods and price tags on the shelf.
+  - **Shelves:** tap one to stock it from your bag and set your own prices. The goods sit on the display itself as little models (more stock, fuller shelves), and price tags appear on the shelf edge when someone walks up.
   - **Opening hours:** the shop is open while you **work the register** (you also earn 10% tips), or while a hired clerk is in, 8 AM to 8 PM. The clerks are Pip, Hazel, Bram and Wren, each with a daily wage and a sales skill. Wages are paid each morning, and a clerk you can't pay quits.
   - **Customers:**
     - Walk-in customers (villagers and townsfolk) come more often on busy roads, using City Hall's traffic data, and buy more when prices are fair.

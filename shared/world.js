@@ -91,16 +91,22 @@ export const publicAreaAt = (tx, ty) => PUBLIC_AREAS.find((a) => inRect(a, tx, t
 // Public props: [item, x, y, r?]. Solid ones block their footprint tiles.
 function publicDecor(season) {
   const out = [];
-  const add = (t, x, y, r = 0) => out.push({ t, x, y, r });
+  const add = (t, x, y, r = 0, stock) => out.push(stock ? { t, x, y, r, stock: stock.map((item) => ({ item, n: 9 })) } : { t, x, y, r });
   // City Hall forecourt
   for (const x of [128, 149]) add('flagpole', x, 34);
   for (const x of [123, 155]) for (const y of [35, 39]) add('lamppost', x, y);
   add('noticeboard', 136, 35); add('ballotbox', 141, 35); add('mailbox', 134, 37);
   // Town square: the village notice board (player market) and a post box.
   add('noticeboard', 54, 55); add('mailbox', 57, 57);
-  // Out in front of the shops: Rosa's produce stands, Otto's porch chairs and a dresser.
-  add('producestand', 44, 51); add('flowerbed', 46, 51); add('producestand', 49, 51); add('flowerbed', 51, 51);
-  add('rockingchair', 68, 51); add('armchair', 69, 51); add('flowerbed', 70, 51); add('dresser', 73, 51); add('flowerbed', 74, 51); add('bush', 75, 51);
+  // Out in front of the shops: Rosa's market stall, produce cart, barrels and crates
+  // piled with produce; Otto's porch chairs, a dresser and his OPEN sign.
+  add('barreldisplay', 43, 51, 0, ['apple', 'wheat']); add('marketstall', 44, 51, 0, ['pumpkin', 'melon', 'corn', 'apple']); add('chalkboard', 46, 51);
+  add('producecart', 49, 51, 0, ['turnip', 'carrot', 'kale', 'berry']); add('flowerbuckets', 51, 51); add('cratestack', 52, 51, 0, ['carrot', 'turnip']);
+  add('bunting', 44, 52); add('bunting', 49, 52);
+  add('rockingchair', 68, 51); add('armchair', 69, 51); add('opensign', 70, 51); add('dresser', 73, 51); add('flowerbed', 74, 51); add('bush', 75, 51);
+  add('basketstack', 76, 51); add('parasol', 67, 53);
+  // A fishmonger's stall by the pond.
+  add('fishstall', 43, 56, 0, ['trout', 'bass', 'sunfish']);
   // Benches round the fountain, and planters and lamps along the square.
   add('bench', 50, 57); add('bench', 68, 57); add('flowerbed', 44, 60); add('flowerbed', 77, 60); add('lamppost', 42, 51); add('lamppost', 78, 51);
   add('bench', 64, 48); add('flowerbed', 54, 48); add('flowerbed', 65, 48); add('lamppost', 54, 46); add('lamppost', 65, 46);
@@ -267,6 +273,9 @@ const PROP_SIZE = {
   armchair: { solid: true }, dresser: { solid: true }, bush: { solid: true }, gazebo: { solid: true, size: [4, 4] }, stall: { solid: true, size: [3, 2] },
   scarecrow: { solid: true }, jackolantern: { solid: true }, pumpkin_deco: { solid: false }, haybale: { solid: true, size: [2, 1] },
   cauldron: { solid: true }, cornstalks: { solid: true }, gravestone: { solid: true }, ironfence: { solid: true },
+  barreldisplay: { solid: true }, marketstall: { solid: true, size: [2, 1] }, producecart: { solid: true, size: [2, 1] }, cratestack: { solid: true },
+  chalkboard: { solid: true }, flowerbuckets: { solid: true }, bunting: { solid: false, size: [2, 1] }, opensign: { solid: true },
+  basketstack: { solid: true }, parasol: { solid: true }, fishstall: { solid: true, size: [2, 1] },
 };
 
 // The live road layout = generated roads, plus tiles players have paved, minus tiles

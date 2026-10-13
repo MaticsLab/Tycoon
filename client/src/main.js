@@ -14,6 +14,7 @@ import { NPCS } from '@shared/npcs.js';
 import { itemIcon } from './sprites.js';
 import { View, LEVEL_H } from './gfx/view.js';
 import { Ghost, Outline } from './gfx/ghost.js';
+import { slotFronts } from './gfx/goods.js';
 import { Minimap } from './minimap.js';
 import { roomTiles, roomRegion, extract, rotateTimes, fragmentValue, removeAt, stockFragment, placeError as fragError } from '@shared/blueprint.js';
 import { STYLED_ROOMS } from '@shared/rooms.js';
@@ -1123,7 +1124,7 @@ function renderItems() {
     b.className = id === S.tool.id ? 'sel' : '';
     b.appendChild(iconFor(id));
     const [w, h] = footprint(id, 0);
-    b.title = `${def.name}${def.crop ? ` · grows in ${seasonsLabel(def.crop)}` : ''} · ${def.shop ? `×${S.inv[id]} in your bag` : `🪙${def.price}`}${w * h > 1 ? ` · ${w}×${h}` : ''}${canRotate(id) ? ' · rotatable' : ''}${def.light ? ' · glows at night' : ''}${def.solid ? '' : ' · walk-through'}`;
+    b.title = `${def.name}${def.crop ? ` · grows in ${seasonsLabel(def.crop)}` : ''} · ${def.shop ? `×${S.inv[id]} in your bag` : `🪙${def.price}`}${w * h > 1 ? ` · ${w}×${h}` : ''}${canRotate(id) ? ' · rotatable' : ''}${def.light ? ' · glows at night' : ''}${def.slots ? ` · shows ${def.slots} kinds of goods${def.outdoor ? ', made for outdoors' : ''}` : ''}${def.solid ? '' : ' · walk-through'}`;
     const size = def.layer === 'obj' && w * h > 1 ? ` · ${w}×${h}` : '';
     const unit = def.layer === 'wall' ? '/wall' : def.layer === 'roof' || def.layer === 'floor' ? '/tile' : '';
     b.insertAdjacentHTML('beforeend', def.shop
@@ -3363,7 +3364,7 @@ function render(now) {
   view.pruneActors();
   updateOutline();
   updateMap(now);
-  const hour = S.mode === 'build' && S.previewHour != null ? S.previewHour : worldClock(sNow, S.epoch).hours;
+  const hour = S.debugHour ?? (S.mode === 'build' && S.previewHour != null ? S.previewHour : worldClock(sNow, S.epoch).hours);
   view.render(now, darkness(hour), S.mode !== 'build');
   drawOverlay(now);
 }
@@ -3441,14 +3442,17 @@ function drawOverlay(now) {
       for (const [k, o] of Object.entries(v.obj)) {
         const [lx, ly] = k.split(',').map(Number);
         const [w, h] = footprint(o.t, o.r || 0);
-        if (o.stock?.length) {
-          const p = view.toScreen(plot.x + lx + w / 2, lvl * LEVEL_H + 1.25, plot.y + ly + h / 2);
-          if (!onScreen(p)) continue;
+        // The goods themselves sit in the display (see gfx/goods.js); up close, each
+        // slot gets a little price tag on its front edge.
+        if (o.stock?.length && !plot.town && Math.hypot(plot.x + lx + w / 2 - S.me.x / TILE, plot.y + ly + h / 2 - S.me.y / TILE) < 3.2) {
+          const [w0, h0] = footprint(o.t, 0), a = (-(o.r || 0) * Math.PI) / 2, c = Math.cos(a), sn = Math.sin(a);
+          const fronts = slotFronts(o.t);
           o.stock.forEach((sl, i) => {
-            const x = p.x + (i - (o.stock.length - 1) / 2) * 18;
-            octx.font = '15px sans-serif';
-            octx.fillText(GOODS[sl.item]?.icon || '📦', x, p.y);
-            if (view.zoom < 22) { octx.font = 'bold 9px sans-serif'; octx.fillStyle = '#fff8e0'; octx.fillText(`🪙${sl.price}`, x, p.y + 11); octx.fillStyle = '#000'; }
+            const f = fronts[i];
+            if (!f) return;
+            const ux = f[0] - w0 / 2, uz = f[2] - h0 / 2;
+            const p = view.toScreen(plot.x + lx + w / 2 + c * ux + sn * uz, lvl * LEVEL_H + f[1] + 0.02, plot.y + ly + h / 2 - sn * ux + c * uz);
+            if (onScreen(p)) priceTag(`🪙${sl.price}`, p.x, p.y + 6);
           });
         }
         if (o.job) {
@@ -3582,6 +3586,20 @@ function tag(text, x, y, fs, color) {
   roundRect(x - w / 2, y - fs * 1.35, w, fs * 1.35, fs * 0.4);
   octx.fillStyle = color;
   octx.fillText(text, x, y - fs * 0.15);
+}
+
+// A paper price tag clipped to a shelf edge.
+function priceTag(text, x, y) {
+  octx.font = `bold 9px ui-rounded, 'Trebuchet MS', sans-serif`;
+  const w = octx.measureText(text).width + 6;
+  octx.fillStyle = '#fff8e6';
+  roundRect(x - w / 2, y - 6, w, 12, 2);
+  octx.fillStyle = '#c0392b';
+  octx.fillRect(x - w / 2, y - 6, 2, 12);
+  octx.fillStyle = '#3a2a1a';
+  octx.textBaseline = 'middle';
+  octx.fillText(text, x + 1, y + 0.5);
+  octx.textBaseline = 'bottom';
 }
 
 function bubble(text, x, y, fs) {

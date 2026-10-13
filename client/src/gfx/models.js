@@ -614,17 +614,20 @@ function recolor(col, c) {
 export function itemGeometry(t, c = 0) {
   const ck = c ? `${t}|${c}` : t;
   if (geoCache.has(ck)) return geoCache.get(ck);
+  const out = boxesGeometry(MODELS[t](), t, c);
+  geoCache.set(ck, out);
+  return out;
+}
+function boxesGeometry(list, t, c = 0) {
   const [w0, d0] = footprint(t, 0);
   const solid = [], glow = [];
-  for (const [x, y, z, w, h, d, col, lit] of MODELS[t]()) {
+  for (const [x, y, z, w, h, d, col, lit] of list) {
     const g = box(w, h, d).translate(x + w / 2 - w0 / 2, y + h / 2, z + d / 2 - d0 / 2);
     // (three.js linearised these twice: Color() already converts, then convertSRGBToLinear;
     // kept so furniture keeps its familiar deep colours.)
     (lit ? glow : solid).push(g.colorize(linearRGB(recolor(col, c)).map(s2l)));
   }
-  const out = { solid: solid.length ? merge(solid) : null, glow: glow.length ? merge(glow) : null, meshes: null };
-  geoCache.set(ck, out);
-  return out;
+  return { solid: solid.length ? merge(solid) : null, glow: glow.length ? merge(glow) : null, meshes: null };
 }
 
 // Babylon geometry shared by every copy of an item (cloned meshes share vertex buffers).
@@ -658,8 +661,11 @@ export function makeItem(t, r, x, y, z, c = 0, { cast = true, parent = null } = 
 const shadowAdd = (m) => ctx.shadow?.add(m);
 
 // Bakes an item into a Batch (for static scenes: one draw call for all the furniture).
-export function itemInto(batch, t, r, x, y, z, c = 0) {
-  const g = itemGeometry(t, c);
+// `boxes`: bake this box list instead, placed and turned as item t would be (the goods
+// on a display).
+export function itemInto(batch, t, r, x, y, z, c = 0, boxes = null) {
+  if (boxes && !boxes.length) return;
+  const g = boxes ? boxesGeometry(boxes, t) : itemGeometry(t, c);
   const { solidMat, glowMat } = materials();
   const [w, d] = footprint(t, r);
   const a = (-r * Math.PI) / 2;

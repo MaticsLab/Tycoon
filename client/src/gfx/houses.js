@@ -9,6 +9,7 @@ import { itemInto, hasModel, BILLBOARD, materials } from './models.js';
 import { Geo, box, quad, toMesh, node, lambert as mkLambert, basic as mkBasic } from './bjs.js';
 import { objectSprite, cropSprite, treeSprite } from '../sprites.js';
 import { treeStage } from '@shared/nature.js';
+import { goodsBoxes } from './goods.js';
 
 export { LEVEL_H }; // floor-to-floor height (shared with the game rules)
 export const LOW_H = 0.4; // cut-away wall height
@@ -393,6 +394,7 @@ export function buildPlot(plot, opts) {
         }
       } else if (hasModel(o.t)) {
         itemInto(furn, o.t, rot, ox + lx, y, oz + ly, o.c || 0);
+        if (o.stock?.length) itemInto(furn, o.t, rot, ox + lx, y, oz + ly, 0, goodsBoxes(o.t, o.stock));
       } else if (cards && d.crop) {
         cards.add(cropSprite(d.crop, cropStage(o, opts.now)), 8, 13, ox + lx + 0.5, y, oz + ly + 0.6);
       } else if (cards && BILLBOARD.has(o.t)) {
