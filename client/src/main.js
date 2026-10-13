@@ -1531,8 +1531,8 @@ function wallPlan() {
 // and why it can't go there.
 let tipState = null;
 function tip(text, err) { tipState = { text, err }; }
-// While you hold an item (and aren't dragging), a dashed box with its icon follows the
-// cursor instead, with a little label: price or "From bag", R rotate, Esc cancel.
+// While you hold an item (and aren't dragging), a little label follows the cursor
+// instead: price or "From bag", R rotate, Esc cancel (the 3D ghost shows the item).
 const HOLD_KINDS = ['obj', 'floor', 'roof', 'wall', 'feature'];
 function heldId() {
   if (S.held?.kind === 'obj') return S.held.t;
@@ -1551,7 +1551,7 @@ function drawTip() {
     const rot = S.held || (d.layer === 'obj' && canRotate(id)) ? ' · R rotate' : '';
     hg.lastElementChild.innerHTML = `${esc(what)}${rot} · Esc cancel${err ? ` · <b>${esc(err)}</b>` : ''}`;
     hg.classList.toggle('bad', !!err);
-    hg.style.transform = `translate(${Math.round(hover.cx - hg.offsetWidth / 2)}px, ${Math.round(hover.cy - 48)}px)`;
+    hg.style.transform = `translate(${Math.round(hover.cx - hg.offsetWidth / 2)}px, ${Math.round(hover.cy + 18)}px)`;
     return;
   }
   hg.hidden = true;

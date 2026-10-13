@@ -478,7 +478,6 @@ body.building #topbar, body.building #side, body.building #needs, body.building 
 #detail .d-foot.ok { color: #2f6b22; } #detail .d-foot.bad { color: #b33b44; } #detail .d-foot.bag { color: #6b4a2b; }
 #detail .d-empty { margin: auto 0; font-size: 13px; color: #6b4a2b; line-height: 1.4; }
 /* the item in hand follows the cursor */
-body.holding #game, body.holding #overlay { cursor: none; }
 #heldghost { position: fixed; left: 0; top: 0; z-index: 14; pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 #heldghost[hidden] { display: none; }
 #heldghost .hg-box { width: 48px; height: 48px; box-sizing: border-box; border: 2px dashed rgba(255,255,255,.9); border-radius: 6px; background: rgba(79, 158, 58, .25); display: grid; place-items: center; }
@@ -529,3 +528,4 @@ body.holding #game, body.holding #overlay { cursor: none; }
 /* Touch: while a finger is on the plot, the catalog fades back so you can see under it. */
 #catalog, #buildbar { transition: opacity .2s; }
 body.touching #catalog, body.touching #buildbar { opacity: .18; pointer-events: none; }
+#heldghost .hg-box { display: none; }
