@@ -9,7 +9,7 @@ import {
   landError, contentFits, shiftContent, mergedRect, splitRects, hasContent, LAND_PRICE, stepLevel,
 } from '../../shared/plot.js';
 import { NPCS } from '../../shared/npcs.js';
-import { HOUR_MS, NEEDS, ACTIVITIES, FOODS, sanitizeNeeds, usesOf, advanceNeeds, activityDone, fullNeeds } from '../../shared/needs.js';
+import { HOUR_MS, NEEDS, ACTIVITIES, FOODS, PLATES, sanitizeNeeds, usesOf, advanceNeeds, activityDone, fullNeeds } from '../../shared/needs.js';
 import { sanitizeLook, randomLook, shirtColor } from '../../shared/look.js';
 import { Npc, parseAiReply, REPLY_SCHEMA } from './npc.js';
 
@@ -121,7 +121,7 @@ export class Game {
 
   publicPlayer(s) {
     const p = s.profile;
-    return { id: p.id, name: p.name, color: p.color, look: p.look, x: s.x, y: s.y, dir: s.dir, moving: s.moving, level: s.level, act: s.act?.id || 0 };
+    return { id: p.id, name: p.name, color: p.color, look: p.look, x: s.x, y: s.y, dir: s.dir, moving: s.moving, level: s.level, act: s.act?.id || 0, carry: s.carry?.food || 0 };
   }
 
   // identity: { userId, name, username, isAnonymous } — verified by the host.
@@ -1082,13 +1082,29 @@ export class Game {
   tickNeeds(s, now) {
     const pr = s.profile;
     // (capped, so a stalled server or a skipped clock never drains needs in one go)
+    const before = pr.needs.hunger;
     const { needs, low, faint } = advanceNeeds(pr.needs, Math.min(5000, now - s.needsAt) / HOUR_MS, s.act?.id);
     s.needsAt = now;
+    // Eating fills you up only as far as the food on your plate goes.
+    if (ACTIVITIES[s.act?.id]?.carry && s.carry) {
+      const ate = Math.min(Math.max(0, needs.hunger - before), s.carry.left);
+      needs.hunger = before + ate;
+      s.carry.left -= ate;
+      if (PLATES[s.carry.food]?.fun) needs.fun = Math.min(100, needs.fun + PLATES[s.carry.food].fun * ate / PLATES[s.carry.food].hunger);
+    }
     pr.needs = needs;
     if (s.act) {
-      const view = this.plots[s.act.plotId] && levelView(this.plots[s.act.plotId], s.act.level);
-      if (view?.obj[s.act.key]?.t !== s.act.item) this.stopActivity(s, true);
-      else if (activityDone(s.act.id, needs, (now - s.act.t0) / HOUR_MS)) this.stopActivity(s, true);
+      const a = ACTIVITIES[s.act.id];
+      const view = s.act.plotId != null && this.plots[s.act.plotId] && levelView(this.plots[s.act.plotId], s.act.level);
+      const gone = s.act.plotId != null && view?.obj[s.act.key]?.t !== s.act.item;
+      const hours = (now - s.act.t0) / HOUR_MS;
+      if (gone) this.stopActivity(s, true);
+      else if (a.carry && (!s.carry || s.carry.left <= 0.05 || needs.hunger >= 99.9)) {
+        const full = s.carry && s.carry.left > 0.05;
+        s.carry = null;
+        this.stopActivity(s, true);
+        s.send({ type: 'toast', text: full ? '😋 You’re full! (you left the rest)' : '😋 All gone. Delicious!' });
+      } else if (!a.carry && activityDone(s.act.id, needs, hours)) this.stopActivity(s, true, true);
     }
     for (const id of low) s.send({ type: 'toast', text: `${NEEDS.find((n) => n.id === id).icon} ${NEEDS.find((n) => n.id === id).low}` });
     if (faint) return this.faint(s);
@@ -1099,7 +1115,7 @@ export class Game {
   sendNeeds(s) {
     s.needsSent = this.now();
     const n = s.profile.needs;
-    s.send({ type: 'needs', needs: Object.fromEntries(Object.entries(n).map(([k, v]) => [k, Math.round(v * 10) / 10])), act: s.act?.id || null });
+    s.send({ type: 'needs', needs: Object.fromEntries(Object.entries(n).map(([k, v]) => [k, Math.round(v * 10) / 10])), act: s.act?.id || null, carry: s.carry ? { food: s.carry.food, left: Math.round(s.carry.left) } : null });
   }
 
   // Health hit zero: you pass out and wake up at home, patched up by the village doctor.
@@ -1117,9 +1133,19 @@ export class Game {
   // Use a piece of furniture: { plotId, level, lx, ly, act }. Your own home, or a home
   // whose owner is there with you.
   use(s, { plotId, level = 0, lx, ly, act }) {
-    const plot = this.plots[plotId];
     const a = ACTIVITIES[act];
-    if (!plot || !a || !Number.isInteger(lx) || !Number.isInteger(ly)) return;
+    if (!a) return;
+    if (a.carry && !s.carry) return s.send({ type: 'error', msg: 'Get some food first: grab a snack or cook at the fridge' });
+    if (a.makes && s.carry) return s.send({ type: 'error', msg: `You’re already holding ${PLATES[s.carry.food].name.toLowerCase()}: eat it first` });
+    if (act === 'eatHere') {
+      // Eat where you stand.
+      if (s.act) this.stopActivity(s, false);
+      s.act = { id: act, t0: this.now(), plotId: null, back: null };
+      s.moving = 0;
+      return this.sendNeeds(s);
+    }
+    const plot = this.plots[plotId];
+    if (!plot || !Number.isInteger(lx) || !Number.isInteger(ly)) return;
     level = this.lvl(level);
     if (plot.owner !== s.profile.id) {
       const host = plot.owner && this.sessions.get(plot.owner);
@@ -1140,7 +1166,7 @@ export class Game {
     if (cost > s.profile.coins) return s.send({ type: 'error', msg: `Not enough coins (needs 🪙${cost})` });
     if (s.act) this.stopActivity(s, false);
     if (cost) this.coins(s, -cost);
-    s.act = { id: act, t0: this.now(), plotId: plot.id, level, key: hit.key, item: hit.obj.t, back: { x: s.x, y: s.y, level: s.level } };
+    s.act = { id: act, t0: this.now(), plotId: plot.id, level, key: hit.key, item: hit.obj.t, back: { x: s.x, y: s.y, level: s.level }, paid: cost };
     const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
     if (a.seat) {
       // Sit or lie on it, facing its front.
@@ -1155,10 +1181,19 @@ export class Game {
   }
 
   // Stop what you're doing (walking away, or it's done); `send` tells your client.
-  stopActivity(s, send = true) {
+  // done: it finished by itself (cooking hands you the plate).
+  stopActivity(s, send = true, done = false) {
     const act = s.act;
     if (!act) return;
     s.act = null;
+    const a = ACTIVITIES[act.id];
+    if (a?.makes) {
+      if (done) {
+        const plate = PLATES[a.makes];
+        s.carry = { food: a.makes, left: plate.hunger };
+        s.send({ type: 'toast', text: `${plate.icon} ${plate.name} ready! Sit down somewhere to eat it` });
+      } else if (act.paid) this.coins(s, act.paid); // walked off before it was ready: money back
+    }
     if (ACTIVITIES[act.id]?.seat) {
       s.x = act.back.x; s.y = act.back.y; s.level = act.back.level;
       s.lastMove = this.now();
@@ -1215,7 +1250,7 @@ export class Game {
     const rows = [], changed = new Set();
     this.lastRows ||= new Map();
     for (const o of this.sessions.values()) {
-      const row = [o.profile.id, round(o.x), round(o.y), o.dir, o.moving || 0, o.level || 0, o.act?.id || 0];
+      const row = [o.profile.id, round(o.x), round(o.y), o.dir, o.moving || 0, o.level || 0, o.act?.id || 0, o.carry?.food || 0];
       const k = row.join(',');
       if (this.lastRows.get(o.profile.id) !== k) { changed.add(o.profile.id); this.lastRows.set(o.profile.id, k); }
       rows.push([o, row]);

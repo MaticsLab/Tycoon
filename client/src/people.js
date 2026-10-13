@@ -52,6 +52,28 @@ function legs(c, L, dir, frame) {
   if (!dress) { r(c, -3, -10, 6, 4, P[2]); r(c, -3, -10, 6, 1, P[3]); }
 }
 
+// Sitting: thighs come towards you (front/back) or stick out forwards (side), shins
+// hang down to the floor. The body above is lowered by SIT_DROP.
+const SIT_DROP = 5;
+function legsSitting(c, L, dir) {
+  const { P } = L;
+  const dress = L.shirt.kind === 'dress';
+  if (dir === 0 || dir === 1) {
+    // lap, then two short shins and shoes
+    if (!dress) { r(c, -4, -6, 8, 3, P[2]); r(c, -4, -6, 1, 3, P[3]); r(c, 3, -6, 1, 3, P[1]); r(c, -1, -4, 2, 1, P[1]); }
+    for (const x0 of [-4, 1]) {
+      if (!dress) r(c, x0, -3, 3, 2, P[1]); else r(c, x0, -3, 3, 2, L.K[1]);
+      r(c, x0, -1, 3, 1, SHOE[1]); px(c, x0 + (x0 < 0 ? 0 : 2), -1, SHOE[0]);
+    }
+    return;
+  }
+  // side view facing right: thigh forwards, knee, shin down, shoe pointing forward
+  if (!dress) { r(c, -3, -7, 8, 3, P[2]); r(c, -3, -7, 8, 1, P[3]); }
+  else { r(c, 1, -6, 4, 2, L.K[1]); }
+  r(c, 3, -4, 3, 3, dress ? L.K[1] : P[1]);
+  r(c, 3, -1, 4, 1, SHOE[1]); r(c, 6, -1, 1, 1, SHOE[0]);
+}
+
 // ---------- torso & arms ----------
 function sleeveColor(L) {
   const k = L.shirt.kind;
@@ -497,13 +519,16 @@ function hatAcc(c, L, F, dir) {
 }
 
 // ---------- whole person ----------
-function paint(c, L, dir, frame) {
+function paint(c, L, dir, frame, pose = null) {
   const side = dir === 2 || dir === 3;
   if (dir === 2) { c.scale(-1, 1); dir = 3; }
+  const sit = pose === 'sit';
+  if (sit) frame = 0;
   const bob = frame % 2 ? -1 : 0;
-  const y0 = -18 + bob;       // torso top
-  const F = -28 + bob;        // face top
-  legs(c, L, dir, frame);
+  const drop = sit ? SIT_DROP : 0;
+  const y0 = -18 + bob + drop;       // torso top
+  const F = -28 + bob + drop;        // face top
+  if (sit) legsSitting(c, L, dir); else legs(c, L, dir, frame);
   if (side) {
     skirt(c, L, y0, true);
     torsoSide(c, L, y0, frame);
@@ -534,10 +559,47 @@ function resolveCached(look) {
   return { k, L };
 }
 
-// Sprite for a (sanitized) look, facing dir, walk frame 0..3.
-export function personSprite(look, dir, frame) {
+// Sprite for a (sanitized) look, facing dir, walk frame 0..3. pose 'sit' draws them
+// seated (feet still at row 0, so it stands on the floor in front of the seat).
+export function personSprite(look, dir, frame, pose = null) {
   const { k, L } = resolveCached(look);
-  return bake(`pp|${k}|${dir}|${frame}`, 12, 40, 24, 42, (cc) => paint(cc, L, dir, frame));
+  return bake(`pp|${k}|${dir}|${frame}|${pose || ''}`, 12, 40, 24, 42, (cc) => paint(cc, L, dir, frame, pose));
+}
+
+// Someone asleep in bed, seen from straight above: their head on the pillow (eyes
+// shut) and the shape of their body under the quilt. 16 × 32 px = one bed (1 × 2 tiles),
+// head end at the top (the bed's headboard side). Laid flat on the mattress.
+export function sleeperSprite(look, quilt = '#4d79c7') {
+  const { k, L } = resolveCached(look);
+  const id = `sleep|${k}|${quilt}`;
+  let cv = sleepCache.get(id);
+  if (cv) return { cv };
+  cv = document.createElement('canvas');
+  cv.width = 16; cv.height = 32;
+  const c = cv.getContext('2d');
+  const H = L.H, K = L.K;
+  const q = quilt, qd = shade(quilt, -0.22), ql = shade(quilt, 0.18);
+  // hair and face (head turned a little to the side on the pillow)
+  r(c, 4, 3, 8, 8, H[2]); r(c, 4, 3, 8, 2, H[3]); r(c, 3, 4, 1, 6, H[1]); r(c, 12, 4, 1, 6, H[1]);
+  r(c, 5, 6, 6, 5, K[2]); r(c, 5, 10, 6, 1, K[1]);
+  r(c, 6, 8, 1, 1, '#2a1a12'); r(c, 9, 8, 1, 1, '#2a1a12');           // closed eyes
+  r(c, 7, 10, 2, 1, shade(K[1], -0.15));
+  r(c, 5, 5, 6, 1, H[2]);                                                // fringe
+  // quilt pulled up to the chin, with the body's bump and feet at the end
+  r(c, 1, 11, 14, 20, q); r(c, 1, 11, 14, 2, ql); r(c, 1, 11, 1, 20, qd); r(c, 14, 11, 1, 20, qd);
+  r(c, 4, 13, 8, 16, ql); r(c, 4, 13, 1, 16, q); r(c, 11, 13, 1, 16, qd); // body under the covers
+  r(c, 5, 26, 2, 3, qd); r(c, 9, 26, 2, 3, qd);                           // feet
+  r(c, 1, 30, 14, 1, qd);
+  // a hand resting on top of the quilt
+  r(c, 11, 15, 2, 2, K[2]);
+  sleepCache.set(id, cv);
+  return { cv };
+}
+const sleepCache = new Map();
+function shade(hex, f) {
+  const n = parseInt(hex.slice(1), 16);
+  const ch = (v) => Math.max(0, Math.min(255, Math.round(f < 0 ? v * (1 + f) : v + (255 - v) * f)));
+  return '#' + [n >> 16, (n >> 8) & 255, n & 255].map((v) => ch(v).toString(16).padStart(2, '0')).join('');
 }
 
 // Draw a look scaled up onto a canvas (character creator preview, portraits).

@@ -16,7 +16,7 @@ import { Ghost, Outline } from './gfx/ghost.js';
 import { Minimap } from './minimap.js';
 import { roomTiles, roomRegion, extract, rotateTimes, fragmentValue, removeAt, stockFragment, placeError as fragError } from '@shared/blueprint.js';
 import { STYLED_ROOMS } from '@shared/rooms.js';
-import { NEEDS, HEALTH, ACTIVITIES, FOODS, usesOf, mood } from '@shared/needs.js';
+import { NEEDS, HEALTH, ACTIVITIES, FOODS, PLATES, usesOf, mood } from '@shared/needs.js';
 import { drawFloor, drawObject } from './sprites.js';
 import { openCreator, closeCreator } from './creator.js';
 import { renderCity } from './cityui.js';
@@ -203,11 +203,12 @@ function onMessage(m) {
       break;
     }
     case 'state':
-      for (const [id, x, y, dir, moving, level, act] of m.p) {
+      for (const [id, x, y, dir, moving, level, act, carry] of m.p) {
         const p = S.players.get(id);
         if (!p) continue;
         p.tx = x; p.ty = y; p.dir = dir; p.moving = !!moving; p.running = moving === 2; p.level = level || 0;
         p.act = act || 0;
+        p.carry = carry || 0;
         // Keep a short history of where they were when, to play it back smoothly.
         const buf = (p.buf ||= []);
         const last = buf[buf.length - 1];
@@ -227,6 +228,8 @@ function onMessage(m) {
       break;
     case 'needs':
       S.needs = m.needs;
+      S.carry = m.carry || null;
+      S.me.carry = S.carry?.food || 0;
       if (S.act !== m.act) { S.act = m.act; S.stopSent = false; closeUseMenu(); }
       renderNeeds();
       break;
@@ -461,6 +464,7 @@ function updateContext() {
   else if (S.act) action = `stop:${S.act}`;
   else if (npc) action = `talk:${npc.id}`;
   else if (usable) action = `use:${usable.plot.id}:${usable.level}:${usable.key}`;
+  else if (S.carry) action = `eatHere:${S.carry.food}`;
   else if (nearMyPet()) action = 'pet';
   else if (plot && !plot.owner && S.myPlot == null) action = 'claim';
   else if (here === S.myPlot && here >= 0) {
@@ -475,6 +479,7 @@ function updateContext() {
     else if (action.startsWith('harvest')) btn.textContent = `🌾 Harvest (${action.split(':')[1]})`;
     else if (action.startsWith('talk')) btn.textContent = `💬 Talk to ${NPCS[action.split(':')[1]].name}`;
     else if (action === 'pet') btn.textContent = `🐾 Pet your ${PETS[petOf(S.me)].kind}`;
+    else if (action.startsWith('eatHere')) { const pl = PLATES[S.carry.food]; btn.textContent = `${pl.icon} Eat ${pl.name.toLowerCase()} here`; }
     else if (action.startsWith('stop')) { const a = ACTIVITIES[S.act]; btn.textContent = `${a.icon} ${a.verb}… ✋ Stop`; }
     else if (action.startsWith('use')) {
       const u = usable, a = ACTIVITIES[u.uses[0]];
@@ -486,6 +491,7 @@ function updateContext() {
 }
 $('action').onclick = () => {
   if (lastAction.startsWith('stop')) { send({ type: 'stop' }); return; }
+  if (lastAction.startsWith('eatHere')) { send({ type: 'use', act: 'eatHere' }); return; }
   if (lastAction.startsWith('use')) {
     const u = nearestUsable();
     if (!u) return;
@@ -2240,6 +2246,10 @@ function renderNeeds() {
 }
 $('needs-head').onclick = () => { needsOpen = !needsOpen; store.set('needsOpen', needsOpen ? '1' : '0'); renderNeeds(); };
 
+// What you can do with an item right now: eating needs a plate in your hands, and
+// you can't fetch more food while you're holding some.
+const usesNow = (t) => usesOf(t).filter((id) => (ACTIVITIES[id].carry ? !!S.carry : !(ACTIVITIES[id].makes && S.carry)));
+
 // You can use things at home, or in someone's home while they're in.
 function canUseOn(plot) {
   if (!plot?.owner) return false;
@@ -2261,7 +2271,7 @@ function nearestUsable(range = TILE * 1.5) {
   if (!view) return null;
   let best = null;
   for (const [k, o] of Object.entries(view.obj)) {
-    const uses = usesOf(o.t);
+    const uses = usesNow(o.t);
     if (!uses.length) continue;
     const [ax, ay] = k.split(',').map(Number);
     const d = distTo(plot, ax, ay, o.t, o.r);
@@ -2279,7 +2289,7 @@ function usableAt(cx, cy) {
     const v = level ? plot.l1 : plot;
     if (!v) continue;
     for (const [k, o] of Object.entries(v.obj)) {
-      const uses = usesOf(o.t);
+      const uses = usesNow(o.t);
       if (!uses.length) continue;
       const [ax, ay] = k.split(',').map(Number);
       const [w, h] = footprint(o.t, o.r || 0);
@@ -2319,14 +2329,28 @@ function closeUseMenu() { const el = $('usemenu'); if (el) el.hidden = true; }
 
 // How someone doing an activity is drawn: sitting on a seat, lying in bed, or hidden
 // behind the shower glass / in the tub (steam shows instead).
-const SIT_Y = { toilet: 0.32, sit: 0.3, nap: 0.42, sleep: 0.5 };
+// Seated people are lifted to the seat (the sitting sprite's feet hang just above it).
+const SEAT_Y = { toilet: 0.18, bench: 0.12, barstool: 0.3, pouf: 0.05, beanbag: 0.02, picnic: 0.12, hammock: 0.25 };
+const BEDS = new Set(['bed', 'bunkbed']);
+// The item someone is using, found under where they're sitting or lying.
+function itemUnder(p) {
+  const id = plotIdAtPixel(world, p.x, p.y);
+  const plot = id >= 0 ? S.plots[id] : null;
+  const v = plot && ((p.level || 0) ? plot.l1 : plot);
+  const hit = v && objAt(v, Math.floor(p.x / TILE - plot.x), Math.floor(p.y / TILE - plot.y));
+  return hit ? { t: hit.obj.t, r: hit.obj.r || 0, c: hit.obj.c || 0 } : null;
+}
 function actPose(p) {
   const a = p.act;
-  if (!a) return null;
+  if (!a || !ACTIVITIES[a]?.seat) return null;
   if (a === 'shower' || a === 'bath') return { vis: false };
-  if (a === 'sleep' || a === 'nap') return { lie: true, y: SIT_Y[a] };
-  if (SIT_Y[a]) return { y: SIT_Y[a] };
-  return null;
+  const it = itemUnder(p);
+  if ((a === 'sleep' || a === 'nap') && it && BEDS.has(it.t)) {
+    // Under the covers: a flat picture of them asleep, laid on the mattress.
+    const [w, h] = footprint(it.t, it.r);
+    return { y: 0.56, pose: { kind: 'sleep', r: it.r, w, h } };
+  }
+  return { y: SEAT_Y[it?.t] ?? 0.08, pose: { kind: 'sit' } };
 }
 
 // ---------- Pets ----------
@@ -2558,7 +2582,7 @@ function render(now) {
   const sNow = serverNow();
   const drawPerson = (p, h) => {
     const pose = actPose(p);
-    view.actor(p.id, U(p.x), U(p.y), p.dir, p.running ? 'run' : p.moving, p.look, now, pose?.vis ?? true, h + (pose?.y || 0), null, pose ? (pose.lie ? 'lie' : 'sit') : null);
+    view.actor(p.id, U(p.x), U(p.y), p.dir, p.running ? 'run' : p.moving, p.look, now, pose?.vis ?? true, h + (pose?.y || 0), null, pose?.pose || null);
   };
   for (const p of S.players.values()) drawPerson(p, hOf(p));
   for (const n of S.npcs.values()) {
@@ -2602,6 +2626,12 @@ function drawOverlay(now) {
     tag(label, s.x, s.y, 11, col);
     if (p.bubble && performance.now() < p.bubbleUntil) bubble(p.bubble, s.x, s.y - 20, 13);
     else if (p.act && ACTIVITIES[p.act]) actIcon(p, s, now);
+    if (p.carry && PLATES[p.carry] && !ACTIVITIES[p.act]?.carry) {
+      // Carrying a plate: it sits in their hands.
+      const hnd = view.toScreen(U(p.x), 0.72 + heightAt(world, S.plots, p.x, p.y, p.level || 0), U(p.y) + 0.12);
+      octx.font = '13px sans-serif';
+      octx.fillText(PLATES[p.carry].icon, hnd.x, hnd.y + 6);
+    }
   }
   // Zzz over sleeping pets.
   octx.font = 'bold 11px sans-serif';

@@ -29,9 +29,13 @@ export function sanitizeNeeds(n) {
 //   max: in-game hours before it stops by itself (else it stops when `until` is full)
 //   cost: coins up front · seat: you sit/lie on the item (else you stand next to it)
 //   stove: only when there's a stove on the same plot
+//   makes: when it finishes you're holding a plate of that food (see PLATES)
+//   carry: needs a plate in your hands (eating)
 export const ACTIVITIES = {
-  snack:  { label: 'Grab a snack', icon: '🥪', verb: 'Snacking', gain: { hunger: 90 }, max: 1 / 3, cost: 5 },
-  cook:   { label: 'Cook a meal', icon: '🍳', verb: 'Cooking', gain: { hunger: 110, fun: 10 }, until: 'hunger', max: 1, cost: 15, stove: true },
+  snack:  { label: 'Grab a snack', icon: '🥪', verb: 'Making a sandwich', gain: {}, max: 1 / 6, cost: 5, makes: 'snack' },
+  cook:   { label: 'Cook a meal', icon: '🍳', verb: 'Cooking', gain: { fun: 10 }, max: 2 / 3, cost: 15, stove: true, makes: 'meal' },
+  eat:    { label: 'Sit and eat', icon: '🍽️', verb: 'Eating', gain: { hunger: 150 }, max: 1, seat: true, carry: true },
+  eatHere: { label: 'Eat standing up', icon: '🍽️', verb: 'Eating', gain: { hunger: 150 }, max: 1, carry: true },
   tv:     { label: 'Watch TV', icon: '📺', verb: 'Watching TV', gain: { fun: 30, energy: 1 }, until: 'fun', max: 4 },
   read:   { label: 'Read a book', icon: '📖', verb: 'Reading', gain: { fun: 20 }, until: 'fun', max: 3 },
   sleep:  { label: 'Sleep', icon: '💤', verb: 'Sleeping', gain: { energy: 14, health: 3 }, until: 'energy', max: 10, seat: true },
@@ -48,7 +52,14 @@ export const ACTIVITIES = {
   game:   { label: 'Play video games', icon: '🎮', verb: 'Gaming', gain: { fun: 35 }, until: 'fun', max: 3 },
   music:  { label: 'Play some records', icon: '🎶', verb: 'Listening to music', gain: { fun: 22, energy: 2 }, until: 'fun', max: 3 },
   paint:  { label: 'Paint a picture', icon: '🎨', verb: 'Painting', gain: { fun: 28 }, until: 'fun', max: 3 },
-  grill:  { label: 'Fire up the grill', icon: '🌭', verb: 'Grilling', gain: { hunger: 100, fun: 15 }, until: 'hunger', max: 1, cost: 12 },
+  grill:  { label: 'Fire up the grill', icon: '🌭', verb: 'Grilling', gain: { fun: 15 }, max: 2 / 3, cost: 12, makes: 'bbq' },
+};
+
+// Plates of food you carry from the kitchen to a seat. hunger: how much it fills.
+export const PLATES = {
+  snack: { name: 'Sandwich', icon: '🥪', hunger: 32 },
+  meal: { name: 'Home-cooked meal', icon: '🍲', hunger: 80, fun: 6 },
+  bbq: { name: 'Grilled hot dogs', icon: '🌭', hunger: 70, fun: 6 },
 };
 
 export const USES = {
@@ -56,10 +67,10 @@ export const USES = {
   tv: ['tv'], bookshelf: ['read'], desk: ['read'],
   bed: ['sleep', 'nap'],
   shower: ['shower'], bathtub: ['bath'], sink: ['wash'], toilet: ['toilet'],
-  sofa: ['sit', 'nap'], armchair: ['sit'], chair: ['sit'], beanbag: ['sit', 'nap'], bench: ['sit'],
+  sofa: ['eat', 'sit', 'nap'], armchair: ['eat', 'sit'], chair: ['eat', 'sit'], beanbag: ['eat', 'sit', 'nap'], bench: ['eat', 'sit'],
   piano: ['piano'], aquarium: ['fish'], fireplace: ['warm'], telescope: ['stars'],
-  recliner: ['sit', 'nap'], loveseat: ['sit', 'nap'], pouf: ['sit'], rockingchair: ['sit'], barstool: ['sit'],
-  picnic: ['sit'], hammock: ['nap', 'sit'], bunkbed: ['sleep', 'nap'],
+  recliner: ['eat', 'sit', 'nap'], loveseat: ['eat', 'sit', 'nap'], pouf: ['eat', 'sit'], rockingchair: ['eat', 'sit'], barstool: ['eat', 'sit'],
+  picnic: ['eat', 'sit'], hammock: ['nap', 'sit'], bunkbed: ['sleep', 'nap'],
   lowshelf: ['read'], recordplayer: ['music'], arcade: ['game'], easel: ['paint'],
   kitchensink: ['wash'], pedestalsink: ['wash'], fishbowl: ['fish'], grill: ['grill'], firepit: ['warm'],
 };

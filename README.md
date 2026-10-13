@@ -62,9 +62,9 @@ You can also befriend villagers whose personalities change based on how you trea
   - Their mood and how much they like you change their shop prices.
 - **Needs, like The Sims.** Hunger, energy, bladder, hygiene and fun run down while you play (one in-game hour is 36 seconds), shown in the **Needs** panel under the map with a plumbob that turns from green to red as your mood drops. **Health** falls while any need is empty and recovers while they're all okay; if it hits zero you faint and wake up at home, patched up by the village doctor for 🪙25. Being exhausted or unwell also slows you down.
   Walk up to furniture and use the action button, or tap it for a menu:
-  - **Fridge**: grab a snack (🪙5) or cook a meal (🪙15, needs a stove). The stove cooks too.
+  - **Fridge**: grab a sandwich (🪙5) or cook a meal (🪙15, needs a stove); the stove cooks and the BBQ grill grills too. When it's ready you're holding a plate (everyone can see it), so carry it anywhere and **sit and eat** on a chair, sofa, stool, bench or picnic table, or eat standing up. Walk off before it's ready and you get your coins back.
   - **Toilet**, **shower**, **bathtub** and **sink** fill bladder and hygiene; showers and baths steam.
-  - **Bed** or **bunk bed**: sleep or nap, lying down with drifting Zzz. Sofas, loveseats, armchairs, recliners, rocking chairs, chairs, poufs, bar stools, bean bags, benches and picnic tables let you sit and relax; recliners and hammocks are good for a nap.
+  - **Bed** or **bunk bed**: sleep or nap, tucked in under the covers with drifting Zzz. Sofas, loveseats, armchairs, recliners, rocking chairs, chairs, poufs, bar stools, bean bags, benches and picnic tables let you really sit down (a seated pose, toilet included) and relax; recliners and hammocks are good for a nap.
   - **BBQ grill**: grill a meal (🪙12, no stove needed). Kitchen and pedestal sinks wash up.
   - **TV**, **bookshelf**, **low bookcase** or **desk** (read), **piano**, **aquarium** or **fishbowl**, **fireplace** or **fire pit**, **telescope**, **arcade cabinet**, **record player** and **painting easel** fill fun.
   Moving stops what you're doing. Others see a thought bubble with what you're up to, and you can use things in a friend's house while they're home. Crops, Honey Cake and Herbal Tea can be eaten straight from the bag.

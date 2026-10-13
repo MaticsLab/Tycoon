@@ -892,8 +892,28 @@ test('needs: run down over time; fridge, toilet, shower, bed and TV fill them; e
   const c0 = s.profile.coins;
   a.send({ type: 'use', plotId: 0, lx: 2, ly: 2, act: 'cook' });
   assert.equal(c0 - s.profile.coins, 15);
-  run(40);
-  assert.ok(s.profile.needs.hunger > 80, `hunger ${s.profile.needs.hunger}`);
+  // Walking off before it's ready refunds it.
+  a.send({ type: 'stop' });
+  assert.equal(s.profile.coins, c0, 'refunded');
+  assert.equal(s.carry, undefined);
+  a.send({ type: 'use', plotId: 0, lx: 2, ly: 2, act: 'cook' });
+  run(26);
+  assert.equal(s.carry?.food, 'meal', 'holding a plate');
+  assert.equal(s.act, null);
+  assert.equal(game.lastRows.get(a.welcome.you.id).split(',')[7], 'meal', 'others see the plate');
+  // Can't grab more food with full hands; eating needs a plate.
+  a.send({ type: 'use', plotId: 0, lx: 2, ly: 2, act: 'snack' });
+  assert.match(a.last('error').msg, /already holding/);
+  // Eat standing up: hunger goes up by the plate's worth (80) at most.
+  const h1 = s.profile.needs.hunger;
+  a.send({ type: 'use', act: 'eatHere' });
+  assert.equal(s.act.id, 'eatHere');
+  run(30);
+  assert.equal(s.act, null);
+  assert.equal(s.carry, null, 'plate finished');
+  assert.ok(s.profile.needs.hunger > 90 && s.profile.needs.hunger <= h1 + 80 + 0.01, `hunger ${h1} -> ${s.profile.needs.hunger}`);
+  a.send({ type: 'use', act: 'eatHere' });
+  assert.match(a.last('error').msg, /Get some food/);
   // Shower, then stop early by walking away.
   s.profile.needs.hygiene = 0;
   stand(game, a, 0, 8, 3);
