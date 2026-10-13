@@ -272,9 +272,9 @@ test('villagers live their day: walk to planned places, sit, sleep indoors, meet
   const game = new Game({}, { now: () => clock });
   const bubbles = [];
   game.sessions.set('x', { profile: { id: 'x', uid: 'x', name: 'X' }, x: 0, y: 0, greeted: {}, quiet: -1e9, sendRaw(d) { const m = JSON.parse(d); if (m.type === 'npcBubble') bubbles.push(m); }, send() {} });
-  // Run one whole village day (24 in-game hours = 864 s) in 100 ms ticks.
+  // Run two whole village days (24 in-game hours = 864 s each) in 100 ms ticks.
   const seen = {};
-  for (let i = 0; i < 8640; i++) {
+  for (let i = 0; i < 17280; i++) {
     clock += 100; game.tick();
     if (i % 50) continue;
     await new Promise((r) => setTimeout(r, 0)); // let banter (async) arrive

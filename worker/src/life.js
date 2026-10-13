@@ -69,6 +69,16 @@ export class Life {
       plans[id] = this.fromChoices(id, choices[id]);
     }
     this.linkMeetups(plans);
+    // Every day has at least one get-together: if the dice gave none, Otto drops by
+    // Rosa's in the evening (both are free then).
+    if (!Object.values(plans).some((p) => p.some((st) => st.side === -1)) && plans.otto && plans.rosa) {
+      const slot = (ROUTINES.otto || []).findIndex((sl) => sl.opts.some((o) => o[2] === 'rosa'));
+      if (slot >= 0) {
+        choices.otto[slot] = ROUTINES.otto[slot].opts.findIndex((o) => o[2] === 'rosa');
+        for (const id of Object.keys(plans)) plans[id] = this.fromChoices(id, choices[id]);
+        this.linkMeetups(plans);
+      }
+    }
     for (const [id, n] of Object.entries(this.npcs)) {
       const ts = THOUGHTS[id] || [''];
       n.setPlan(day, plans[id], ts[Math.floor(Math.random() * ts.length)]);
@@ -141,7 +151,9 @@ export class Life {
       const st = n.step;
       if (n.act !== 'chat' || !st?.with || st.side !== -1) continue;
       const o = this.npcs[st.with];
-      if (!o || o.act !== 'chat' || Math.hypot(o.x - n.x, o.y - n.y) > TILE * 3) continue;
+      // They're there and free (chatting, or just pottering at the counter), not
+      // walking, asleep or sat down somewhere else.
+      if (!o || !o.act || o.path || NPC_ACTS[o.act]?.hidden || Math.hypot(o.x - n.x, o.y - n.y) > TILE * 3) continue;
       if (n.talkingTo || o.talkingTo) continue;
       const key = `${[n.id, o.id].sort().join('|')}|${st.at}`;
       let m = this.meetings.get(key);

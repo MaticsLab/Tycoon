@@ -287,7 +287,7 @@ export class Npc {
     const [tx, ty] = this.path[0];
     const dx = tx - this.x, dy = ty - this.y, dist = Math.hypot(dx, dy);
     const left = this.path.length;
-    const speed = left > 6 ? 46 : 34; // hurry on long trips
+    const speed = left > 12 ? 64 : left > 6 ? 48 : 34; // hurry on long trips
     const step = speed * dt;
     if (dist <= step) {
       this.x = tx; this.y = ty;
