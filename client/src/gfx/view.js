@@ -14,7 +14,7 @@ import { buildTerrain, buildRocks, treeCards, buildFountain, fountainSpray, buil
 import { buildPlot, glassMat, LEVEL_H } from './houses.js';
 import { makeItem } from './models.js';
 import { TEXEL } from './textures.js';
-import { createScene, ctx, G, NPT, ShadowMap, TyMaterial, Vector3, Color4, Geo, toMesh, spriteGeo, disposeNode, freeze, linear, linearRGB, linearHSL } from './bjs.js';
+import { createScene, ctx, G, NPT, ShadowMap, TyMaterial, Vector3, Color4, Geo, toMesh, spriteGeo, disposeNode, freeze, linear, linearRGB, linearHSL, canvasTexture } from './bjs.js';
 
 const ELEV = 0.62; // camera pitch (radians)
 const DIR_VEC = [[0, 1], [0, -1], [-1, 0], [1, 0]]; // world dir 0..3 -> (x, z)
@@ -66,7 +66,7 @@ export class View {
     // Static scenery
     this.terrain = buildTerrain(world);
     this.terrainRoads = world.roadsVersion;
-    buildRocks(world); buildFountain(); buildPlazaLamps(); buildCityHall();
+    this.rocks = buildRocks(world); buildFountain(); buildPlazaLamps(); buildCityHall();
     this.spray = fountainSpray();
     this.trees = new BillboardSet();
     this.treeSet = new BillboardSet(); // trees alone, rebuilt when the season changes
@@ -193,6 +193,53 @@ export class View {
   }
 
   // Repaint the ground after the road layout changed.
+  // Trees chopped, rocks broken, new ones grown: rebuild them (at most a few times a second).
+  refreshNature() {
+    if (this.natureTimer) return;
+    this.natureTimer = setTimeout(() => {
+      this.natureTimer = null;
+      this.treeSet.dispose();
+      this.treeSet = new BillboardSet();
+      treeCards(this.world, this.treeSet);
+      this.treeSet.build(this.basis());
+      disposeNode(this.rocks);
+      this.rocks = buildRocks(this.world);
+    }, 120);
+  }
+
+  // Soft cloud shadows drifting over the land (darker when it's overcast).
+  makeClouds() {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 128;
+    const g = cv.getContext('2d');
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 9; i++) {
+      const x = rnd() * 128, y = rnd() * 128, r = 14 + rnd() * 26;
+      for (const [dx, dy] of [[0, 0], [128, 0], [-128, 0], [0, 128], [0, -128]]) {
+        const gr = g.createRadialGradient(x + dx, y + dy, 0, x + dx, y + dy, r);
+        gr.addColorStop(0, 'rgba(10,20,40,0.85)'); gr.addColorStop(0.6, 'rgba(10,20,40,0.45)'); gr.addColorStop(1, 'rgba(10,20,40,0)');
+        g.fillStyle = gr; g.beginPath(); g.ellipse(x + dx, y + dy, r, r * 0.7, 0, 0, Math.PI * 2); g.fill();
+      }
+    }
+    const P = 48, x0 = -40 - P, z0 = -40, x1 = MAP_W + 40, z1 = MAP_H + 40, y = 0.05;
+    const geo = new Geo([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1], [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
+      [0, 0, (x1 - x0) / P, 0, (x1 - x0) / P, (z1 - z0) / P, 0, (z1 - z0) / P], [0, 2, 1, 0, 3, 2]);
+    this.cloudMat = new TyMaterial({ kind: 'basic', map: canvasTexture(cv, true, false), transparent: true, opacity: 0.24, depthWrite: false, doubleSided: true });
+    this.clouds = toMesh(geo, this.cloudMat, { name: 'clouds' });
+    this.clouds.alphaIndex = 1;
+    this.cloudP = P;
+    this.overcast = 0;
+  }
+  updateClouds(now) {
+    if (!this.clouds) this.makeClouds();
+    const P = this.cloudP, t = now / 1000;
+    this.clouds.position.x = ((t * 0.35) % P);
+    this.clouds.position.z = ((t * 0.12) % P) - P * 0.5;
+    const want = 0.24 + this.overcast * 0.22;
+    if (Math.abs((this.cloudMat.o.opacity ?? 0) - want) > 0.005) this.cloudMat.setOpacity(this.cloudMat.o.opacity + (want - this.cloudMat.o.opacity) * 0.05);
+  }
+
   // The game's season: fall colours, snow in winter.
   setSeason(id) {
     const s = this.world.season || {};
@@ -373,6 +420,7 @@ export class View {
   render(now, dark, follow) {
     if (Math.abs(this.yawGoal - this.yaw) > 0.0005) { this.yaw += (this.yawGoal - this.yaw) * 0.2; this.basisVersion++; }
     this.updateCards(now);
+    this.updateClouds(now);
     // Follow the player rigidly (a trailing camera makes the character wobble against the
     // pixel grid); free-look panning eases, independent of the frame rate.
     const dt = Math.min(0.1, (now - (this.lastFrame ?? now)) / 1000);

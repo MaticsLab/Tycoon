@@ -171,6 +171,10 @@ export const ITEMS = {
   seed_corn:     { name: 'Corn Seeds',   cat: 'farm', layer: 'obj', price: 14, crop: 'corn' },
   seed_melon:    { name: 'Melon Seeds',  cat: 'farm', layer: 'obj', price: 35, crop: 'melon' },
   seed_kale:     { name: 'Kale Seeds',   cat: 'farm', layer: 'obj', price: 12, crop: 'kale' },
+  // Trees you plant: they grow over a couple of days into trees to chop for wood (apple
+  // trees also fruit every day). See shared/nature.js.
+  sapling_oak:   { name: 'Oak Sapling',  cat: 'farm', layer: 'obj', price: 30, solid: true, tree: 'oak' },
+  sapling_apple: { name: 'Apple Tree',   cat: 'farm', layer: 'obj', price: 70, solid: true, tree: 'apple' },
   // Animal houses: buy animals from the coop / barn, feed them hay or wheat every day,
   // collect what they make the next morning.
   coop:          { name: 'Chicken Coop', cat: 'farm', layer: 'obj', price: 400, solid: true, size: [2, 2], rot: 'face', animals: ['chicken'], cap: 4 },
@@ -254,6 +258,11 @@ export const GOODS = {
   pike:      { name: 'Pike',     kind: 'fish', value: 150, icon: '🦈' },
   koi:       { name: 'Koi',      kind: 'fish', value: 300, icon: '🎏' },
   whiskers:  { name: 'Old Whiskers', kind: 'fish', value: 1200, icon: '🐋' },
+  wood:      { name: 'Wood',     kind: 'material', value: 12, icon: '🪵' },
+  stone:     { name: 'Stone',    kind: 'material', value: 8, icon: '🪨' },
+  apple:     { name: 'Apple',    kind: 'produce', value: 25, icon: '🍎' },
+  axe:       { name: 'Axe',      kind: 'tool', value: 90, icon: '🪓' },
+  pickaxe:   { name: 'Pickaxe',  kind: 'tool', value: 90, icon: '⛏️' },
   // Tools: kept in the bag.
   wateringcan: { name: 'Watering Can', kind: 'tool', value: 40, icon: '🚿' },
   bigcan:    { name: 'Big Watering Can', kind: 'tool', value: 150, icon: '🪣' },

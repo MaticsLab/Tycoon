@@ -7,7 +7,8 @@ import { wallTex, floorTex, roofTex, woodTex, signTex, doorTex, awningTex, stone
 import { Batch, boxAt, gableRoof } from './geom.js';
 import { itemInto, hasModel, BILLBOARD, materials } from './models.js';
 import { Geo, box, quad, toMesh, node, lambert as mkLambert, basic as mkBasic } from './bjs.js';
-import { objectSprite, cropSprite } from '../sprites.js';
+import { objectSprite, cropSprite, treeSprite } from '../sprites.js';
+import { treeStage } from '@shared/nature.js';
 
 export { LEVEL_H }; // floor-to-floor height (shared with the game rules)
 export const LOW_H = 0.4; // cut-away wall height
@@ -383,7 +384,14 @@ export function buildPlot(plot, opts) {
       const [lx, ly] = k.split(',').map(Number);
       const rot = o.r || 0;
       const [w, h] = footprint(o.t, rot);
-      if (hasModel(o.t)) {
+      if (d.tree) {
+        // A planted tree: sapling, young tree, then full grown (apple trees blossom pink).
+        if (cards) {
+          const st = treeStage(o, opts.now);
+          const v = ((lx * 73 + ly * 31) % 100) / 100 * 0.78;
+          cards.add(d.tree === 'apple' ? treeSprite(0.97, 'blossom') : treeSprite(v), 8, 14, ox + lx + 0.5, y, oz + ly + 0.55, { shadow: [0.5, 0.9, 1.5][st], scale: [0.45, 0.9, 1.5][st] });
+        }
+      } else if (hasModel(o.t)) {
         itemInto(furn, o.t, rot, ox + lx, y, oz + ly, o.c || 0);
       } else if (cards && d.crop) {
         cards.add(cropSprite(d.crop, cropStage(o, opts.now)), 8, 13, ox + lx + 0.5, y, oz + ly + 0.6);

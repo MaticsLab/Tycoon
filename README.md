@@ -156,7 +156,7 @@ You can also befriend villagers whose personalities change based on how you trea
   - **Property tax:** the council can set it (0–20 coins per 10 tiles a month); it's collected on the first day of each month.
   - **Public projects:** the council can vote to spend the treasury on a Flower Garden (Willow Park), a Farmers' Market and a Village Library (City Hall lawn, walk-in, with books to read), or a Bandstand at the fair. Each appears in the world once it's built.
 - **Rosa reacts to supply.** Each morning she runs short of whatever in-season crop nobody's been bringing her and pays 50% more for it. She also brags about yesterday's best supplier.
-- **A bigger town square** (48×16) with room around the shops. The shop fronts are layered like a real high street:
+- **A big town square** (56×16) with room around the shops. The shop fronts are layered like a real high street:
   - stone plinths, corner pilasters and cornices;
   - a tall painted sign board above the glass doors;
   - striped awnings and flower boxes over the windows;
@@ -164,6 +164,17 @@ You can also befriend villagers whose personalities change based on how you trea
   - Otto's brick chimney.
 
   Rosa has produce stands out front and Otto has porch chairs and a dresser, with benches, planters and lamps around the fountain.
+- **Woods, chopping and mining.** Groves of trees and rocky outcrops cover the open land. Buy an **axe** or a **pickaxe** from Juniper, walk up and tap **🪓 Chop tree** / **⛏️ Break rock**, or tap the tree itself; if you're far away, you walk over first.
+  - A tree takes 3 swings (3–5 wood, sometimes an oak sapling) and a rock takes 4 (2–4 stone). Otto buys wood and stone.
+  - Claiming land clears it, and the wood and stone go to you.
+  - Stumps grow back after about a day. When the village runs low, new trees and rocks sprout next to the old ones.
+- **Plant trees.** **Oak saplings** grow into trees you can chop for wood (you get the sapling back to replant). **Apple trees** fruit every day once grown: tap them to pick 3 apples (🍎 shows when ready). Both are in Build → Farm, and oak saplings also drop from wild trees.
+- **Fewer roads.** The village starts with three east–west roads and two north–south ones. The rest is wild land the council can open up (City Hall → Council → Build a road, paid from the treasury, 🪙3 a tile): East Lane, Far East Road, Far South Road and West Link. Players can still lay road on their own land.
+- **Weather and ambience.**
+  - **Forecast:** a daily forecast for the whole village brings rain (sometimes a thunderstorm with lightning in summer) or snow in winter, for part of the day.
+  - **Rain** darkens the sky and waters every outdoor crop (not the ones in greenhouses).
+  - **By season:** blossom petals drift down in spring, fireflies glow on summer nights, and leaves fall in autumn.
+  - **Cloud shadows** drift slowly over the land.
 - **Walk-in village shops.** Rosa's Market and Otto's Furniture on the town square are real buildings: in through the glass double doors, the walls cut away like at home. Rosa's has shelves, produce stands and chilled cases stocked with what she buys and sells; Otto's is a furniture showroom with a fireplace and a piano. The keepers stand behind their counters during opening hours. Tap a shelf or the register (**🛒 Shop here**), or talk to the keeper from anywhere inside, to buy and sell. The shops belong to the village: nobody can claim or edit them.
 - **Watering.** Watered crops grow twice as fast while the soil stays wet (one in-game day; wet soil looks dark). Buy a **watering can** from Rosa and walking through your rows waters them.
 - **Water and electricity.** At City Hall, hook up **💧 water** (🪙100 setup + 🪙120 a month) or **⚡ electricity** (🪙150 + 🪙200 a month). Bills go to the city treasury every 28 days. If you can't pay, the service is cut off until you settle up at City Hall.

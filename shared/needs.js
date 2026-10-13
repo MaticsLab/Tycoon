@@ -86,7 +86,7 @@ export const FOODS = {
   jam: { hunger: 18, fun: 8 }, juice: { energy: 14, hunger: 6 }, pie: { hunger: 45, fun: 15 }, bread: { hunger: 24 }, soup: { hunger: 35, fun: 4 },
   corn: { hunger: 16 }, melon: { hunger: 22, fun: 8 }, kale: { hunger: 14, health: 3 }, milk: { hunger: 10, energy: 6 },
   cheese: { hunger: 28, fun: 6 }, cake: { hunger: 40, fun: 18 },
-  smokedfish: { hunger: 30, fun: 4 }, fishstew: { hunger: 42, fun: 8 },
+  smokedfish: { hunger: 30, fun: 4 }, apple: { hunger: 10, fun: 3 }, fishstew: { hunger: 42, fun: 8 },
 };
 
 // Run needs forward by `hours` of in-game time while doing activity `act` (or nothing).

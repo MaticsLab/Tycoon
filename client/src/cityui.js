@@ -1,6 +1,6 @@
 // The City Hall panel (opened from Mabel, the City Clerk): the government, elections,
 // council proposals and the city's data. Rendered into the shared modal sheet.
-import { ROAD_ROWS, ROAD_COLS, ROAD_W, MAP_W, STEP_MS, DAY_STEPS } from '@shared/world.js';
+import { ROAD_ROWS, ROAD_COLS, ROAD_W, MAP_W, STEP_MS, DAY_STEPS, ROAD_PLANS } from '@shared/world.js';
 import { UTILITIES, FARMHANDS, MONTH_DAYS } from '@shared/farm.js';
 import { PROJECTS } from '@shared/townshops.js';
 
@@ -80,7 +80,9 @@ function bankCard(el, { city, send }) {
   c.insertAdjacentHTML('beforeend', `<div><b>🏗️ Public projects</b> · treasury 🪙${city.treasury.toLocaleString()}</div>
     ${built.map(([, p]) => `<div>✅ ${p.icon} ${esc(p.name)} at ${esc(p.where)}</div>`).join('')}
     ${todo.map(([, p]) => `<div class="muted small">${p.icon} ${esc(p.name)} · 🪙${p.cost.toLocaleString()} · ${esc(p.line)}</div>`).join('')}
-    ${todo.length ? '<div class="muted small">Propose one to the council (Council tab); it’s built when it passes and the treasury can pay.</div>' : ''}`);
+    ${todo.length ? '<div class="muted small">Propose one to the council (Council tab); it’s built when it passes and the treasury can pay.</div>' : ''}
+    <div><b>🛣️ Roads</b> <span class="muted small">(players can also lay road on their own land in build mode → Land)</span></div>
+    ${Object.entries(ROAD_PLANS).map(([id, p]) => `<div class="${city.roads?.[id]?.built ? '' : 'muted small'}">${city.roads?.[id]?.built ? '✅' : '🚧'} ${esc(p.name)}${city.roads?.[id]?.built ? '' : ` · 🪙${city.roads?.[id]?.cost} · ${esc(p.line)}`}</div>`).join('')}`);
   el.appendChild(c);
 }
 
@@ -273,11 +275,13 @@ function council(el, { city, me, myPlot, plots, send }) {
       <option value="landPrice">Set the price of land</option>
       <option value="tax">Set property tax</option>
       <option value="project">Build a public project</option>
+      <option value="road">Build a road</option>
       <option value="resolution">A resolution (anything else)</option>
     </select>
     <input name="title" maxlength="60" placeholder="Title">
     <input name="price" type="number" min="1" max="20" placeholder="Coins per tile (1–20)" hidden>
     <input name="rate" type="number" min="0" max="20" placeholder="Coins per 10 tiles a month (0–20)" hidden>
+    <select name="plan" hidden>${Object.entries(ROAD_PLANS).filter(([id]) => !city.roads?.[id]?.built).map(([id, p]) => `<option value="${id}">🛣️ ${esc(p.name)} (🪙${city.roads?.[id]?.cost ?? '?'})</option>`).join('')}</select>
     <select name="project" hidden>${Object.entries(PROJECTS).filter(([id]) => !city.projects.includes(id)).map(([id, p]) => `<option value="${id}">${p.icon} ${esc(p.name)} (🪙${p.cost.toLocaleString()})</option>`).join('')}</select>
     <input name="text" maxlength="280" placeholder="Why? (the council and caretakers will read this)">
     <button class="primary">Submit to the council</button>`;
@@ -286,6 +290,7 @@ function council(el, { city, me, myPlot, plots, send }) {
     f.price.hidden = k !== 'landPrice';
     f.rate.hidden = k !== 'tax';
     f.project.hidden = k !== 'project';
+    f.plan.hidden = k !== 'road';
     f.title.hidden = k !== 'resolution';
   };
   f.kind.onchange = sync;
@@ -293,7 +298,7 @@ function council(el, { city, me, myPlot, plots, send }) {
   f.onsubmit = (ev) => {
     ev.preventDefault();
     const k = f.kind.value;
-    send({ type: 'cityPropose', kind: k, plotId: own?.id, price: Number(f.price.value), rate: Number(f.rate.value), project: f.project.value, title: k === 'resolution' ? f.title.value.trim() : '', text: f.text.value.trim() });
+    send({ type: 'cityPropose', kind: k, plotId: own?.id, price: Number(f.price.value), rate: Number(f.rate.value), project: f.project.value, plan: f.plan.value, title: k === 'resolution' ? f.title.value.trim() : '', text: f.text.value.trim() });
   };
   el.appendChild(f);
 }

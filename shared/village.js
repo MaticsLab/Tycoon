@@ -6,10 +6,10 @@ import { canStand, crossesWall } from './plot.js';
 // Named spots, in tiles. `seat` = where they sit (a bench) if the activity sits.
 // `inside` = indoors (they vanish from view while there, e.g. asleep at home).
 export const PLACES = {
-  rosa_shop:     { name: 'Rosa’s Market', x: 51.5, y: 45.7 },
-  otto_shop:     { name: 'Otto’s Furniture', x: 67.5, y: 45.7 },
-  rosa_home:     { name: 'home above the market', x: 51.5, y: 45.6, inside: true },
-  otto_home:     { name: 'home behind the workshop', x: 67.5, y: 45.6, inside: true },
+  rosa_shop:     { name: 'Rosa’s Market', x: 47.5, y: 45.7 },
+  otto_shop:     { name: 'Otto’s Furniture', x: 71.5, y: 45.7 },
+  rosa_home:     { name: 'home above the market', x: 47.5, y: 45.6, inside: true },
+  otto_home:     { name: 'home behind the workshop', x: 71.5, y: 45.6, inside: true },
   juniper_home:  { name: 'the potting shed', x: 63, y: 58, inside: true },
   mabel_home:    { name: 'her flat by City Hall', x: 139.5, y: 33.6, inside: true },
   mabel_desk:    { name: 'the City Hall front desk', x: 139.5, y: 34.8 },
@@ -176,7 +176,7 @@ const inPlot = (world, x, y) => x >= 0 && y >= 0 && x < MAP_W && y < MAP_H && wo
 // Is a tile walkable public land? Cached per map version (plots and roads), since
 // checking collision is the slow part of path finding.
 function walkable(world, plots) {
-  const v = `${world.plotsVersion || 0}|${world.roadsVersion || 0}`;
+  const v = `${world.plotsVersion || 0}|${world.roadsVersion || 0}|${world.natureVersion || 0}`;
   let c = world.walkCache;
   if (!c || c.v !== v) c = world.walkCache = { v, grid: new Int8Array(MAP_W * MAP_H).fill(-1) };
   return (x, y) => {

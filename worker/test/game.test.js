@@ -1456,9 +1456,9 @@ test('village life: fishing, trading, notice board, mail, co-op farms, storage',
   game.events.onStat = () => {};
 
   // Fishing at the square's pond: cast, wait for the bite, reel in.
-  sa.x = 45 * TILE; sa.y = 53.5 * TILE; // the pond's east shore
+  sa.x = 41 * TILE; sa.y = 53.5 * TILE; // the pond's east shore
   const { waterNear } = await import('../../shared/fishing.js');
-  for (let x = 45; x < 50 && !waterNear(game.world, sa.x, sa.y); x += 0.25) sa.x = x * TILE;
+  for (let x = 41; x < 46 && !waterNear(game.world, sa.x, sa.y); x += 0.25) sa.x = x * TILE;
   assert.ok(waterNear(game.world, sa.x, sa.y), 'at the water');
   a.send({ type: 'fishCast' });
   assert.equal(a.last('fishing').state, 'cast');
@@ -1628,4 +1628,81 @@ test('village calendar: festivals, goals, newspaper, friendship, loans, tax and 
   const before = sa.profile.coins;
   game.city.money(29);
   assert.equal(sa.profile.coins, before - game.plots[0].w * game.plots[0].h);
+});
+
+test('nature: chop trees and break rocks, land clears when claimed, regrowth, planted trees, rain, new roads', async () => {
+  const { HOUR_MS } = await import('../../shared/needs.js');
+  const { wildKind, weatherAt, forecast, TREES } = await import('../../shared/nature.js');
+  const { T: TT, MAP_W: MW, ROAD_PLANS, LAND, DAY_MS: DMS } = await import('../../shared/world.js');
+  const { game, join, advance } = setup();
+  const a = await join({ name: 'Ana' });
+  const sa = a.session();
+  a.send({ type: 'cheat', cmd: 'testingcheats true' });
+  a.send({ type: 'cheat', cmd: 'motherlode' });
+  game.events.onStat = () => {};
+  const w = game.world;
+  const find = (kind) => { for (let y = LAND.y; y < LAND.y + LAND.h; y++) for (let x = LAND.x; x < LAND.x + LAND.w; x++) if (wildKind(w, x, y) === kind && w.plotAt[y * MW + x] < 0) return [x, y]; };
+  // A tree out in the wild: three swings of the axe.
+  const [tx, ty] = find('tree');
+  sa.x = (tx + 1.5) * TILE; sa.y = (ty + 0.5) * TILE;
+  a.send({ type: 'chop', tx, ty });
+  assert.match(a.last('error').msg, /axe/);
+  a.send({ type: 'cheat', cmd: 'give axe 1' });
+  for (let i = 0; i < 3; i++) { advance(400); a.send({ type: 'chop', tx, ty }); }
+  assert.equal(w.tiles[ty * MW + tx], TT.GRASS, 'felled');
+  assert.ok(sa.profile.inv.wood >= 3);
+  assert.deepEqual(a.last('nature').cut, [ty * MW + tx]);
+  // A rock: four swings of the pickaxe.
+  const [rx, ry] = find('rock');
+  sa.x = (rx + 1.5) * TILE; sa.y = (ry + 0.5) * TILE;
+  a.send({ type: 'cheat', cmd: 'give pickaxe 1' });
+  for (let i = 0; i < 4; i++) { advance(400); a.send({ type: 'chop', tx: rx, ty: ry }); }
+  assert.ok(sa.profile.inv.stone >= 2);
+  // Claiming land clears its trees and rocks: the wood goes to the new owner.
+  const plot = Object.values(game.plots).find((p) => !p.owner && !p.town && [...Array(p.w * p.h).keys()].some((k) => wildKind(w, p.x + (k % p.w), p.y + Math.floor(k / p.w))));
+  const wood0 = sa.profile.inv.wood;
+  a.send({ type: 'claim', plotId: plot.id });
+  assert.ok(sa.profile.inv.wood > wood0, 'wood from clearing the land');
+  for (let y = plot.y; y < plot.y + plot.h; y++) for (let x = plot.x; x < plot.x + plot.w; x++) assert.equal(wildKind(w, x, y), null);
+  // Stumps grow back after a day or so.
+  const target = game.nature.target.tree;
+  assert.ok(target > 100, `plenty of trees on the map (${target})`);
+  advance(DMS + HOUR_MS); game.tick();
+  assert.ok(Object.keys(game.nature.s.cut).length < 1000);
+  // Plant an apple tree: it grows, fruits, and can be chopped for wood (and the sapling back).
+  a.send({ type: 'place', plotId: plot.id, lx: 2, ly: 2, item: 'sapling_apple' });
+  const o = plot.obj['2,2'];
+  assert.equal(o.t, 'sapling_apple');
+  sa.x = (plot.x + 3.5) * TILE; sa.y = (plot.y + 2.5) * TILE;
+  a.send({ type: 'tree', plotId: plot.id, lx: 2, ly: 2, act: 'pick' });
+  assert.match(a.last('error').msg, /No fruit/);
+  advance(TREES.apple.growMs + TREES.apple.fruitMs + 1000);
+  a.send({ type: 'tree', plotId: plot.id, lx: 2, ly: 2, act: 'pick' });
+  assert.equal(sa.profile.inv.apple, 3);
+  const wood1 = sa.profile.inv.wood;
+  a.send({ type: 'tree', plotId: plot.id, lx: 2, ly: 2, act: 'chop' });
+  assert.equal(plot.obj['2,2'], undefined);
+  assert.ok(sa.profile.inv.wood > wood1);
+  assert.equal(sa.profile.inv.sapling_apple, 1);
+  // Rain waters outdoor crops.
+  let day = game.day();
+  while (!['rain', 'storm'].includes(forecast(day).kind)) day++;
+  const f = forecast(day);
+  a.send({ type: 'place', plotId: plot.id, lx: 6, ly: 6, item: 'soil' });
+  const seed = ['seed_turnip', 'seed_corn', 'seed_kale', 'seed_wheat'].find((sd) => { a.send({ type: 'place', plotId: plot.id, lx: 6, ly: 6, item: sd }); return plot.obj['6,6']; });
+  assert.ok(seed);
+  game.nature.rain(game.now());
+  assert.ok(plot.obj['6,6'].wu > game.now());
+  assert.equal(weatherAt(day, f.from + 0.5), f.kind);
+  // The council builds East Lane: the road appears.
+  const plan = ROAD_PLANS.eastlane;
+  game.city.s.treasury = 100000;
+  game.city.isRegistered = () => true;
+  sa.x = 139.5 * TILE; sa.y = 37.5 * TILE;
+  a.send({ type: 'cityPropose', kind: 'road', plan: 'eastlane' });
+  const pr = game.city.s.proposals.at(-1);
+  assert.equal(pr.kind, 'road');
+  game.city.closeBill(pr, game.day());
+  assert.equal(w.tiles[(plan.y + 5) * MW + plan.x + 1], TT.PATH);
+  assert.ok(game.city.roadBuilt(plan));
 });

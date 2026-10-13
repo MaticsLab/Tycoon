@@ -9,7 +9,7 @@
 //   a player mayor then signs or vetoes (unsigned bills become law after a day).
 // - City data: road traffic per tile, visits to each public place, and the economy.
 //   Mabel the clerk (an AI villager) sees all of it, and so do AI votes.
-import { DAYS_PER_YEAR, MAP_W, PUBLIC_AREAS, T, isRoad } from '../../shared/world.js';
+import { DAYS_PER_YEAR, MAP_W, PUBLIC_AREAS, T, isRoad, ROAD_PLANS } from '../../shared/world.js';
 import { landError, roadIn } from '../../shared/plot.js';
 import { PROJECTS } from '../../shared/townshops.js';
 import { MONTH_DAYS } from '../../shared/farm.js';
@@ -187,6 +187,12 @@ export class City {
       if (!Number.isInteger(rate) || rate < 0 || rate > 20) return 'Property tax must be 0 to 20 coins per 10 tiles a month';
       p.rate = rate;
       p.title ||= rate ? `Set property tax to 🪙${rate} per 10 tiles a month` : 'Abolish property tax';
+    } else if (kind === 'road') {
+      const plan = ROAD_PLANS[msg.plan];
+      if (!plan) return 'Unknown road';
+      if (this.roadBuilt(plan)) return `${plan.name} is already built`;
+      p.plan = msg.plan;
+      p.title ||= `Build ${plan.name} (🪙${this.roadCost(plan)} from the treasury)`;
     } else if (kind === 'project') {
       const pr = PROJECTS[msg.project];
       if (!pr) return 'Unknown project';
@@ -246,6 +252,19 @@ export class City {
       if (plot) this.game.closeRoadsOn(plot);
     } else if (p.kind === 'landPrice') this.s.landPrice = p.price;
     else if (p.kind === 'tax') this.s.taxRate = p.rate;
+    else if (p.kind === 'road') {
+      const plan = ROAD_PLANS[p.plan], cost = this.roadCost(plan);
+      if (this.s.treasury < cost) { p.status = 'failed'; this.news(day, `${p.title}: passed, but the treasury can’t afford it yet (🪙${this.s.treasury} of 🪙${cost}).`); this.mark(); return; }
+      this.s.treasury -= cost;
+      const roads = this.game.roads, add = new Set(roads.add), del = new Set(roads.del);
+      for (let y = plan.y; y < plan.y + plan.h; y++) for (let x = plan.x; x < plan.x + plan.w; x++) {
+        const i = y * MAP_W + x;
+        if (this.game.world.baseRoads[i]) del.delete(i); else add.add(i);
+      }
+      this.game.setRoads({ add: [...add], del: [...del] });
+      this.game.addGossip('City Hall', `The village built ${plan.name}!`);
+      this.game.events?.note(`Road crews finished ${plan.name}`);
+    }
     else if (p.kind === 'project') {
       const pr = PROJECTS[p.project];
       if (this.s.treasury < pr.cost) {
@@ -300,6 +319,10 @@ export class City {
       const ok = p.rate <= 6;
       return { recommend: ok ? 'yes' : 'no', reason: ok ? 'A modest tax that pays for nice things without hurting farmers.' : 'Too steep: it would squeeze the village’s farmers.' };
     }
+    if (p.kind === 'road') {
+      const plan = ROAD_PLANS[p.plan], cost = this.roadCost(plan), ok = this.s.treasury >= cost;
+      return { recommend: ok ? 'yes' : 'no', reason: ok ? `A new road opens up land and the treasury can pay (🪙${cost}).` : `The treasury only has 🪙${this.s.treasury} of the 🪙${cost} needed.` };
+    }
     if (p.kind === 'project') {
       const pr = PROJECTS[p.project];
       const ok = this.s.treasury >= pr.cost;
@@ -307,6 +330,15 @@ export class City {
     }
     return { recommend: 'yes', reason: 'A harmless resolution that the village can rally around.' };
   }
+
+  // Roads the council can build: 3 coins a tile (on land that isn't road yet).
+  roadCost(plan) { return this.roadTilesLeft(plan) * 3; }
+  roadTilesLeft(plan) {
+    let n = 0;
+    for (let y = plan.y; y < plan.y + plan.h; y++) for (let x = plan.x; x < plan.x + plan.w; x++) if (!isRoad(this.game.world, x, y)) n++;
+    return n;
+  }
+  roadBuilt(plan) { return this.roadTilesLeft(plan) === 0; }
 
   // ---------- money: loans and property tax ----------
   // Borrow from the treasury: pay back 10% more within a month (interest-free if Mabel
@@ -423,7 +455,7 @@ export class City {
     const traffic = Object.entries(S.stats.roadUse).sort((a, b) => b[1] - a[1]).slice(0, 40).map(([i, n]) => [+i, n]);
     return {
       day, landPrice: S.landPrice, treasury: S.treasury, term: S.term, seats: SEATS,
-      taxRate: S.taxRate || 0, projects: S.projects || [], loan: forProfile?.loan || null, loanMax: LOAN_MAX, loanRate: LOAN_RATE,
+      taxRate: S.taxRate || 0, projects: S.projects || [], roads: Object.fromEntries(Object.entries(ROAD_PLANS).map(([id, p]) => [id, { built: this.roadBuilt(p), cost: this.roadCost(p) }])), loan: forProfile?.loan || null, loanMax: LOAN_MAX, loanRate: LOAN_RATE,
       officials: S.officials,
       election: e && {
         n: e.n, founding: e.founding, phase: this.phase(day), filingEnd: e.filingEnd, votingEnd: e.votingEnd,

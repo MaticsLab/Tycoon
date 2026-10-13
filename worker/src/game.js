@@ -18,6 +18,7 @@ import { Farm } from './farm.js';
 import { Social } from './social.js';
 import { Fishing } from './fishing.js';
 import { Events } from './events.js';
+import { Nature } from './nature.js';
 import { townShopPlots, TOWN_PLOT_BASE } from '../../shared/townshops.js';
 import { waterCrop, WET_MS, QUALITY, ANIMALS } from '../../shared/farm.js';
 import { NPC_ACTS, readTone, blendTone } from '../../shared/village.js';
@@ -118,6 +119,9 @@ export class Game {
     this.dirty = new Set(saved.meta && !this.freshLand ? [] : ['meta']);
     if (this.freshLand) for (const id of Object.keys(this.plots)) this.dirty.add(`plot:${id}`);
     for (const k of this.dirtyLater || []) this.dirty.add(k);
+    // Wild trees and rocks (cleared from land people own).
+    this.nature = new Nature(this, saved.nature);
+    for (const p of Object.values(this.plots)) if (p.owner) this.nature.clearPlot(p);
     this.lastTick = this.now();
   }
 
@@ -134,6 +138,7 @@ export class Game {
       else if (k === 'farm') out[k] = this.farm.save();
       else if (k === 'social') out[k] = this.social.save();
       else if (k === 'events') out[k] = this.events.save();
+      else if (k === 'nature') out[k] = this.nature.save();
       else if (kind === 'plot') { if (this.plots[id]?.town) continue; out[k] = this.plots[id] ?? null; }
       else if (kind === 'profile') out[k] = this.profiles[id] ?? null;
       else if (kind === 'npc') out[k] = this.npcs[id].s;
@@ -155,6 +160,7 @@ export class Game {
       else if (kind === 'farm') saved.farm = v;
       else if (kind === 'social') saved.social = v;
       else if (kind === 'events') saved.events = v;
+      else if (kind === 'nature') saved.nature = v;
       else if (kind === 'plot') saved.plots[id] = v;
       else if (kind === 'profile') saved.profiles[id] = v;
       else if (kind === 'npc') saved.npcs[id] = v;
@@ -280,6 +286,8 @@ export class Game {
       case 'fishReel': return this.fishing.reel(s);
       case 'fishStop': return this.fishing.stop(s);
       case 'festEnter': return this.events.enter(s, msg);
+      case 'chop': return this.nature.hit(s, msg);
+      case 'tree': return this.nature.tree(s, msg);
       case 'date': return this.date(s, msg);
       case 'loanTake': return this.cityAction(s, () => this.city.loan(s, msg.amount, this.day()));
       case 'loanRepay': return this.cityAction(s, () => this.city.repay(s, msg.amount));
@@ -391,6 +399,7 @@ export class Game {
       roads: this.roads,
       city: this.city.view(this.day(), profile),
       drops: this.farm.drops,
+      nature: this.nature.view(), weather: this.weather || null,
       market: this.farm.marketView(),
       util: profile.util || {}, hand: profile.hand || null, qual: profile.qual || {},
     });
@@ -524,7 +533,7 @@ export class Game {
   claim(s, { plotId, business }) {
     const plot = this.plots[plotId];
     if (!plot) return;
-    if (business) return this.biz.claimShop(s, plot);
+    if (business) { const r = this.biz.claimShop(s, plot); if (plot.owner === s.profile.id) this.nature.clearPlot(plot, s.profile); return r; }
     if (s.profile.plotId != null) return s.send({ type: 'error', msg: 'You already own a plot' });
     if (plot.owner) return s.send({ type: 'error', msg: 'That plot is taken' });
     plot.owner = s.profile.id;
@@ -534,6 +543,7 @@ export class Game {
     this.markProfile(s.profile);
     s.send({ type: 'claimed', plotId: plot.id });
     this.plotChanged(plot);
+    this.nature.clearPlot(plot, s.profile);
     this.addGossip('the village', `${s.profile.name} just moved into plot ${plot.id + 1}`);
   }
 
@@ -947,6 +957,7 @@ export class Game {
   payLand(s, cost) { if (cost) { this.coins(s, -cost); this.city.onLand(cost); } }
 
   landChanged(changed, removed = []) {
+    for (const p of changed) if (p?.owner && this.nature) this.nature.clearPlot(p, Object.values(this.profiles).find((x) => x.id === p.owner));
     indexPlots(this.world, this.plots);
     for (const id of removed) { this.mark(`plot:${id}`); this.broadcast({ type: 'plotRemoved', id }); }
     for (const p of changed) this.plotChanged(p);
@@ -1564,6 +1575,7 @@ export class Game {
     this.biz.tick(now);
     this.farm.tick(now);
     this.events.tick(now);
+    this.nature.tick(now);
     this.fishing.tick(now);
     if (!this.sessions.size) return;
     // Drop players we haven't heard from for 450 ticks, about 45 s (a phone that went to

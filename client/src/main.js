@@ -1,6 +1,6 @@
 import {
   generateWorld, applyRoads, plotIdAtPixel, worldClock, darkness,
-  TILE, MAP_W, MAP_H, PLAYER_SPEED, RUN_MULT, WORLD_VERSION, DAY_MS,
+  TILE, MAP_W, MAP_H, PLAYER_SPEED, RUN_MULT, WORLD_VERSION, DAY_MS, T,
 } from '@shared/world.js';
 import {
   canStand, crossesWall, inInterior, key, placementError, objAt, footprint, canRotate, levelView, wallSideAt,
@@ -25,6 +25,8 @@ import { drawFloor, drawObject } from './sprites.js';
 import { openCreator, closeCreator } from './creator.js';
 import { renderCity } from './cityui.js';
 import { socialUI } from './social-ui.js';
+import { makeWeather } from './weather.js';
+import { applyNature, wildKind, treeStage, fruitReady, HITS, TOOL_FOR, weatherAt } from '@shared/nature.js';
 import { drawLook } from './people.js';
 import { sanitizeLook, randomLook, PETS } from '@shared/look.js';
 import { httpBase, signInGuest, signIn, signUp, getSession, signOut } from './auth.js';
@@ -175,7 +177,10 @@ function onMessage(m) {
       S.npcs.clear();
       for (const n of m.npcs) S.npcs.set(n.id, { ...n, tx: n.x, ty: n.y, moving: false, name: NPCS[n.id].name });
       applyRoads(world, m.roads);
+      applyNature(world, m.nature);
       view.refreshTerrain();
+      view.refreshNature();
+      S.weather = m.weather || null;
       S.city = m.city;
       S.drops = new Map((m.drops || []).map((d) => [d.id, d]));
       S.util = m.util || {}; S.hand = m.hand || null; S.market = m.market || null; S.ride = null;
@@ -280,6 +285,20 @@ function onMessage(m) {
       if (modalKind === 'city') showCity();
       break;
     case 'sale': saleFx(m); break;
+    case 'nature': {
+      for (const i of m.cut || []) if (world.tiles[i] === T.TREE || world.tiles[i] === T.ROCK) { const x = i % MAP_W, y = Math.floor(i / MAP_W); chips(x, y, world.tiles[i] === T.TREE ? 'tree' : 'rock', 14); world.tiles[i] = T.GRASS; }
+      for (const [i, kind] of m.grow || []) if (world.tiles[i] !== T.PATH) world.tiles[i] = kind === 'rock' ? T.ROCK : T.TREE;
+      world.natureVersion = (world.natureVersion || 0) + 1;
+      view.refreshNature();
+      break;
+    }
+    case 'natureHit': {
+      const x = m.i % MAP_W, y = Math.floor(m.i / MAP_W);
+      chips(x, y, world.tiles[m.i] === T.ROCK ? 'rock' : 'tree', 6);
+      if (m.by === S.me.id) haptic(10);
+      break;
+    }
+    case 'weather': S.weather = m.now; break;
     case 'farm':
       S.util = m.util || {}; S.hand = m.hand || null; S.market = m.market || null;
       if (modalKind === 'city') showCity();
@@ -534,6 +553,7 @@ function updateContext() {
   else if (npc) action = `talk:${npc.id}`;
   else if (usable) action = `use:${usable.plot.id}:${usable.level}:${usable.key}`;
   else if (ui.contextAction()) action = `ui:${ui.contextAction().id}`;
+  else if (wildNear()) { const w = wildNear(); action = `wild:${w.x}:${w.y}:${w.kind}`; }
   else if (S.carry) action = `eatHere:${S.carry.food}`;
   else if (plot && !plot.owner && S.homePlot == null) action = 'claim';
   else if (plot && !plot.owner && S.biz && S.biz.plotId == null) action = 'claimShop';
@@ -549,6 +569,7 @@ function updateContext() {
     else if (action === 'claimShop') btn.textContent = `🏪 Open my shop here (🪙${plot.w * plot.h * landPrice()})`;
     else if (action.startsWith('harvest')) btn.textContent = `🌾 Harvest (${action.split(':')[1]})`;
     else if (action.startsWith('ui:')) btn.textContent = ui.contextAction()?.label || '…';
+    else if (action.startsWith('wild:')) btn.textContent = action.endsWith('tree') ? '🪓 Chop tree' : '⛏️ Break rock';
     else if (action.startsWith('talk')) btn.textContent = `💬 Talk to ${NPCS[action.split(':')[1]].name}`;
     else if (action === 'pet') btn.textContent = `🐾 Pet your ${PETS[petOf(S.me)].kind}`;
     else if (action.startsWith('eatHere')) { const pl = PLATES[S.carry.food]; btn.textContent = `${pl.icon} Eat ${pl.name.toLowerCase()} here`; }
@@ -564,6 +585,7 @@ function updateContext() {
 $('action').onclick = () => {
   if (lastAction.startsWith('stop')) { send({ type: 'stop' }); return; }
   if (lastAction.startsWith('ui:')) { ui.runAction(lastAction.slice(3)); return; }
+  if (lastAction.startsWith('wild:')) { const [, x, y] = lastAction.split(':'); swing(+x, +y); return; }
   if (lastAction.startsWith('eatHere')) { send({ type: 'use', act: 'eatHere' }); return; }
   if (lastAction.startsWith('use')) {
     const u = nearestUsable();
@@ -2474,6 +2496,23 @@ function onTap(cx, cy) {
       return;
     }
   }
+  // Tap a tree or a rock (they stand tall, so look a little around the spot) to chop it.
+  let best = null, bd = 2.2;
+  for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+    const tx = Math.floor(p.x) + dx, ty = Math.floor(p.z) + dy, kind = wildKind(world, tx, ty);
+    if (!kind) continue;
+    const sp = view.toScreen(tx + 0.5, kind === 'tree' ? 1.6 : 0.3, ty + 0.5);
+    const d = Math.hypot(sp.x - cx, sp.y - cy) / 30;
+    if (d < bd) { bd = d; best = { x: tx, y: ty, kind }; }
+  }
+  if (best) {
+    const tool = TOOL_FOR[best.kind];
+    if (!(S.inv[tool] > 0)) { toast(`You need ${best.kind === 'tree' ? 'an axe' : 'a pickaxe'} (Juniper sells them)`); return; }
+    const cxp = (best.x + 0.5) * TILE, cyp = (best.y + 0.5) * TILE;
+    if (Math.hypot(cxp - S.me.x, cyp - S.me.y) < TILE * 1.8) swing(best.x, best.y);
+    else walkTo(cxp, cyp, () => swing(best.x, best.y), TILE * 1.4);
+    return;
+  }
   // Tap the ground to walk there.
   walkTo(p.x * TILE, p.z * TILE + 4, null, 3);
 }
@@ -2606,7 +2645,7 @@ function syncPlots(force) {
   for (let st of plots) {
     let variant = '';
     if (carried && st.id === S.myPlot) { st = liftedPlot(st, carried); variant = `lift:${carried.kind}:${carried.from || ''}:${carried.ox},${carried.oy}`; }
-    const crops = Object.values(st.obj).filter((o) => ITEMS[o.t]?.crop).map((o) => cropStage(o, sNow) + (isWet(o, sNow) ? 'w' : '')).join('');
+    const crops = Object.values(st.obj).filter((o) => ITEMS[o.t]?.crop || ITEMS[o.t]?.tree).map((o) => (ITEMS[o.t].tree ? `t${treeStage(o, sNow)}` : cropStage(o, sNow) + (isWet(o, sNow) ? 'w' : ''))).join('');
     const e = st.owner ? null : plotEntrance(world, st);
     if (view.setPlot(st, { ...plotOpts(st.id), crops, variant, entrance: e && { x: e.x / TILE, z: e.y / TILE } }) && ++rebuilt >= 2 && !force) {
       plotsDirty = true;
@@ -2722,6 +2761,8 @@ const SHOP_ACTS = {
   'shop:keeper': { icon: '🛒', label: 'Shop here' },
   'farm:drive': { icon: '🚜', label: 'Drive' },
   'store:open': { icon: '📦', label: 'Open' },
+  'tree:pick': { icon: '🍎', label: 'Pick apples' },
+  'tree:chop': { icon: '🪓', label: 'Chop down' },
   'animal:feed': { icon: '🌿', label: 'Feed (hay or wheat)' },
   'animal:pet': { icon: '❤️', label: 'Pet them' },
   'animal:collect': { icon: '🧺', label: 'Collect' },
@@ -2739,6 +2780,7 @@ function actionsFor(plot, o) {
   const role = roleOn(plot);
   if (o.t === 'tractor' && role && !S.ride) out.push('farm:drive');
   if (ITEMS[o.t]?.store && role === 'build') out.push('store:open');
+  if (ITEMS[o.t]?.tree && role) { if (fruitReady(o, serverNow())) out.push('tree:pick'); if (S.inv.axe > 0) out.push('tree:chop'); }
   const home = ITEMS[o.t]?.animals;
   if (home && role) {
     const list = o.animals || [];
@@ -2810,6 +2852,7 @@ function useThing(u, act) {
   }
   if (act === 'farm:drive') return send({ type: 'drive', plotId: u.plot.id, lx: u.lx, ly: u.ly });
   if (act === 'store:open') return ui.showStore(u);
+  if (act.startsWith('tree:')) { haptic(10); return send({ type: 'tree', plotId: u.plot.id, lx: u.lx, ly: u.ly, act: act.slice(5) }); }
   if (act.startsWith('animal:')) {
     const [, what, kind] = act.split(':');
     return send({ type: 'animal', plotId: u.plot.id, lx: u.lx, ly: u.ly, act: what, kind });
@@ -3343,6 +3386,23 @@ function drawOverlay(now) {
   }
   drawFarmOverlay(onScreen, now);
   drawTouchMarks(now);
+  drawChips(now);
+  for (const plot of Object.values(S.plots)) {
+    if (Math.abs(plot.x + plot.w / 2 - U(S.me.x)) > 30 || Math.abs(plot.y + plot.h / 2 - U(S.me.y)) > 30) continue;
+    for (const [k, o] of Object.entries(plot.obj)) {
+      if (!ITEMS[o.t]?.tree || !fruitReady(o, serverNow())) continue;
+      const [x, y] = k.split(',').map(Number);
+      const p = view.toScreen(plot.x + x + 0.5, 2.2, plot.y + y + 0.5);
+      octx.font = '14px sans-serif'; octx.fillText('🍎', p.x, p.y);
+    }
+  }
+  {
+    const { day, hours } = worldClock(serverNow(), S.epoch);
+    const wx = S.weather ?? weatherAt(day, hours);
+    view.overcast = wx === 'storm' ? 1 : wx ? 0.6 : 0;
+    weather.draw(octx, innerWidth, innerHeight, now, Math.min(0.05, (now - (lastWeather || now)) / 1000), { kind: wx, season: seasonOf(day).id, dark: darkness(serverNow(), S.epoch) });
+    lastWeather = now;
+  }
   ui.drawFishing(octx, view, now, [S.me, ...S.players.values()]);
   octx.textAlign = 'center';
   // Goods on shelves (with price tags up close), machines at work, coins from sales.
@@ -3805,3 +3865,42 @@ function drawTouchMarks(now) {
 
 // The build tray folds down to show more of your plot.
 $('btn-traymin').onclick = () => { $('tray').classList.toggle('mini'); $('btn-traymin').textContent = $('tray').classList.contains('mini') ? '▴' : '▾'; if (staged) showStage(); };
+
+// ---------- trees and rocks ----------
+const weather = makeWeather();
+let lastWeather = 0;
+// A wild tree or rock right next to you (in front of you first), if you have the tool.
+function wildNear() {
+  if (!S.me || S.mode !== 'walk' || S.act || S.ride || (S.me.level || 0)) return null;
+  const mx = Math.floor(S.me.x / TILE), my = Math.floor((S.me.y - 4) / TILE);
+  const [fx, fy] = [[0, 1], [0, -1], [-1, 0], [1, 0]][S.me.dir || 0];
+  const cand = [[mx + fx, my + fy], [mx, my - 1], [mx - 1, my], [mx + 1, my], [mx, my + 1], [mx + fx, my + fy - 1]];
+  for (const [x, y] of cand) {
+    const kind = wildKind(world, x, y);
+    if (kind && S.inv[TOOL_FOR[kind]] > 0 && Math.hypot((x + 0.5) * TILE - S.me.x, (y + 0.5) * TILE - S.me.y) < TILE * 1.8) return { x, y, kind };
+  }
+  return null;
+}
+function swing(x, y) {
+  const now = performance.now();
+  if (now - (S.lastSwing || 0) < 300) return;
+  S.lastSwing = now;
+  S.me.dir = Math.abs(x + 0.5 - S.me.x / TILE) > Math.abs(y + 0.5 - S.me.y / TILE) ? (x + 0.5 < S.me.x / TILE ? 2 : 3) : (y + 0.5 < S.me.y / TILE ? 1 : 0);
+  send({ type: 'chop', tx: x, ty: y });
+}
+// Wood chips and stone shards flying off.
+const chipFx = [];
+function chips(x, y, kind, n) {
+  const t0 = performance.now();
+  for (let i = 0; i < n; i++) chipFx.push({ x: x + 0.5, y: y + 0.5, h: kind === 'tree' ? 0.6 + Math.random() * 0.8 : 0.25, vx: (Math.random() - 0.5) * 2.4, vz: (Math.random() - 0.5) * 2.4, vy: 1.5 + Math.random() * 2, t0, c: kind === 'tree' ? ['#c99363', '#8a5a32', '#58a842'][i % 3] : ['#9a9384', '#d3cdbf', '#7d776b'][i % 3] });
+  if (kind === 'tree' && n > 8) for (let i = 0; i < 14; i++) chipFx.push({ x: x + 0.5, y: y + 0.5, h: 1.6 + Math.random(), vx: (Math.random() - 0.5) * 3, vz: (Math.random() - 0.5) * 3, vy: Math.random(), t0, c: ['#3f8a35', '#58a842', '#2d6a2c'][i % 3] });
+}
+function drawChips(now) {
+  for (let i = chipFx.length - 1; i >= 0; i--) {
+    const f = chipFx[i], t = (now - f.t0) / 1000;
+    if (t > 0.9) { chipFx.splice(i, 1); continue; }
+    const p = view.toScreen(f.x + f.vx * t, Math.max(0, f.h + f.vy * t - 4.5 * t * t), f.y + f.vz * t);
+    octx.fillStyle = f.c;
+    octx.fillRect(p.x - 2, p.y - 2, 4, 3);
+  }
+}
