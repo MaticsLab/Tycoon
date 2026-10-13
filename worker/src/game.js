@@ -1016,11 +1016,13 @@ export class Game {
 
   // Harvest one tile ({lx, ly}) or, without coordinates, every ripe crop on the plot.
   // Produce goes into the bag; sell it at Rosa's Market.
-  harvest(s, { plotId, lx, ly }) {
+  // Harvest one tile (lx, ly), a list of tiles (a row you walked into), or everything.
+  harvest(s, { plotId, lx, ly, tiles }) {
     const plot = this.ownPlot(s, plotId);
     if (!plot) return;
     const now = this.now();
-    const keys = Number.isInteger(lx) ? [key(lx, ly)] : Object.keys(plot.obj);
+    const keys = Array.isArray(tiles) ? tiles.slice(0, 64).filter((t) => Array.isArray(t) && t.every(Number.isInteger)).map(([x, y]) => key(x, y))
+      : Number.isInteger(lx) ? [key(lx, ly)] : Object.keys(plot.obj);
     const got = {};
     for (const k of keys) {
       const o = plot.obj[k];
@@ -1320,6 +1322,50 @@ export class Game {
     this.sendNeeds(s);
   }
 
+  // ---------- sleeping through the night ----------
+  // The village shares one clock, so the night only passes when everyone online is
+  // asleep in bed (for a few seconds). Then it's 6:00 AM the next day.
+  checkSleep(now) {
+    const all = [...this.sessions.values()];
+    const asleep = all.filter((o) => o.act?.id === 'sleep');
+    const sig = `${asleep.length}/${all.length}`;
+    if (asleep.length && sig !== this.sleepSig) {
+      this.sleepSig = sig;
+      if (asleep.length < all.length) for (const o of asleep) o.send({ type: 'toast', text: `💤 ${sig} asleep: the night passes when everyone online is in bed` });
+    }
+    if (!asleep.length) { this.sleepSig = ''; return; }
+    if (asleep.length === all.length && asleep.every((o) => now - o.act.t0 > 3000)) this.skipNight(now, asleep);
+  }
+
+  skipNight(now, sleepers) {
+    const { hours } = worldClock(now, this.epoch);
+    const sinceFive = (hours - 5 + 24) % 24;
+    const skipH = sinceFive < 1 ? 1 - sinceFive : 25 - sinceFive;   // to the next 6:00 AM
+    const delta = Math.round(skipH * HOUR_MS);
+    this.epoch -= delta;
+    this.mark('meta');
+    // Crops grow and machines work through the night.
+    for (const plot of Object.values(this.plots)) {
+      let changed = false;
+      for (const v of [plot, plot.l1]) for (const o of Object.values(v?.obj || {})) {
+        if (ITEMS[o.t]?.crop && o.p) { o.p -= delta; changed = true; }
+        if (o.job) { o.job.ready -= delta; changed = true; }
+      }
+      if (changed) this.plotChanged(plot);
+    }
+    const day = worldClock(now, this.epoch).day;
+    for (const s of sleepers) {
+      const n = s.profile.needs;
+      // A full night's sleep: rested, a bit hungry, needing the loo.
+      Object.assign(n, { energy: 100, health: Math.min(100, n.health + 15), hunger: Math.max(5, n.hunger - skipH * 1.5), bladder: Math.max(5, n.bladder - skipH * 2.5), hygiene: Math.max(5, n.hygiene - skipH * 1), fun: Math.max(5, n.fun - skipH * 0.5) });
+      s.needsAt = now;
+      this.stopActivity(s, true);
+      s.send({ type: 'toast', text: `☀️ Good morning! It’s 6:00 AM, day ${day}.` });
+    }
+    this.sleepSig = '';
+    this.broadcast({ type: 'epoch', epoch: this.epoch, slept: Math.round(skipH * 10) / 10 });
+  }
+
   // ---------- simulation ----------
   tick() {
     const now = this.now();
@@ -1352,6 +1398,7 @@ export class Game {
       }
     }
     for (const s of this.sessions.values()) if (now - s.needsAt >= 1000) this.tickNeeds(s, now);
+    this.checkSleep(now);
     this.sendState(now);
   }
 

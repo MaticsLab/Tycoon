@@ -249,6 +249,13 @@ function onMessage(m) {
     }
     case 'npc': openTalk(m); break;
     case 'npcSay': npcSaid(m); break;
+    case 'epoch':
+      // The village slept through the night: fade to black and back to morning.
+      S.epoch = m.epoch;
+      document.body.classList.add('night-skip');
+      setTimeout(() => document.body.classList.remove('night-skip'), 1600);
+      plotsDirty = true;
+      break;
     case 'business':
       S.biz = m.biz;
       $('btn-shop').hidden = !S.biz;
@@ -2731,7 +2738,9 @@ function actPose(p) {
   return { y: SEAT_Y[it?.t] ?? 0.08, pose: { kind: 'sit' } };
 }
 
-// Walk over a ripe crop on your plot to pick it (like Stardew's harvest-by-walking).
+// Walk into a ripe crop on your plot and you pick the whole row it's in: the unbroken
+// line of ripe crops along the way you're walking (sideways = the row, up/down = the
+// column).
 const harvestSent = new Map();
 function autoHarvest() {
   if (S.mode !== 'walk' || S.act || (S.me.level || 0)) return;
@@ -2740,15 +2749,17 @@ function autoHarvest() {
   if (!plot || plot.owner !== S.me.id) return;
   const fx = S.me.x / TILE - plot.x, fy = S.me.y / TILE - plot.y - 0.3;
   const now = performance.now(), sNow = serverNow();
+  const ripe = (x, y) => { const o = plot.obj[key(x, y)]; return !!o && !!ITEMS[o.t]?.crop && cropStage(o, sNow) >= 3 && now - (harvestSent.get(`${id}:${x},${y}`) || 0) > 1500; };
   // The tile under your feet and any you brush past.
   for (const [dx, dy] of [[0, 0], [-0.35, 0], [0.35, 0], [0, -0.35], [0, 0.35]]) {
     const lx = Math.floor(fx + dx), ly = Math.floor(fy + dy);
-    const o = plot.obj[key(lx, ly)];
-    if (!o || !ITEMS[o.t]?.crop || cropStage(o, sNow) < 3) continue;
-    const k = `${id}:${lx},${ly}`;
-    if (now - (harvestSent.get(k) || 0) < 1500) continue;
-    harvestSent.set(k, now);
-    send({ type: 'harvest', plotId: id, lx, ly });
+    if (!ripe(lx, ly)) continue;
+    const [sx, sy] = S.me.dir === 2 || S.me.dir === 3 ? [1, 0] : [0, 1];
+    const tiles = [[lx, ly]];
+    for (const sgn of [-1, 1]) for (let n = 1; n < 32 && ripe(lx + sx * n * sgn, ly + sy * n * sgn); n++) tiles.push([lx + sx * n * sgn, ly + sy * n * sgn]);
+    for (const [x, y] of tiles) harvestSent.set(`${id}:${x},${y}`, now);
+    send({ type: 'harvest', plotId: id, tiles });
+    return;
   }
 }
 

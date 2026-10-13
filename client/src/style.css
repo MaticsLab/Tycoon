@@ -350,3 +350,7 @@ body.building #needs { display: none; }
 .item-row input.qty { width: 44px; }
 p.warn { background: #ffe1d6; border: 2px solid #e3967a; border-radius: 8px; padding: 6px 8px; color: #7a2e12; }
 #btn-editplot { white-space: nowrap; }
+
+/* Sleeping through the night: a quick fade to black and back. */
+body::after { content: ''; position: fixed; inset: 0; background: #0b0d1a; opacity: 0; pointer-events: none; transition: opacity .6s; z-index: 50; }
+body.night-skip::after { opacity: 1; transition: opacity .25s; }

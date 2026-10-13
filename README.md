@@ -78,11 +78,11 @@ You can also befriend villagers whose personalities change based on how you trea
   Walk up to furniture and use the action button, or tap it for a menu:
   - **Fridge**: grab a sandwich (🪙5) or cook a meal (🪙15, needs a stove); the stove cooks and the BBQ grill grills too. When it's ready you're holding a plate (everyone can see it), so carry it anywhere and **sit and eat** on a chair, sofa, stool, bench or picnic table, or eat standing up. Walk off before it's ready and you get your coins back.
   - **Toilet**, **shower**, **bathtub** and **sink** fill bladder and hygiene; showers and baths steam.
-  - **Bed** or **bunk bed**: sleep or nap, tucked in under the covers with drifting Zzz. Sofas, loveseats, armchairs, recliners, rocking chairs, chairs, poufs, bar stools, bean bags, benches and picnic tables let you really sit down (a seated pose, toilet included) and relax; recliners and hammocks are good for a nap.
+  - **Bed** or **bunk bed**: sleep or nap, tucked in under the covers with drifting Zzz. When everyone online is asleep in bed, the night passes and the village wakes at 6:00 AM the next day: crops grow and machines finish overnight, and you wake rested. If others are still up, you're told how many are asleep so far. Sofas, loveseats, armchairs, recliners, rocking chairs, chairs, poufs, bar stools, bean bags, benches and picnic tables let you really sit down (a seated pose, toilet included) and relax; recliners and hammocks are good for a nap.
   - **BBQ grill**: grill a meal (🪙12, no stove needed). Kitchen and pedestal sinks wash up.
   - **TV**, **bookshelf**, **low bookcase** or **desk** (read), **piano**, **aquarium** or **fishbowl**, **fireplace** or **fire pit**, **telescope**, **arcade cabinet**, **record player** and **painting easel** fill fun.
   Moving stops what you're doing. Others see a thought bubble with what you're up to, and you can use things in a friend's house while they're home. Crops, Honey Cake and Herbal Tea can be eaten straight from the bag.
-- **Farming.** Till soil and plant seeds. Walk over ripe crops to pick them into your bag, then sell them to Rosa or in your shop.
+- **Farming.** Till soil and plant seeds. Walk into a ripe crop to pick the whole row (or column) of ripe crops you're walking along, then sell them to Rosa or in your shop.
 - **Run a business.** Get a licence at City Hall (🪙500, paid to the treasury). Then stand on a plot that's for sale and tap **Open my shop here**; the land costs the usual price per tile.
   - **Build it** like a house. In build mode the **🏠 Home ⇄ 🏪** button switches which plot you're building.
   - **Shop & Machines** tab: shop shelves, produce stands, display tables, chilled cases, a cash register and a shop sign.

@@ -1182,3 +1182,38 @@ test('walls: paint each side, fill a room or the outside; double doors, shopfron
   a.send({ type: 'feature', plotId: 0, d: 'h', x: +wx, y: +wy, f: 'window_shop' });
   assert.equal(plot.walls[wk].f, 'window_shop');
 });
+
+test('sleeping: when everyone online is in bed the village skips to 6 AM; rows harvest at once', async () => {
+  const { worldClock } = await import('../../shared/world.js');
+  const { HOUR_MS } = await import('../../shared/needs.js');
+  const { game, join, advance } = setup();
+  const a = await join({ name: 'Ana' }), b = await join({ name: 'Ben' });
+  a.send({ type: 'cheat', cmd: 'testingcheats true' });
+  a.send({ type: 'cheat', cmd: 'motherlode' });
+  a.send({ type: 'claim', plotId: 0 });
+  const plot = game.plots[0];
+  a.send({ type: 'place', plotId: 0, lx: 2, ly: 2, item: 'bed' });
+  // A row of turnips planted now.
+  for (let x = 4; x < 8; x++) { a.send({ type: 'place', plotId: 0, lx: x, ly: 10, item: 'soil' }); a.send({ type: 'place', plotId: 0, lx: x, ly: 10, item: 'seed_turnip' }); }
+  advance(14 * HOUR_MS); game.tick(); // evening
+  const before = worldClock(game.now(), game.epoch);
+  stand(game, a, 0, 3, 3);
+  a.send({ type: 'use', plotId: 0, lx: 2, ly: 2, act: 'sleep' });
+  for (let i = 0; i < 40; i++) { advance(100); game.tick(); }
+  assert.equal(worldClock(game.now(), game.epoch).day, before.day, 'Ben is awake: no skip');
+  assert.match(a.last('toast').text, /1\/2 asleep/);
+  // Ben logs off: Ana's the only one, asleep -> morning.
+  game.leave(b.session());
+  for (let i = 0; i < 40; i++) { advance(100); game.tick(); }
+  const after = worldClock(game.now(), game.epoch);
+  assert.equal(after.day, before.day + 1);
+  assert.equal(after.shownHours, 6);
+  assert.match(a.last('toast').text, /Good morning/);
+  assert.equal(a.session().act, null, 'woken up');
+  assert.ok(a.session().profile.needs.energy > 99, 'rested');
+  assert.ok(a.last('epoch'));
+  // The turnips grew overnight: walk into the row and pick all four at once.
+  a.send({ type: 'harvest', plotId: 0, tiles: [[4, 10], [5, 10], [6, 10], [7, 10]] });
+  assert.equal(a.session().profile.inv.turnip, 4);
+  assert.equal(plot.obj['5,10'], undefined);
+});
