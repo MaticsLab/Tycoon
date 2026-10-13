@@ -52,10 +52,17 @@ You can also befriend villagers whose personalities change based on how you trea
   - **Walls up / cutaway / down**, just like The Sims. When you walk inside a house, the walls cut away and the roof and upstairs hide automatically.
   - **Furniture** comes as small 3D models. Larger pieces span 2 or 4 tiles, and anything with a front can be rotated. Plants are pixel-art cards.
   - The **sledgehammer** removes anything with a full refund. Tap a door or window to remove just that, or drag a box to clear a whole area at once.
-  - **Sims 4 build tools** along the strip under the catalogue:
+  - **A see-through build HUD** keeps most of the plot in view:
+    - **Top left:** an icon bar with Select, Sledgehammer, Eyedropper and Design, then Undo/Redo and a sun/moon for the day/night preview. Any tool but Select shows a hint pill underneath.
+    - **Top right:** ▲/▼ to switch floors, a cube whose line shows the walls mode (up, cutaway or down), and **✓ Done**.
+    - **Bottom:** a frosted catalog panel. The left rail picks a group (**Build**, **Home**, **Business**, **Outdoor**, **Mine**), the tabs pick a category (with item counts), and items sit in a two-row grid with price or "Owned ×N" and a ☆ to star them. The right column shows whatever you hover or hold: size (turned when rotated), how many you own, the cost, notes like "Glows at night · Rotates", and what placing it will leave you with. **Mine** holds Starred, Recent (your last 8 picks), In bag, and Rooms & Library. **Land** (resize, merge, split, roads, move house, lot info) lives under Build.
+    - **Above the panel:** a search box that searches every item ("/" jumps to it) and your coins, which flash −45 or +45 as you build.
+    - **While you hold an item,** a dashed box with its icon follows the cursor, labelled with the price (or "From bag"), R rotate and Esc cancel. Esc puts it down.
+    - **Click placed furniture with Select** to open a little popup above it: turn it left or right (Shift+R / R) or pick it up and move it. Delete sells it back.
+  - **The build tools:**
     - **👆 Select (H)** picks up furniture so you can move or turn it for free, with a green footprint and an arrow showing which way it faces. Click a room's floor instead to lift the **whole room** (walls, floor and furniture) in a white wireframe box, then move it and turn it with R or right-click. From the ground floor the room takes everything above it along too: its upstairs, stairs and roof. Whatever you carry disappears from its old spot until you set it down.
     - **💧 Copy (C)** copies whatever you click as your current tool. **🎨 Design (T)** cycles furniture through colour swatches and roofs through materials.
-    - **↶ Undo / ↷ Redo** for every build action, **🏠 Move** to shift the whole house, **🌗 Day** to preview your house at morning, afternoon, dusk and night, and **ℹ️ Lot** for lot value, bedrooms, bathrooms, rooms and the bulldozer.
+    - **Undo / Redo** for every build action, the **day/night** button to preview your house at morning, afternoon, dusk and night, and in **Build → Land**, **Move house** to shift the whole house and **Lot info** for lot value, bedrooms, bathrooms, rooms and the bulldozer.
     - **⌁ Custom room** (Walls tab): click corner points, then double-click or press Enter to finish. Click the first point again to close the room and it gets a floor. The tooltip shows the cost as you go.
   - **📚 Rooms & Library**: nine ready-made **styled rooms** (bedroom, bathroom, kitchen, living room, study, garden patio, game room, laundry nook and backyard picnic) that you place and turn, with live previews of their furniture, then **Buy**. Save any room, or your whole house, to **My Library** (up to 12) and place copies anywhere. Shop furniture in a blueprint comes from your bag; any pieces you don't have are left out and the game tells you which.
 - **Town square** with two shops and three NPCs:
@@ -128,7 +135,7 @@ You can also befriend villagers whose personalities change based on how you trea
 - **Trading.** In the bag, choose someone standing near you and tap **🤝 Trade**. Each side puts items and coins in a two-sided window, and nothing changes hands until both agree.
 - **The notice board** (town square or City Hall) is a player market. Post items at your price, up to 5 notices each. Anyone can buy them, and you're paid even when offline, with a letter to tell you.
 - **Mail** (📬). Every home and shop comes with a mailbox by the road. Walk up to any mailbox (yours, the square's, City Hall's or a neighbour's) to read your letters and write new ones, attaching items or coins; postage is 🪙5. An envelope by the clock tells you when there's unread mail. Letters wait in the recipient's mail even if they're offline. Bills, festival prizes and villagers' letters arrive here too.
-- **Co-op farms.** In build mode, open **Lot** and add friends by name, either as farm helpers or co-builders:
+- **Co-op farms.** In build mode, open **Build → Land → Lot info** and add friends by name, either as farm helpers or co-builders:
   - **Farm helpers** can harvest, water, plant, look after animals and drive your tractor.
   - **Co-builders** can do all of that and build too.
 
@@ -321,7 +328,7 @@ Players can also change the server under **Server** on the join screen.
 | Run             | hold Shift while walking                      | hold the joystick out at its edge (it glows orange) |
 | Camera          | middle-drag to orbit, right-drag to pan, Q / E to turn, wheel to zoom | pinch to zoom, twist or two-finger swipe sideways to turn, two-finger swipe up/down to tilt (pans in build mode) |
 | Talk / interact | Enter, or click an NPC                        | tap the action button or the NPC   |
-| Build mode      | B · H select/move · C copy (or Alt+click) · K sledgehammer · T design · L time of day · R or right-click rotate · V walls · PgUp/PgDn floors · Ctrl/Cmd+Z undo · Ctrl/Cmd+Y redo · Delete sells a held item · Enter or double-click finishes a custom room · Esc cancels · WASD or right-drag to pan | two-finger drag to pan, tool strip buttons |
+| Build mode      | B · H select/move · C copy (or Alt+click) · K sledgehammer · T design · L time of day · R or right-click rotate · V walls · PgUp/PgDn floors · Ctrl/Cmd+Z undo · Ctrl/Cmd+Y redo · Shift+R turns the other way · / search · Delete sells a held or selected item · Enter or double-click finishes a custom room · Esc drops what you hold or clears the selection · WASD or right-drag to pan | two-finger drag to pan, the icon bar |
 | Village map     | M, or click the minimap                       | tap the minimap                    |
 | Cheat console   | ⚙️ Settings → Cheats                           | ⚙️ Settings → Cheats               |
 
@@ -332,7 +339,7 @@ The touch controls follow common mobile-game guidance: thumb-sized targets (44�
 - **Tap to interact from afar:** tap a villager or a piece of furniture that's far away; you walk over and then talk to them or open its menu.
 - **Building with confirmation:** drag to aim. The preview sits above your finger so your thumb doesn't hide it, with a dotted line to show where it points. Lifting your finger doesn't place anything: a bar appears with **✓ place**, **↻ turn** and **✕ cancel**, and you can drag again to move it. Pinching or panning while you decide keeps the preview where it is.
 - **Long-press** any furniture in build mode to pick it up and move it.
-- **▾** folds the build tray down to show more of your plot. Buttons, tabs and item tiles are bigger on touch screens.
+- The build HUD is see-through so more of your plot shows; on a phone the detail column folds away. Buttons, tabs and item tiles are at least 44px on touch screens.
 
 ## Ideas for next steps
 

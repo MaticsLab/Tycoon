@@ -129,31 +129,51 @@
       </form>
     </div>
 
+    <!-- Build mode: floating, see-through pieces so the plot stays in view. -->
     <div id="tray" hidden>
       <div id="buildtools">
-        <button data-tool="select" title="Select: pick up and move furniture or a whole room (H)">👆<small>Select</small></button>
-        <button data-tool="eyedrop" title="Eyedropper: copy what you click (C, or Alt+click)">💧<small>Copy</small></button>
-        <button data-tool="remove" title="Sledgehammer: click, or drag a box to clear an area (K / Delete)">🔨<small>Sledge</small></button>
-        <button data-tool="design" title="Design: recolour furniture or switch a roof's colour, free (T)">🎨<small>Design</small></button>
+        <button data-tool="select" title="Select: pick up and move furniture or a whole room (H)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 2.5 19.5 13l-6.6 1.1 4 7.2-3 1.6-4-7.3L5 20Z"/></svg></button>
+        <button data-tool="remove" title="Sledgehammer: click, or drag a box to clear an area (K / Delete)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.2 6.4 9.6 0.9l5.2 6-6.4 5.5z"/><path d="m11.1 9.6 2.3-2 8.9 10.3a1.6 1.6 0 0 1-2.4 2z"/></svg></button>
+        <button data-tool="eyedrop" title="Eyedropper: copy what you click (C, or Alt+click)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.7 2.6a2.9 2.9 0 0 0-4.1 0l-2.8 2.8-1.2-1.2-2 2 1.5 1.5-7.7 7.7a2 2 0 0 0-.6 1.3L2.6 20l1.3 1.4 3.3-.2a2 2 0 0 0 1.3-.6l7.7-7.7 1.5 1.5 2-2-1.2-1.2 2.8-2.8a2.9 2.9 0 0 0 0-4.1zM7.6 18.9l-2.5.2.2-2.5 7.6-7.6 2.3 2.3z"/></svg></button>
+        <button data-tool="design" title="Design: recolour furniture or switch a roof's colour, free (T)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.5 2 2 6.2 2 11.5 2 16.6 6.2 21 11.4 21c1.5 0 2.3-1 2.3-2.2 0-1.4-1.2-1.8-1.2-3 0-1 .8-1.8 1.9-1.8h2.4c3 0 5.2-2.3 5.2-5.1C22 5.1 17.5 2 12 2zM6.5 12.6a1.6 1.6 0 1 1 0-3.2 1.6 1.6 0 0 1 0 3.2zm3-4.4a1.6 1.6 0 1 1 0-3.2 1.6 1.6 0 0 1 0 3.2zm5 0a1.6 1.6 0 1 1 0-3.2 1.6 1.6 0 0 1 0 3.2zm3.2 3.6a1.6 1.6 0 1 1 0-3.2 1.6 1.6 0 0 1 0 3.2z"/></svg></button>
         <span class="sep"></span>
-        <button id="btn-undo" title="Undo (Ctrl/Cmd+Z)" disabled>↶<small>Undo</small></button>
-        <button id="btn-redo" title="Redo (Ctrl/Cmd+Y)" disabled>↷<small>Redo</small></button>
+        <button id="btn-undo" title="Undo (Ctrl/Cmd+Z)" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 4 3 9.5 9.5 15v-3.6h4.4a4.3 4.3 0 0 1 0 8.6H9v3h4.9a7.3 7.3 0 0 0 0-14.6H9.5z"/></svg></button>
+        <button id="btn-redo" title="Redo (Ctrl/Cmd+Y)" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4 21 9.5 14.5 15v-3.6h-4.4a4.3 4.3 0 0 0 0 8.6H15v3h-4.9a7.3 7.3 0 0 1 0-14.6h4.4z"/></svg></button>
         <span class="sep"></span>
-        <button data-tool="movehouse" title="Move your whole house around the plot">🏠<small>Move</small></button>
-        <button id="btn-time" title="Preview time of day (L)">🌗<small>Day</small></button>
-        <button id="btn-lot" title="Lot info, library and bulldozer">ℹ️<small>Lot</small></button>
+        <button id="btn-time" title="Preview time of day (L)"></button>
       </div>
-      <div id="tabs"></div>
-      <div id="traybtns">
-        <button id="btn-editplot" title="Switch between building your home and your shop" hidden>🏠 Home ⇄ 🏪</button>
-        <button id="btn-level" title="Switch floor (PgUp/PgDn)">Ground floor</button>
-        <button id="btn-walls" title="Walls up / cutaway / down (V)">Walls: cutaway</button>
-        <button id="btn-rotate" title="Rotate (R or right-click)">↻ Rotate</button>
-        <button id="btn-traymin" title="Fold the tray down">▾</button>
-        <button id="btn-done" class="primary">Done</button>
+      <div id="toolhint" hidden></div>
+
+      <div id="viewctl">
+        <button id="btn-editplot" title="Switch between building your home and your shop" hidden>🏠 ⇄ 🏪</button>
+        <div id="floorsw" title="Switch floor (PgUp/PgDn)">
+          <button id="floor-up" aria-label="Go upstairs (PgUp)"><svg viewBox="0 0 20 16"><path d="M10 1 19 15H1z"/></svg></button>
+          <button id="floor-down" aria-label="Go downstairs (PgDn)"><svg viewBox="0 0 20 16"><path d="M10 15 19 1H1z"/></svg></button>
+        </div>
+        <button id="btn-walls" title="Walls up / Cutaway / Walls down (V to switch)"><svg viewBox="0 0 24 24" class="cube"><path d="M12 2.5 20.5 7v10L12 21.5 3.5 17V7z"/><path d="M3.5 7 12 11.5 20.5 7M12 11.5v10"/><path class="wl" d="M3.5 12.6 12 17.1l8.5-4.5"/></svg></button>
+        <button id="btn-done"><svg viewBox="0 0 24 24"><path d="M4 12.5 9.5 18 20 6.5"/></svg>Done</button>
       </div>
-      <div id="toolinfo"></div>
-      <div id="items"></div>
+
+      <div id="buildbar">
+        <label id="buildsearch"><input id="build-q" type="search" placeholder="Search all items" autocomplete="off" enterkeyhint="search" /><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg></label>
+        <div id="buildcoins"><i></i><b id="bc-n">0</b><span id="bc-delta"></span></div>
+      </div>
+      <div id="catalog">
+        <div id="grouprail"></div>
+        <div id="catmid"><div id="tabs"></div><div id="items"></div></div>
+        <div id="detail"></div>
+      </div>
+
+      <div id="heldghost" hidden><div class="hg-box"></div><div class="hg-lbl"></div></div>
+      <div id="objpop" hidden>
+        <div class="op-top"></div>
+        <div class="op-div"></div>
+        <div class="op-row">
+          <button id="op-rotl" title="Rotate left (Shift+R)"><svg viewBox="0 0 26 26"><path d="M6 9.5A8.5 8.5 0 1 1 5.2 17"/><path d="M5.5 3.5v6h6"/></svg></button>
+          <button id="op-move" title="Pick up and move"><svg viewBox="0 0 34 34"><path d="M17 3v28M3 17h28M17 3l-4.5 4.5M17 3l4.5 4.5M17 31l-4.5-4.5M17 31l4.5-4.5M3 17l4.5-4.5M3 17l4.5 4.5M31 17l-4.5-4.5M31 17l-4.5 4.5"/></svg></button>
+          <button id="op-rotr" title="Rotate right (R)"><svg viewBox="0 0 26 26"><path d="M20 9.5A8.5 8.5 0 1 0 20.8 17"/><path d="M20.5 3.5v6h-6"/></svg></button>
+        </div>
+      </div>
     </div>
 
     <div id="npcpanel" class="sheet" hidden>

@@ -69,6 +69,8 @@ const S = {
   rot: 0,
   level: 0,            // build level
   wallMode: 'cut',     // 'up' | 'cut' | 'down'
+  query: '',           // build catalog search
+  sel: null,           // build mode: the selected placed object { at: [lx, ly], level }
   connected: false,
   talk: null,
   freeBuild: false,    // bb.enablefreebuild
@@ -402,6 +404,7 @@ function onMessage(m) {
       break;
     case 'error':
       toast(m.msg);
+      if (S.mode === 'build' && /coins|afford/i.test(m.msg)) flashCoins('Not enough', 'neg');
       if (S.dropped) { S.dropped = null; plotsDirty = true; }
       if (S.talk?.waiting) { S.talk.waiting = false; renderLog(); }
       break;
@@ -545,8 +548,19 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 const chatMsg = (name, text, mine = false) => addLog({ name, text, mine });
 const sysMsg = (text) => addLog({ sys: true, text });
 
+// The coin pill in build mode flashes what each build cost or refunded.
+let shownCoins = null, coinFlash = 0;
+function syncCoins() { $('bc-n').textContent = S.coins.toLocaleString(); shownCoins = S.coins; }
+function flashCoins(text, cls) {
+  const d = $('bc-delta');
+  d.textContent = text; d.className = `show ${cls}`;
+  clearTimeout(coinFlash);
+  coinFlash = setTimeout(() => d.classList.remove('show'), 1400);
+}
 function updateHud() {
   $('coins').textContent = `🪙 ${S.coins}`;
+  if (shownCoins != null && S.coins !== shownCoins && S.mode === 'build') { const dl = S.coins - shownCoins; flashCoins(`${dl > 0 ? '+' : '−'}${Math.abs(dl).toLocaleString()}`, dl > 0 ? 'pos' : 'neg'); }
+  syncCoins();
   syncBuildBtn();
   refreshTrayAffordability();
 }
@@ -1115,139 +1129,236 @@ function renderMe(body) {
 const LAYER_KIND = { wall: 'wall', feature: 'feature', floor: 'floor', roof: 'roof', obj: 'obj' };
 const toolOf = (id) => ({ kind: LAYER_KIND[ITEMS[id].layer], id });
 
+// The catalog: a rail of groups on the left, the group's categories as tabs, a two-row
+// grid of items and a detail column for whatever you're pointing at or holding.
+const svgI = (d) => `<svg viewBox="0 0 24 24">${d}</svg>`;
+const GROUPS = [
+  { id: 'build', name: 'Build', icon: svgI('<path d="M3 21h18M5 21V10l7-6 7 6v11"/><path d="M9 21v-6h6v6"/>'), cats: ['build', 'fence', 'opening', 'floor', 'roof', 'land'] },
+  { id: 'home', name: 'Home', icon: svgI('<path d="M4 18v-6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v6"/><path d="M2 14h20v4H2zM6 10V7a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v3M5 18v2M19 18v2"/>'), cats: ['furniture', 'kitchen', 'decor'] },
+  { id: 'biz', name: 'Business', icon: svgI('<path d="M3 9h18l-1.5-5h-15z"/><path d="M4 9v11h16V9M9 20v-6h6v6"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/>'), cats: ['shop', 'shopdecor', 'utility'] },
+  { id: 'out', name: 'Outdoor', icon: svgI('<path d="M12 22v-6"/><path d="M12 2 5 12h4l-3 4h12l-3-4h4z"/>'), cats: ['garden', 'fall', 'farm'] },
+  { id: 'mine', name: 'Mine', icon: svgI('<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9z"/>'), cats: ['starred', 'recent', 'special', 'library'] },
+];
+const EXTRA_CATS = { land: 'Land', starred: 'Starred', recent: 'Recent', special: 'In bag', library: 'Rooms & Library' };
+const catName = (id) => EXTRA_CATS[id] || CATEGORIES.find((c) => c.id === id)?.name || id;
+const groupOf = (cat) => GROUPS.find((g) => g.cats.includes(cat)) || GROUPS[0];
+const readList = (k) => { try { return JSON.parse(store.get(k) || '[]').filter((id) => ITEMS[id]); } catch { return []; } };
+let starred = readList('starItems'), recent = readList('recentItems');
+let detailHover = null;      // item id under the pointer in the grid
+const STAR_SVG = '<svg viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9z"/></svg>';
+const listable = (id) => { const d = ITEMS[id]; return d && d.cat !== 'public' && (!d.shop || S.inv[id] > 0); };
+function itemsOf(cat) {
+  if (S.query) {
+    const q = S.query.toLowerCase();
+    return Object.keys(ITEMS).filter((id) => listable(id) && (ITEMS[id].name.toLowerCase().includes(q) || catName(ITEMS[id].cat).toLowerCase().includes(q)));
+  }
+  if (cat === 'starred') return starred.filter(listable);
+  if (cat === 'recent') return recent.filter(listable);
+  if (cat === 'special') return Object.keys(ITEMS).filter((id) => S.inv[id] > 0 && ITEMS[id].layer);
+  return Object.keys(ITEMS).filter((id) => ITEMS[id].cat === cat && listable(id));
+}
+const catCount = (cat) => (cat === 'land' ? 7 : cat === 'library' ? Object.keys(STYLED_ROOMS).length + S.library.length : itemsOf(cat).length);
+function pickCat(id) {
+  S.query = ''; $('build-q').value = '';
+  if (id === 'library') { S.cat = 'library'; S.tool = { kind: 'none' }; }
+  else if (id === 'land') {
+    S.cat = 'land'; S.tool = { kind: 'resize' };
+    const p = myDef();
+    view.zoom = Math.max(view.zoom, Math.min(70, p.w + 10)); view.zoomBy(1);
+  } else {
+    S.cat = id;
+    if (!['starred', 'recent', 'special'].includes(id)) { const first = itemsOf(id)[0]; S.tool = first ? toolOf(first) : { kind: 'none' }; }
+  }
+  syncStrip(); renderTabs(); renderItems(); refreshPreview();
+}
 function renderTabs() {
+  const rail = $('grouprail');
+  rail.innerHTML = '';
+  const g0 = groupOf(S.cat);
+  for (const g of GROUPS) {
+    const b = document.createElement('button');
+    b.innerHTML = `${g.icon}<span>${g.name}</span>`;
+    b.title = g.cats.map(catName).join(' · ');
+    if (g === g0 && !S.query) b.className = 'sel';
+    b.onclick = () => pickCat(g === g0 ? S.cat : g.cats[0]);
+    rail.appendChild(b);
+  }
   const tabs = $('tabs');
   tabs.innerHTML = '';
-  const all = [{ id: 'land', name: '🗺️ Land' }, ...CATEGORIES, { id: 'library', name: '📚 Rooms & Library' }, { id: 'special', name: '🎒 Bag' }];
-  for (const c of all) {
+  if (S.query) {
+    tabs.insertAdjacentHTML('beforeend', `<span class="results">Results for “${esc(S.query)}” <small style="opacity:.65">${itemsOf().length}</small></span>`);
+    return;
+  }
+  for (const c of g0.cats) {
     const b = document.createElement('button');
-    b.textContent = c.name;
-    b.className = S.cat === c.id && !STRIP_TOOLS.includes(S.tool.kind) ? 'sel' : '';
-    b.onclick = () => {
-      if (c.id === 'library') { S.cat = 'library'; S.tool = { kind: 'none' }; }
-      else if (c.id === 'land') {
-        S.cat = 'land'; S.tool = { kind: 'resize' };
-        const p = myDef();
-        view.zoom = Math.max(view.zoom, Math.min(70, p.w + 10)); view.zoomBy(1);
-      } else {
-        S.cat = c.id;
-        const first = Object.keys(ITEMS).find((k) => ITEMS[k].cat === c.id && (c.id !== 'special' || S.inv[k]));
-        S.tool = first ? toolOf(first) : { kind: 'none' };
-      }
-      renderTabs();
-      renderItems();
-    };
+    b.innerHTML = `${esc(catName(c))}<small>${catCount(c)}</small>`;
+    if (S.cat === c) b.className = 'sel';
+    b.onclick = () => pickCat(c);
     tabs.appendChild(b);
   }
-}
-
-function renderItems() {
-  const box = $('items');
-  box.innerHTML = '';
-  updateRotateBtn();
-  toolInfo();
-  if (STRIP_TOOLS.includes(S.tool.kind)) {
-    box.insertAdjacentHTML('beforeend', `<div style="padding:12px 8px;font-size:14px;max-width:640px">${STRIP_HELP[S.tool.kind]}</div>`);
-    return;
-  }
-  if (S.cat === 'library') { renderLibrary(box); return; }
-  if (S.cat === 'land') {
-    for (const [k, icon, label] of [['resize', '↔️', 'Resize'], ['merge', '🔗', 'Merge'], ['split', '✂️', 'Split'], ['pave', '🛣️', 'Pave road'], ['dig', '⛏️', 'Dig up road']]) {
-      const b = document.createElement('button');
-      b.dataset.tool = k;
-      b.className = S.tool.kind === k ? 'sel' : '';
-      b.innerHTML = `<span style="font-size:26px;line-height:44px">${icon}</span><span>${label}</span>`;
-      b.onclick = () => { S.tool = { kind: k }; renderItems(); };
-      box.appendChild(b);
-    }
-    return;
-  }
-  if (S.cat === 'build') {
+  // Walls & Stairs and Fences: how a drag builds (a line, a room, corner by corner, paint).
+  if ((S.cat === 'build' || S.cat === 'fence') && S.tool.kind === 'wall') {
     const seg = document.createElement('div');
     seg.className = 'seg2';
-    for (const [k, label] of [['line', '▬ Wall'], ['room', '▢ Room'], ['chain', '⌁ Custom'], ['paint', '🖌 Paint']]) {
+    for (const [k, label] of [['line', '▬ Line'], ['room', '▢ Room'], ['chain', '⌁ Custom'], ['paint', '🖌 Paint']]) {
+      if (S.cat === 'fence' && (k === 'paint' || k === 'chain')) continue;
       const b = document.createElement('button');
       b.textContent = label;
       b.className = S.wallTool === k ? 'sel' : '';
-      b.onclick = () => { S.wallTool = k; S.chain = null; renderItems(); };
+      b.onclick = () => { S.wallTool = k; S.chain = null; renderTabs(); toolInfo(); refreshPreview(); };
       seg.appendChild(b);
     }
-    box.appendChild(seg);
+    tabs.appendChild(seg);
   }
-  let any = false;
-  for (const [id, def] of Object.entries(ITEMS)) {
-    if (def.cat !== S.cat) continue;
-    if (def.shop && !S.inv[id]) continue;
-    any = true;
+}
+
+const unitOf = (d) => (d.fence || d.layer === 'wall' ? '/seg' : d.layer === 'roof' || d.layer === 'floor' ? '/tile' : '');
+function itemTile(id) {
+  const def = ITEMS[id];
+  const b = document.createElement('button');
+  b.dataset.id = id;
+  b.className = id === S.tool.id ? 'sel' : '';
+  b.appendChild(iconFor(id));
+  const own = S.inv[id] || 0;
+  b.insertAdjacentHTML('beforeend', `<span class="nm">${esc(def.name)}</span>${own ? `<span class="price own">Owned</span><span class="badge">×${own}</span>` : `<span class="price">🪙${def.price}${unitOf(def)}</span>`}`);
+  const star = document.createElement('span');
+  star.className = 'star' + (starred.includes(id) ? ' on' : '');
+  star.innerHTML = STAR_SVG;
+  star.title = 'Star it (find it under Mine → Starred)';
+  star.onclick = (e) => {
+    e.stopPropagation();
+    starred = starred.includes(id) ? starred.filter((x) => x !== id) : [id, ...starred];
+    store.set('starItems', JSON.stringify(starred));
+    star.classList.toggle('on', starred.includes(id));
+    if (S.cat === 'starred') { renderItems(); renderTabs(); }
+  };
+  b.appendChild(star);
+  b.title = `${def.name}${def.crop ? ` · grows in ${seasonsLabel(def.crop)}` : ''}`;
+  b.onmouseenter = () => { detailHover = id; renderDetail(); };
+  b.onmouseleave = () => { if (detailHover === id) { detailHover = null; renderDetail(); } };
+  b.onclick = () => {
+    S.tool = toolOf(id);
+    if (!canRotate(id)) S.rot = 0;
+    S.sel = null;
+    recent = [id, ...recent.filter((x) => x !== id)].slice(0, 8);
+    store.set('recentItems', JSON.stringify(recent));
+    for (const o of $('items').querySelectorAll('button[data-id]')) o.classList.toggle('sel', o === b);
+    syncStrip(); renderTabs(); toolInfo(); renderDetail(); refreshPreview();
+  };
+  return b;
+}
+function renderItems() {
+  const box = $('items');
+  box.innerHTML = '';
+  toolInfo();
+  renderDetail();
+  const tile = (icon, label, sub, sel, onclick, title) => {
     const b = document.createElement('button');
-    b.dataset.id = id;
-    b.className = id === S.tool.id ? 'sel' : '';
-    b.appendChild(iconFor(id));
-    const [w, h] = footprint(id, 0);
-    b.title = `${def.name}${def.crop ? ` · grows in ${seasonsLabel(def.crop)}` : ''} · ${def.shop ? `×${S.inv[id]} in your bag` : `🪙${def.price}`}${w * h > 1 ? ` · ${w}×${h}` : ''}${canRotate(id) ? ' · rotatable' : ''}${def.light ? ' · glows at night' : ''}${def.slots ? ` · shows ${def.slots} kinds of goods${def.outdoor ? ', made for outdoors' : ''}` : ''}${def.solid ? '' : ' · walk-through'}`;
-    const size = def.layer === 'obj' && w * h > 1 ? ` · ${w}×${h}` : '';
-    const unit = def.fence ? '/length' : def.layer === 'wall' ? '/wall' : def.layer === 'roof' || def.layer === 'floor' ? '/tile' : '';
-    b.insertAdjacentHTML('beforeend', def.shop
-      ? `<span>${esc(def.name)}</span><span class="count">×${S.inv[id]}${size}</span>`
-      : `<span>${esc(def.name)}</span><span class="price">🪙${def.price}${unit}${size}</span>`);
-    b.onclick = () => {
-      S.tool = toolOf(id);
-      if (!canRotate(id)) S.rot = 0;
-      for (const o of box.querySelectorAll('button[data-id]')) o.classList.toggle('sel', o === b);
-      updateRotateBtn();
-      toolInfo();
-    };
+    b.className = 'tool' + (sel ? ' sel' : '');
+    b.innerHTML = `<span class="ticon">${icon}</span><span class="nm">${label}</span><span class="price">${sub}</span>`;
+    if (title) b.title = title;
+    b.onclick = onclick;
     box.appendChild(b);
+  };
+  if (!S.query && S.cat === 'library') { renderLibrary(box); return; }
+  if (!S.query && S.cat === 'land') {
+    for (const [k, icon, label, sub] of [['resize', '↔️', 'Resize', `🪙${landPrice()}/tile`], ['merge', '🔗', 'Merge', 'next door'], ['split', '✂️', 'Split', 'sell part'], ['pave', '🛣️', 'Pave road', 'public'], ['dig', '⛏️', 'Dig up road', 'reroute']]) {
+      tile(icon, label, sub, S.tool.kind === k, () => { S.tool = { kind: k }; syncStrip(); renderItems(); refreshPreview(); });
+    }
+    tile('🏠', 'Move house', 'free', S.tool.kind === 'movehouse', () => setStripTool('movehouse'), 'Move your whole house around the plot');
+    tile('ℹ️', 'Lot info', 'bulldoze', false, () => (modalKind === 'lot' ? closeModal() : showLot()), 'Lot info, library and bulldozer');
+    return;
   }
-  if (S.cat === 'roof') {
-    const b = document.createElement('button');
-    b.dataset.id = 'roof_remove';
-    b.className = S.tool.kind === 'roofRemove' ? 'sel' : '';
-    b.innerHTML = '<span style="font-size:28px;line-height:44px">🧹</span><span>Remove roof</span>';
-    b.onclick = () => { S.tool = { kind: 'roofRemove' }; renderItems(); };
-    box.appendChild(b);
+  const ids = itemsOf(S.cat);
+  for (const id of ids) box.appendChild(itemTile(id));
+  if (!S.query && S.cat === 'roof') tile('🧹', 'Remove roof', 'refund', S.tool.kind === 'roofRemove', () => { S.tool = { kind: 'roofRemove' }; renderItems(); refreshPreview(); });
+  if (!ids.length) {
+    const msg = S.query ? 'Nothing matches that. Try another word.'
+      : S.cat === 'starred' ? 'Tap the ☆ on any item to keep it here.'
+      : S.cat === 'recent' ? 'The last 8 things you picked show up here.'
+      : S.cat === 'special' ? 'No furniture in your bag. Otto sells pianos, fireplaces and more in the town square.' : 'Nothing here yet.';
+    box.insertAdjacentHTML('beforeend', `<div class="empty">${msg}</div>`);
   }
-  if (!any && S.cat === 'special') box.insertAdjacentHTML('beforeend', '<div style="padding:14px 8px;font-size:14px">No furniture in your bag. Otto sells pianos, fireplaces and more in the town square.</div>');
   refreshTrayAffordability();
+}
+
+// The detail column: the hovered item, else the one in hand, else the selected object.
+function renderDetail() {
+  const el = $('detail');
+  if (!el) return;
+  const selT = S.sel ? levelView(S.plots[S.myPlot], S.sel.level).obj[key(...S.sel.at)]?.t : null;
+  const id = detailHover || (ITEMS[S.tool.id] && S.tool.kind !== 'none' ? S.tool.id : null) || selT;
+  if (!id || !ITEMS[id]) { el.innerHTML = '<div class="d-empty">Hover an item to see its size, price and how many you own.</div>'; return; }
+  const d = ITEMS[id];
+  const kick = detailHover ? 'PREVIEW' : id === S.tool.id ? `IN HAND${canRotate(id) ? ` · ${S.rot * 90}°` : ''}` : 'PLACED';
+  const rot = !detailHover && id === S.tool.id ? S.rot : 0;
+  const [w, h] = d.layer === 'obj' ? footprint(id, rot) : [1, 1];
+  const own = S.inv[id] || 0;
+  const fromBag = own > 0 && d.layer === 'obj';
+  const notes = [d.light && 'Glows at night', canRotate(id) && 'Rotates', d.layer === 'obj' && (d.solid ? 'Blocks movement' : 'Walk-through'), d.stairs && 'Climbs one floor', d.fence && (d.gate ? 'You can walk through' : 'Fences don’t close a room'), d.slots && `Shows ${d.slots} kinds of goods`, d.outdoor && 'Made for outdoors', d.crop && `Grows in ${seasonsLabel(d.crop)}`].filter(Boolean);
+  const cost = fromBag ? 'Free' : `🪙${d.price}${unitOf(d)}`;
+  const foot = fromBag ? (own > 1 ? `<div class="d-foot ok">${own - 1} left after placing</div>` : `<div class="d-foot bag">Uses 1 of ${own} from your bag</div>`)
+    : !afford(d.price) ? `<div class="d-foot bad">Need ${d.price - S.coins} more coins</div>` : '';
+  el.innerHTML = `<div class="d-head"><div class="d-thumb"></div><div><div class="d-kick">${kick}</div><div class="d-name">${esc(d.name)}</div><div class="d-cat">${esc(catName(d.cat))}</div></div></div>
+    <div class="d-stats"><div><small>Size</small><b>${w}×${h}</b></div><div><small>In bag</small><b>${own}</b></div><div><small>Cost</small><b>${cost}</b></div></div>
+    ${notes.length ? `<div class="d-notes">${notes.join(' · ')}</div>` : ''}${foot}`;
+  const ic = iconFor(id);
+  el.querySelector('.d-thumb').appendChild(ic);
 }
 
 function refreshTrayAffordability() {
   for (const b of $('items').querySelectorAll('button[data-id]')) {
     const d = ITEMS[b.dataset.id];
-    if (d && !d.shop) b.classList.toggle('poor', d.price > S.coins);
+    if (d && !S.inv[b.dataset.id]) b.classList.toggle('poor', !afford(d.price));
   }
+  renderDetail();
 }
-function updateRotateBtn() {
-  const ok = S.tool.kind === 'obj' && canRotate(S.tool.id);
-  $('btn-rotate').disabled = !ok;
-  $('btn-rotate').textContent = ok ? `↻ Rotate (${['front', 'left', 'back', 'right'][S.rot]})` : '↻ Rotate';
-}
-function rotateItem() {
-  if (S.held && S.held.kind !== 'obj') { S.held.rot = (S.held.rot + 1) % 4; refreshPreview(); return; }
-  if (S.held?.kind === 'obj') { if (canRotate(S.held.t)) { S.rot = (S.rot + 1) % 4; refreshPreview(); } return; }
+function updateRotateBtn() { renderDetail(); }
+function rotateItem(d = 1) {
+  if (S.held && S.held.kind !== 'obj') { S.held.rot = (S.held.rot + d + 4) % 4; refreshPreview(); return; }
+  if (S.held?.kind === 'obj') { if (canRotate(S.held.t)) { S.rot = (S.rot + d + 4) % 4; refreshPreview(); } return; }
   if (S.tool.kind !== 'obj' || !canRotate(S.tool.id)) return;
-  S.rot = (S.rot + 1) % 4;
+  S.rot = (S.rot + d + 4) % 4;
   updateRotateBtn();
   refreshPreview();
 }
-$('btn-rotate').onclick = rotateItem;
 $('btn-undo').onclick = undo;
 
 function setLevel(l) {
   S.level = Math.max(0, Math.min(LEVELS - 1, l));
-  $('btn-level').textContent = S.level ? '⬆ Upstairs' : 'Ground floor';
+  syncFloors();
+  S.sel = null;
   plotsDirty = true;
   toolInfo();
   refreshPreview();
 }
-$('btn-level').onclick = () => setLevel(S.level ? 0 : 1);
-const WALL_MODES = { cut: 'Walls: cutaway', up: 'Walls: up', down: 'Walls: down' };
+function syncFloors() {
+  $('floor-up').disabled = S.level >= LEVELS - 1;
+  $('floor-down').disabled = S.level <= 0;
+  $('floorsw').title = `${S.level ? 'Upstairs' : 'Ground floor'} (PgUp/PgDn)`;
+}
+$('floor-up').onclick = () => setLevel(S.level + 1);
+$('floor-down').onclick = () => setLevel(S.level - 1);
+// One line across the cube shows the walls mode: top = up, middle = cutaway, low = down.
+const WALL_MODES = { up: 'Walls up', cut: 'Cutaway', down: 'Walls down' };
+const WALL_LINE = { up: 'M3.5 7 12 11.5 20.5 7', cut: 'M3.5 12 12 16.5 20.5 12', down: 'M3.5 15.4 12 19.9l8.5-4.5' };
+function syncWalls() {
+  document.querySelector('#btn-walls .wl').setAttribute('d', WALL_LINE[S.wallMode]);
+  $('btn-walls').setAttribute('aria-label', WALL_MODES[S.wallMode]);
+}
 function cycleWalls() {
-  S.wallMode = { cut: 'up', up: 'down', down: 'cut' }[S.wallMode];
-  $('btn-walls').textContent = WALL_MODES[S.wallMode];
+  S.wallMode = { up: 'cut', cut: 'down', down: 'up' }[S.wallMode];
+  syncWalls();
+  toast(`🧱 ${WALL_MODES[S.wallMode]}`);
   plotsDirty = true;
 }
 $('btn-walls').onclick = cycleWalls;
+// Search every category from the box above the catalog ("/" jumps to it).
+$('build-q').addEventListener('input', () => { S.query = $('build-q').value.trim(); renderTabs(); renderItems(); });
+$('build-q').addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { $('build-q').value = ''; S.query = ''; renderTabs(); renderItems(); $('build-q').blur(); }
+  e.stopPropagation();
+});
 
 const coarse = matchMedia('(pointer: coarse)').matches;
 function toolInfo(extra) {
@@ -1275,7 +1386,14 @@ function toolInfo(extra) {
     if (staged) extra = '✓ to confirm, ✕ to cancel, or drag again to move it';
     else if (S.held) extra = 'Drag it where you want it, then ✓';
   }
-  $('toolinfo').textContent = (S.freeBuild ? '🆓 Free build · ' : '') + (extra ? extra + ' · ' : '') + (S.level && !['resize', 'merge', 'split', 'pave', 'dig'].includes(t.kind) ? 'Upstairs · ' : '') + (msgs[t.kind] || '');
+  msgs.eyedrop = 'Copy: click anything to pick up another one like it';
+  msgs.remove = 'Sledge: click, or drag a box to clear an area. You get the price back';
+  msgs.design = 'Design: click furniture or a roof to change its colour. Free';
+  msgs.movehouse = 'Move house: your whole house follows the cursor; R turns it; click to set it down. Free';
+  // A hint pill under the tool bar, for any tool but Select.
+  const text = t.kind === 'select' || t.kind === 'none' ? (extra || '') : (S.freeBuild ? '🆓 Free build · ' : '') + (extra ? extra + ' · ' : '') + (S.level && !['resize', 'merge', 'split', 'pave', 'dig'].includes(t.kind) ? 'Upstairs · ' : '') + (msgs[t.kind] || '');
+  $('toolhint').textContent = text;
+  $('toolhint').hidden = !text;
 }
 
 function setMode(mode) {
@@ -1296,8 +1414,9 @@ function setMode(mode) {
   $('chatlog').style.display = mode === 'build' ? 'none' : '';
   drag = null;
   ghost.clear();
+  S.sel = null;
   if (mode === 'build') {
-    syncEditPlotBtn();
+    syncEditPlotBtn(); syncFloors(); syncWalls(); syncStrip(); syncCoins();
     renderTabs(); renderItems();
     const p = S.plots[S.myPlot];
     view.setTarget(p.x + p.w / 2, p.y + p.h / 2 + 1);
@@ -1367,8 +1486,30 @@ function wallPlan() {
 // and why it can't go there.
 let tipState = null;
 function tip(text, err) { tipState = { text, err }; }
+// While you hold an item (and aren't dragging), a dashed box with its icon follows the
+// cursor instead, with a little label: price or "From bag", R rotate, Esc cancel.
+const HOLD_KINDS = ['obj', 'floor', 'roof', 'wall', 'feature'];
+function heldId() {
+  if (S.held?.kind === 'obj') return S.held.t;
+  return HOLD_KINDS.includes(S.tool.kind) && ITEMS[S.tool.id] ? S.tool.id : null;
+}
 function drawTip() {
-  const el = $('cursortip');
+  const el = $('cursortip'), hg = $('heldghost');
+  const id = S.mode === 'build' && hover && !hover.touch && !drag && !S.chain ? heldId() : null;
+  document.body.classList.toggle('holding', !!id);
+  if (id) {
+    el.hidden = true; hg.hidden = false;
+    if (hg.dataset.id !== id) { hg.dataset.id = id; hg.firstElementChild.replaceChildren(iconFor(id)); }
+    hg.firstElementChild.firstElementChild.classList.toggle('flip', S.rot % 2 === 1 && ITEMS[id].layer === 'obj');
+    const d = ITEMS[id], err = tipState?.err;
+    const what = S.held ? `Moving ${d.name}` : S.inv[id] > 0 && d.layer === 'obj' ? 'From bag' : `${d.price}`;
+    const rot = S.held || (d.layer === 'obj' && canRotate(id)) ? ' · R rotate' : '';
+    hg.lastElementChild.innerHTML = `${esc(what)}${rot} · Esc cancel${err ? ` · <b>${esc(err)}</b>` : ''}`;
+    hg.classList.toggle('bad', !!err);
+    hg.style.transform = `translate(${Math.round(hover.cx - hg.offsetWidth / 2)}px, ${Math.round(hover.cy - 48)}px)`;
+    return;
+  }
+  hg.hidden = true;
   if (!tipState || !hover || S.mode !== 'build') { el.hidden = true; return; }
   el.hidden = false;
   el.innerHTML = `${esc(tipState.text)}${tipState.err ? `<b>${esc(tipState.err)}</b>` : ''}`;
@@ -1440,7 +1581,7 @@ function previewInner() {
       const [w, h] = footprint(hit.obj.t, hit.obj.r || 0);
       ghost.box(def.x + ax, def.y + ay, w, h, S.level * LEVEL_H, 1.2);
       const name = ITEMS[hit.obj.t].name;
-      tip(t.kind === 'design' ? `🎨 ${name} · colour ${(hit.obj.c || 0) + 1}/6 · click for the next (free)` : t.kind === 'eyedrop' ? `💧 Copy ${name}` : `👆 ${name} · click to pick up`);
+      tip(t.kind === 'design' ? `🎨 ${name} · colour ${(hit.obj.c || 0) + 1}/6 · click for the next (free)` : t.kind === 'eyedrop' ? `💧 Copy ${name}` : `👆 ${name} · click to select`);
       return;
     }
     const tiles = roomTiles(plot, S.level, lx, ly);
@@ -1650,7 +1791,8 @@ const STRIP_HELP = {
 };
 function setStripTool(kind) {
   S.held = null; S.chain = null;
-  S.tool = S.tool.kind === kind && kind !== 'remove' ? { kind: 'none' } : { kind };
+  // Clicking the active tool again goes back to Select (Select itself stays on).
+  S.tool = S.tool.kind === kind && kind !== 'remove' && kind !== 'select' ? { kind: 'select' } : { kind };
   if (S.tool.kind === 'movehouse') {
     const frag = extract(S.plots[S.myPlot]);
     if (!frag) { S.tool = { kind: 'none' }; toast('Build something first'); }
@@ -1658,9 +1800,19 @@ function setStripTool(kind) {
   }
   syncStrip(); renderTabs(); renderItems(); refreshPreview();
 }
+const SUN_SVG = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M11 1h2v4h-2zM11 19h2v4h-2zM1 11h4v2H1zM19 11h4v2h-4zM4.2 5.6l1.4-1.4 2.8 2.8-1.4 1.4zM15.6 17l1.4-1.4 2.8 2.8-1.4 1.4zM4.2 18.4l2.8-2.8 1.4 1.4-2.8 2.8zM15.6 7l2.8-2.8 1.4 1.4L17 8.4z"/></svg>';
+const MOON_SVG = '<svg viewBox="0 0 24 24"><path d="M14.5 2.5A9.5 9.5 0 1 0 21.5 16 8 8 0 0 1 14.5 2.5z"/></svg>';
 function syncStrip() {
   for (const b of document.querySelectorAll('#buildtools [data-tool]')) b.classList.toggle('sel', S.tool.kind === b.dataset.tool);
-  $('btn-time').classList.toggle('sel', S.previewHour != null);
+  syncTimeIcon();
+}
+// Day/night preview: a moon while it's (previewing) night, a sun by day.
+function syncTimeIcon() {
+  const hr = S.previewHour ?? worldClock(serverNow(), S.epoch).hours;
+  const night = darkness(hr) > 0.4;
+  const b = $('btn-time');
+  if (b.dataset.night !== String(night)) { b.dataset.night = String(night); b.innerHTML = night ? MOON_SVG : SUN_SVG; }
+  b.classList.toggle('sel', S.previewHour != null);
 }
 for (const b of document.querySelectorAll('#buildtools [data-tool]')) b.onclick = () => setStripTool(b.dataset.tool);
 
@@ -1688,6 +1840,64 @@ function pickUp(h) {
     toast(`👆 Room picked up${upper ? ' with its upstairs' : ''}: click to set it down · R turns it`);
   }
   refreshPreview();
+}
+
+// Select with nothing in hand: click furniture to select it (a popup over it rotates it
+// or picks it up), click a room's floor to lift the whole room, or empty ground to clear.
+function selectAt(h) {
+  const plot = S.plots[S.myPlot];
+  const q = pickLocal(h.cx, h.cy);
+  if (!q) { S.sel = null; return; }
+  const [lx, ly] = tileOf(q);
+  const hit = objAt(levelView(plot, S.level), lx, ly);
+  if (hit) { S.sel = { at: hit.key.split(',').map(Number), level: S.level }; renderDetail(); return; }
+  S.sel = null; renderDetail();
+  if (roomRegion(plot, S.level, lx, ly)) pickUp(h);
+}
+function selObj() {
+  if (!S.sel || S.mode !== 'build') return null;
+  const plot = S.plots[S.myPlot], o = plot && levelView(plot, S.sel.level).obj[key(...S.sel.at)];
+  return o ? { plot, o } : null;
+}
+// Turn the selected object where it stands (d = +1 right, -1 left).
+function rotateSel(d) {
+  const s = selObj();
+  if (!s) return;
+  if (!canRotate(s.o.t)) return toast(`${ITEMS[s.o.t].name} doesn’t turn`);
+  const r0 = s.o.r || 0, r = (r0 + d + 4) % 4, base = { plotId: S.myPlot, level: S.sel.level };
+  send({ type: 'moveObj', ...base, from: S.sel.at, to: S.sel.at, r });
+  pushUndo(`turning ${ITEMS[s.o.t].name}`, [{ type: 'moveObj', ...base, from: S.sel.at, to: S.sel.at, r: r0 }]);
+}
+function pickUpSel() {
+  const s = selObj();
+  if (!s) return;
+  const p = view.toScreen(s.plot.x + S.sel.at[0] + 0.5, S.sel.level * LEVEL_H, s.plot.y + S.sel.at[1] + 0.5);
+  S.sel = null;
+  pickUp({ cx: p.x, cy: p.y });
+  renderDetail(); toolInfo();
+}
+function sellSel() {
+  const s = selObj();
+  if (!s) return;
+  send({ type: 'remove', plotId: S.myPlot, level: S.sel.level, lx: S.sel.at[0], ly: S.sel.at[1] });
+  S.sel = null; renderDetail();
+}
+$('op-rotl').onclick = () => rotateSel(-1);
+$('op-rotr').onclick = () => rotateSel(1);
+$('op-move').onclick = pickUpSel;
+// Keep the popup 60px above the selected object, whatever the camera does.
+function placeObjPop() {
+  const pop = $('objpop'), s = selObj();
+  if (!s || S.held) { pop.hidden = true; return; }
+  const [w, hh] = footprint(s.o.t, s.o.r || 0);
+  const p = view.toScreen(s.plot.x + S.sel.at[0] + w / 2, S.sel.level * LEVEL_H + 1.1, s.plot.y + S.sel.at[1] + hh / 2);
+  if (pop.hidden) pop.hidden = false;
+  const name = ITEMS[s.o.t].name;
+  if (pop.dataset.t !== name) { pop.dataset.t = name; pop.querySelector('.op-top').textContent = name; }
+  const turn = canRotate(s.o.t);
+  $('op-rotl').disabled = $('op-rotr').disabled = !turn;
+  $('op-rotl').style.opacity = $('op-rotr').style.opacity = turn ? '' : '.35';
+  pop.style.transform = `translate(${Math.round(p.x - 88)}px, ${Math.round(p.y - 60 - pop.offsetHeight - 8)}px)`;
 }
 
 // Where a held room/house would go for the pointer at h (top-left, plot-local).
@@ -2011,7 +2221,6 @@ function showLot() {
   }
   body.insertAdjacentHTML('beforeend', '<p class="muted small">Change your farm name from ⚙️ Settings → 👤 Me → Change look.</p>');
 }
-$('btn-lot').onclick = () => (modalKind === 'lot' ? closeModal() : showLot());
 
 // ---- Time of day preview (build mode only) ----
 const PREVIEW_HOURS = [9, 14, 18.6, 23];
@@ -2148,7 +2357,7 @@ function commit(h) {
   const base = { plotId: S.myPlot, level: S.level };
   if (t.kind === 'blueprint') return placeBlueprintAt(h, out);
   if (S.held) return dropHeld(h, base, out);
-  if (t.kind === 'select') return pickUp(h);
+  if (t.kind === 'select') return selectAt(h);
   if (t.kind === 'eyedrop') return eyedrop(h);
   if (t.kind === 'design') return designAt(h, base, out);
   if (t.kind === 'movehouse') return moveHouseAt(h, base, out);
@@ -2347,6 +2556,9 @@ addEventListener('keydown', (e) => {
     return;
   }
   const k = e.key.toLowerCase();
+  if (k === 'escape' && S.sel && S.mode === 'build' && !S.held) { S.sel = null; renderDetail(); return; }
+  // Esc drops the item in your hand (back to Select) rather than leaving build mode.
+  if (k === 'escape' && S.mode === 'build' && !S.held && !S.chain && !drag && HOLD_KINDS.includes(S.tool.kind)) { S.tool = { kind: 'select' }; syncStrip(); renderItems(); refreshPreview(); return; }
   if (k === 'escape' && (S.held || S.chain)) { S.held = null; S.chain = null; if (S.tool.kind === 'movehouse' || S.tool.kind === 'blueprint') S.tool = { kind: 'none' }; syncStrip(); renderItems(); refreshPreview(); return; }
   if (k === 'escape' && !$('usemenu').hidden) { closeUseMenu(); return; }
   if (k === 'escape') { if (drag) { drag = null; refreshPreview(); } else { setMode('walk'); closeTalk(); closeModal(); toggleMap(false); } }
@@ -2359,6 +2571,9 @@ addEventListener('keydown', (e) => {
     if (k === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey) { e.preventDefault(); redo(); return; }
     if (k === 'z' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); undo(); return; }
     if (k === 'y' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); redo(); return; }
+    if (e.key === '/') { e.preventDefault(); $('build-q').focus(); return; }
+    if ((k === 'delete' || k === 'backspace') && S.sel && !S.held) { sellSel(); keys.add(k); return; }
+    if (k === 'r' && S.sel && !S.held && !HOLD_KINDS.includes(S.tool.kind)) { rotateSel(e.shiftKey ? -1 : 1); return; }
     if ((k === 'delete' || k === 'backspace') && S.held?.kind === 'obj') {
       const H = S.held; S.held = null;
       send({ type: 'remove', plotId: S.myPlot, level: S.level, lx: H.from[0], ly: H.from[1] });
@@ -2370,7 +2585,7 @@ addEventListener('keydown', (e) => {
     if (k === 't') setStripTool('design');
     if (k === 'l') cycleTime();
     if (k === 'enter' && S.chain) finishChain(false);
-    if (k === 'r') rotateItem();
+    if (k === 'r') rotateItem(e.shiftKey ? -1 : 1);
     if (k === 'v') cycleWalls();
     if (e.key === 'PageUp') setLevel(1);
     if (e.key === 'PageDown') setLevel(0);
@@ -3473,6 +3688,7 @@ function drawOverlay(now) {
   }
   drawFarmOverlay(onScreen, now);
   drawTouchMarks(now);
+  if (S.mode === 'build') { placeObjPop(); syncTimeIcon(); } else if (!$('objpop').hidden) $('objpop').hidden = true;
   drawChips(now);
   for (const plot of Object.values(S.plots)) {
     if (Math.abs(plot.x + plot.w / 2 - U(S.me.x)) > 30 || Math.abs(plot.y + plot.h / 2 - U(S.me.y)) > 30) continue;
@@ -3907,8 +4123,8 @@ function stageable() {
 function showStage() {
   const bar = $('stagebar');
   bar.hidden = false;
-  const tray = $('tray');
-  bar.style.bottom = `${(tray.hidden ? 0 : tray.getBoundingClientRect().height) + 12}px`;
+  const cat = $('catalog');
+  bar.style.bottom = `${($('tray').hidden ? 0 : innerHeight - cat.getBoundingClientRect().top) + 64}px`;
   $('stage-rot').hidden = !(S.held ? S.held.kind !== 'obj' || canRotate(S.held.t) : S.tool.kind === 'obj' ? canRotate(S.tool.id) : ['blueprint', 'movehouse'].includes(S.tool.kind));
   haptic(8);
 }
@@ -3970,7 +4186,7 @@ function drawTouchMarks(now) {
 }
 
 // The build tray folds down to show more of your plot.
-$('btn-traymin').onclick = () => { $('tray').classList.toggle('mini'); $('btn-traymin').textContent = $('tray').classList.contains('mini') ? '▴' : '▾'; if (staged) showStage(); };
+
 
 // ---------- trees and rocks ----------
 const audio = createAudio({ store });
