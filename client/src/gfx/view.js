@@ -5,7 +5,7 @@
 import { TargetCamera } from '@babylonjs/core/Cameras/targetCamera.js';
 import { Camera } from '@babylonjs/core/Cameras/camera.js';
 import { MAP_W, MAP_H, SHOPS, FOUNTAIN } from '@shared/world.js';
-import { personSprite, sleeperSprite } from '../people.js';
+import { personSprite, sleeperSprite, lyingSprite } from '../people.js';
 import { petSprite } from '../pets.js';
 import { animalSprite } from '../animals.js';
 import { sanitizeLook } from '@shared/look.js';
@@ -366,7 +366,11 @@ export class View {
       const geo = new Geo([-0.5, 0, -0.5, 0.5, 0, -0.5, 0.5, 0, 0.5, -0.5, 0, 0.5], [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], [0, 1, 1, 1, 1, 0, 0, 0], [0, 2, 1, 0, 3, 2]);
       a.sleep = toMesh(geo, null, { name: 'sleeper' });
     }
-    const tex = texOf(sleeperSprite(a.look, ...(pose.quilt ? [pose.quilt] : [])).cv);
+    // Breathing every ~0.9 s; in bed they roll over now and then. On a sofa they lie in
+    // their clothes.
+    const now = performance.now(), br = Math.floor(now / 900) % 2, roll = Math.floor(now / 14000) % 2;
+    const spr = pose.lie ? lyingSprite(a.look, br) : sleeperSprite(a.look, pose.quilt || '#4d79c7', br + roll * 2);
+    const tex = texOf(spr.cv);
     let m = sleepMats.get(tex);
     if (!m) {
       m = new TyMaterial({ kind: 'basic', map: tex, alphaTest: 0.5, tint: true, doubleSided: true });

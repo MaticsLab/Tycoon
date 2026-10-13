@@ -691,29 +691,68 @@ export function personSprite(look, dir, frame, pose = null, arms = null, f = 0) 
 // Someone asleep in bed, seen from straight above: their head on the pillow (eyes
 // shut) and the shape of their body under the quilt. 16 × 32 px = one bed (1 × 2 tiles),
 // head end at the top (the bed's headboard side). Laid flat on the mattress.
-export function sleeperSprite(look, quilt = '#4d79c7') {
+// f animates it: 0/1 breathe (the quilt rises and falls), 2/3 the same rolled over to
+// face the other way.
+export function sleeperSprite(look, quilt = '#4d79c7', f = 0) {
   const { k, L } = resolveCached(look);
-  const id = `sleep|${k}|${quilt}`;
+  const id = `sleep|${k}|${quilt}|${f}`;
   let cv = sleepCache.get(id);
   if (cv) return { cv };
   cv = document.createElement('canvas');
   cv.width = 16; cv.height = 32;
   const c = cv.getContext('2d');
-  const H = L.H, K = L.K;
+  if (f >= 2) { c.translate(16, 0); c.scale(-1, 1); }
+  const H = L.H, K = L.K, br = f % 2;
   const q = quilt, qd = shade(quilt, -0.22), ql = shade(quilt, 0.18);
-  // hair and face (head turned a little to the side on the pillow)
-  r(c, 4, 3, 8, 8, H[2]); r(c, 4, 3, 8, 2, H[3]); r(c, 3, 4, 1, 6, H[1]); r(c, 12, 4, 1, 6, H[1]);
-  r(c, 5, 6, 6, 5, K[2]); r(c, 5, 10, 6, 1, K[1]);
-  r(c, 6, 8, 1, 1, '#2a1a12'); r(c, 9, 8, 1, 1, '#2a1a12');           // closed eyes
-  r(c, 7, 10, 2, 1, shade(K[1], -0.15));
-  r(c, 5, 5, 6, 1, H[2]);                                                // fringe
-  // quilt pulled up to the chin, with the body's bump and feet at the end
+  sleepHead(c, L, 3);
+  // quilt pulled up to the chin, with the body's bump (rising as they breathe) and feet
   r(c, 1, 11, 14, 20, q); r(c, 1, 11, 14, 2, ql); r(c, 1, 11, 1, 20, qd); r(c, 14, 11, 1, 20, qd);
-  r(c, 4, 13, 8, 16, ql); r(c, 4, 13, 1, 16, q); r(c, 11, 13, 1, 16, qd); // body under the covers
+  r(c, 4 - br, 13, 8 + br * 2, 16, ql); r(c, 4 - br, 13, 1, 16, q); r(c, 11 + br, 13, 1, 16, qd);
+  r(c, 5, 15 + br, 6, 1, shade(ql, 0.12));                               // light on the chest
   r(c, 5, 26, 2, 3, qd); r(c, 9, 26, 2, 3, qd);                           // feet
   r(c, 1, 30, 14, 1, qd);
-  // a hand resting on top of the quilt
-  r(c, 11, 15, 2, 2, K[2]);
+  r(c, 11, 15 - br, 2, 2, K[2]);                                          // a hand on the quilt
+  sleepCache.set(id, cv);
+  return { cv };
+}
+// A sleeping face from above (eyes shut), hair round it; head top at row y.
+function sleepHead(c, L, y) {
+  const H = L.H, K = L.K;
+  r(c, 4, y, 8, 8, H[2]); r(c, 4, y, 8, 2, H[3]); r(c, 3, y + 1, 1, 6, H[1]); r(c, 12, y + 1, 1, 6, H[1]);
+  r(c, 5, y + 3, 6, 5, K[2]); r(c, 5, y + 7, 6, 1, K[1]);
+  r(c, 6, y + 5, 1, 1, '#2a1a12'); r(c, 9, y + 5, 1, 1, '#2a1a12');     // closed eyes
+  r(c, 7, y + 7, 2, 1, shade(K[1], -0.15));
+  r(c, 5, y + 2, 6, 1, H[2]);                                             // fringe
+}
+// Lying on a sofa (or a hammock) for a nap, seen from above in their own clothes: head on
+// the armrest at the top, hands folded on the belly, legs out straight, shoes at the far
+// end. 16 × 32 px; f 0..3 breathes (the chest rises on 1 and 3).
+export function lyingSprite(look, f = 0) {
+  const { k, L } = resolveCached(look);
+  const id = `lie|${k}|${f}`;
+  let cv = sleepCache.get(id);
+  if (cv) return { cv };
+  cv = document.createElement('canvas');
+  cv.width = 16; cv.height = 32;
+  const c = cv.getContext('2d');
+  const S = L.S, B = L.B, K = L.K, P = L.P, br = f % 2;
+  const dress = L.shirt.kind === 'dress', sl = sleeveColor(L) || S;
+  // legs and shoes first (feet towards the bottom)
+  const legC = dress ? K : P;
+  r(c, 5, 20, 3, 9, legC[2]); r(c, 8, 20, 3, 9, legC[1]); r(c, 5, 20, 1, 9, legC[3]); r(c, 7, 22, 2, 6, legC[0]);
+  r(c, 4, 29, 4, 2, SHOE[1]); r(c, 8, 29, 4, 2, SHOE[1]); r(c, 4, 29, 4, 1, SHOE[2]); r(c, 8, 29, 4, 1, SHOE[2]);
+  if (dress) { r(c, 4, 19, 8, 5, S[2]); r(c, 4, 23, 8, 1, S[1]); }
+  // torso (a touch wider when breathing in), with the shirt's own trim
+  r(c, 4 - br, 11, 8 + br * 2, 10, S[2]); r(c, 4 - br, 11, 1, 10, S[3]); r(c, 11 + br, 11, 1, 10, S[1]); r(c, 4, 20, 8, 1, S[0]);
+  if (L.shirt.kind === 'overalls' || L.shirt.kind === 'vest' || L.shirt.kind === 'apron') r(c, 6, 11, 4, 9, B[2]);
+  if (L.shirt.kind === 'stripes') for (let j = 12; j < 20; j += 2) r(c, 4, j, 8, 1, B[2]);
+  // arms along the sides, hands folded on the belly
+  r(c, 2 - br, 11, 2, 6, sl[1]); r(c, 12 + br, 11, 2, 6, sl[1]);
+  r(c, 3 - br, 16, 3, 2, sl === S ? sl[2] : K[1]); r(c, 10 + br, 16, 3, 2, sl === S ? sl[2] : K[1]);
+  r(c, 6, 16 - br, 4, 2, K[2]); px(c, 7, 17 - br, K[1]);
+  // neck and head on the armrest
+  r(c, 7, 10, 2, 1, K[1]);
+  sleepHead(c, L, 2);
   sleepCache.set(id, cv);
   return { cv };
 }

@@ -3594,8 +3594,12 @@ function itemUnder(p) {
   const plot = id >= 0 ? S.plots[id] : null;
   const v = plot && ((p.level || 0) ? plot.l1 : plot);
   const hit = v && objAt(v, Math.floor(p.x / TILE - plot.x), Math.floor(p.y / TILE - plot.y));
-  return hit ? { t: hit.obj.t, r: hit.obj.r || 0, c: hit.obj.c || 0 } : null;
+  if (!hit) return null;
+  const [ax, ay] = hit.key.split(',').map(Number), [w, h] = footprint(hit.obj.t, hit.obj.r || 0);
+  return { t: hit.obj.t, r: hit.obj.r || 0, c: hit.obj.c || 0, cx: plot.x + ax + w / 2, cz: plot.y + ay + h / 2 };
 }
+// Long seats you can stretch out on for a nap: how high the cushion is.
+const LIE_ON = { sofa: 0.57, loveseat: 0.58, hammock: 0.68 };
 // What the hands do for each activity (people.js draws the arms with a little skeleton).
 const ACT_ARMS = {
   eat: 'eat', eatHere: 'eat', snack: 'stir', cook: 'stir', grill: 'stir', read: 'read', tv: 'lap', sit: 'lap', nap: 'lap',
@@ -3610,9 +3614,15 @@ function actPose(p) {
   if (a === 'shower' || a === 'bath') return { vis: false };
   const it = itemUnder(p);
   if ((a === 'sleep' || a === 'nap') && it && BEDS.has(it.t)) {
-    // Under the covers: a flat picture of them asleep, laid on the mattress.
+    // Under the covers: a flat picture of them asleep, laid on the mattress (breathing,
+    // and rolling over now and then).
     const [w, h] = footprint(it.t, it.r);
-    return { y: 0.56, pose: { kind: 'sleep', r: it.r, w, h } };
+    return { y: 0.56, at: { x: it.cx, z: it.cz }, pose: { kind: 'sleep', r: it.r, w, h } };
+  }
+  if (a === 'nap' && it && LIE_ON[it.t] != null) {
+    // Stretched out along the sofa in their clothes, head on the armrest.
+    const [w, h] = footprint(it.t, it.r);
+    return { y: LIE_ON[it.t], at: { x: it.cx, z: it.cz }, pose: { kind: 'sleep', lie: true, r: (it.r + 1) % 4, w, h } };
   }
   return { y: SEAT_Y[it?.t] ?? 0.08, pose: { kind: 'sit', arms: ACT_ARMS[a] || 'lap' } };
 }
@@ -3884,7 +3894,7 @@ function render(now) {
       return;
     }
     const pose = actPose(p);
-    view.actor(p.id, U(p.x), U(p.y), p.dir, p.running ? 'run' : p.moving, p.look, now, pose?.vis ?? true, h + (pose?.y || 0), null, pose?.pose || null);
+    view.actor(p.id, pose?.at ? pose.at.x : U(p.x), pose?.at ? pose.at.z : U(p.y), p.dir, p.running ? 'run' : p.moving, p.look, now, pose?.vis ?? true, h + (pose?.y || 0), null, pose?.pose || null);
   };
   for (const p of S.players.values()) drawPerson(p, hOf(p));
   for (const n of S.npcs.values()) {
