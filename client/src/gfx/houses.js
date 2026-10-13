@@ -119,7 +119,7 @@ export function buildPlot(plot, opts) {
     const y = l * LEVEL_H;
     const byType = new Map();
     for (let [k, t] of Object.entries(view.floor)) {
-      if (t === 'soil' && !l && isWet(view.obj[k] || {}, opts.now)) t = 'soil_wet';
+      if ((t === 'soil' || t === 'soil_rich') && !l && isWet(view.obj[k] || {}, opts.now)) t = `${t}_wet`;
       if (!byType.has(t)) byType.set(t, []);
       byType.get(t).push(k.split(',').map(Number));
     }

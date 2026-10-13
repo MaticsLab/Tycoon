@@ -474,6 +474,31 @@ export const FLOOR = {
     r(c, x, y, TILE, 1, '#2e1a0e'); r(c, x, y + 15, TILE, 1, '#5e3c24');
     if ((lx + ly) % 2 === 0) px(c, x + 4 + (lx % 3) * 3, y + 6, '#8fb8d8');
   },
+  // Rich (fertilised) soil: deep, crumbly and dark, flecked with green and white fertiliser.
+  soil_rich(c, x, y, lx, ly) {
+    r(c, x, y, TILE, TILE, '#4f321e');
+    for (let i = 0; i < 4; i++) { r(c, x + 1, y + i * 4 + 1, 14, 2, '#3f2716'); r(c, x + 1, y + i * 4 + 3, 14, 1, '#65432a'); }
+    r(c, x, y, TILE, 1, '#33200f'); r(c, x, y + 15, TILE, 1, '#70503a');
+    const k = lx * 5 + ly * 3;
+    for (const [sx, sy] of [[3, 2], [10, 6], [6, 10], [13, 13], [1, 14]]) {
+      const v = (sx * 3 + sy + k) % 4;
+      px(c, x + ((sx + k) % 15), y + sy, v === 0 ? '#9ad86a' : v === 1 ? '#f2eee2' : v === 2 ? '#6fb04a' : '#7a5a3e');
+    }
+    px(c, x + ((k + 8) % 14) + 1, y + 7, '#e8e2d0');
+  },
+  // Watered rich soil: near-black, glistening.
+  soil_rich_wet(c, x, y, lx, ly) {
+    r(c, x, y, TILE, TILE, '#2f1d12');
+    for (let i = 0; i < 4; i++) { r(c, x + 1, y + i * 4 + 1, 14, 2, '#24150c'); r(c, x + 1, y + i * 4 + 3, 14, 1, '#41291a'); }
+    r(c, x, y, TILE, 1, '#1c1008'); r(c, x, y + 15, TILE, 1, '#4a3020');
+    const k = lx * 5 + ly * 3;
+    for (const [sx, sy] of [[3, 2], [10, 6], [6, 10], [13, 13]]) {
+      const v = (sx * 3 + sy + k) % 3;
+      px(c, x + ((sx + k) % 15), y + sy, v === 0 ? '#5f9a46' : v === 1 ? '#bdb8aa' : '#4a3020');
+    }
+    if ((lx + ly) % 2 === 0) { px(c, x + 4 + (lx % 3) * 3, y + 6, '#8fb8d8'); px(c, x + 5 + (lx % 3) * 3, y + 6, '#5f86a6'); }
+    else px(c, x + 11 - (ly % 3) * 2, y + 10, '#8fb8d8');
+  },
 };
 function carpet(c, x, y, lx, ly, p) {
   r(c, x, y, TILE, TILE, p[2]);
@@ -551,9 +576,15 @@ const CROP = {
   carrot: { leaf: ['#2d6a2c', '#3f8a35', '#5aa842', '#86cc5a'], fruit: ['#c25e17', '#f28a2e', '#ffb15e'] },
   berry: { leaf: ['#235a2a', '#327a35', '#45973f', '#6cbd56'], fruit: ['#a3192a', '#e33b4a', '#ff8a95'] },
   pumpkin: { leaf: ['#2d5a24', '#3d7a30', '#55993f', '#7cbc55'], fruit: ['#b8561a', '#f0882a', '#ffb260'] },
+  wheat: { leaf: ['#2d6a2c', '#3f8a35', '#5aa842', '#86cc5a'], fruit: ['#a8742a', '#d9a63a', '#f0c860'] },
+  corn: { leaf: ['#2d6a2c', '#3f8a35', '#5aa842', '#86cc5a'], fruit: ['#c99a1e', '#f0c24a', '#fbe08a'] },
+  melon: { leaf: ['#235a2a', '#327a35', '#45973f', '#6cbd56'], fruit: ['#1f5a2a', '#2f7a35', '#a8d870'] },
+  kale: { leaf: ['#1e4a3a', '#2e6a52', '#3f8a6a', '#6cb88e'], fruit: ['#5a2a6a', '#8a4aa0', '#b98ad0'] },
 };
 
 function paintCrop(c, type, s) {
+  const own = CROP_PAINT[type];
+  if (own && (s >= 2 || type === 'wheat' || type === 'corn')) return own(c, s);
   const { leaf: L, fruit: F } = CROP[type];
   if (s === 0) { r(c, 7, 9, 2, 4, L[1]); r(c, 5, 8, 2, 2, L[2]); r(c, 9, 7, 2, 2, L[3]); return; }
   if (s === 1) {
@@ -582,8 +613,84 @@ function paintCrop(c, type, s) {
   }
 }
 
+// Farm crops with their own silhouettes (grain stalks, tall corn, vines, curly kale).
+function paintWheat(c, s) {
+  const G = ['#3f7a2c', '#5a9a3a', '#86c25a'], Y = ['#a8742a', '#d9a63a', '#f0c860', '#fbe6a0'];
+  if (s === 0) { for (const [x, h] of [[5, 3], [8, 4], [11, 3]]) r(c, x, 13 - h, 1, h, G[1]); px(c, 8, 9, G[2]); return; }
+  const ripe = s === 3, n = s === 1 ? [3, 6, 9, 12] : [2, 4, 6, 8, 10, 12, 14];
+  const tall = s === 1 ? 7 : s === 2 ? 12 : 15;
+  n.forEach((x, i) => {
+    const h = tall - ((i * 5) % 3), lean = i % 3 === 0 ? -1 : i % 3 === 1 ? 0 : 1, top = 14 - h;
+    r(c, x, top + 3, 1, h - 3, ripe ? Y[1] : G[i % 2]);
+    if (lean && h > 6) px(c, x + lean, top + 2, ripe ? Y[1] : G[1]);
+    if (s === 1) { px(c, x, top + 2, G[2]); px(c, x - 1, top + 5, G[1]); return; }
+    // grain head: a little plaited ear, with whiskers when ripe
+    const hx = x + (lean > 0 && h > 6 ? 1 : lean < 0 && h > 6 ? -1 : 0);
+    r(c, hx, top - 2, 1, 4, ripe ? Y[2] : G[2]); px(c, hx, top - 2, ripe ? Y[3] : G[2]);
+    if (ripe) { px(c, hx - 1, top - 1, Y[1]); px(c, hx + 1, top, Y[1]); px(c, hx, top - 3, Y[0]); px(c, hx - 1, top + 1, Y[0]); }
+    else px(c, hx + 1, top, G[1]);
+    if (i % 2) px(c, x + 1, top + 6, ripe ? Y[0] : G[0]);
+  });
+  if (ripe) for (const x of [3, 7, 11]) px(c, x, 13, Y[0]);
+}
+function paintCorn(c, s) {
+  const G = ['#2d6a2c', '#3f8a35', '#5aa842', '#86cc5a'], Y = ['#c99a1e', '#f0c24a', '#fbe08a'], T = ['#a8742a', '#d9b44a'];
+  if (s === 0) { r(c, 7, 9, 2, 4, G[1]); r(c, 5, 8, 2, 1, G[2]); r(c, 9, 7, 2, 1, G[3]); px(c, 4, 7, G[2]); return; }
+  if (s === 1) {
+    r(c, 7, 3, 2, 10, G[1]); r(c, 7, 3, 1, 10, G[2]);
+    r(c, 3, 6, 4, 1, G[2]); px(c, 2, 7, G[2]); r(c, 9, 4, 4, 1, G[2]); px(c, 13, 5, G[2]); r(c, 4, 9, 3, 1, G[1]); r(c, 9, 8, 3, 1, G[1]);
+    return;
+  }
+  const top = s === 2 ? -6 : -10;
+  r(c, 7, top, 2, 14 - top, G[1]); r(c, 7, top, 1, 14 - top, G[2]);
+  // long arching leaves, two pixels thick near the stalk
+  for (const [y, d, len] of [[top + 4, 1, 6], [top + 8, -1, 6], [top + 12, 1, 5], [2, -1, 5], [6, 1, 4]]) {
+    const x0 = d < 0 ? 7 - 3 : 9;
+    r(c, x0, y, 3, 2, G[2]); r(c, x0, y, 3, 1, G[3]);
+    for (let i = 3; i < len; i++) px(c, d < 0 ? 6 - i : 9 + i, y + i - 2, G[1]);
+  }
+  // tassel
+  r(c, 7, top - 3, 2, 3, s === 3 ? T[1] : G[3]); px(c, 6, top - 2, s === 3 ? T[0] : G[2]); px(c, 9, top - 3, s === 3 ? T[0] : G[2]); px(c, 8, top - 4, s === 3 ? T[1] : G[3]);
+  if (s === 3) {
+    // two ripe cobs peeking from their husks
+    for (const [x, y, d] of [[9, top + 8, 1], [4, top + 12, -1]]) {
+      r(c, x, y, 3, 6, Y[1]); r(c, x, y, 1, 6, Y[2]); for (let j = 1; j < 6; j += 2) px(c, x + 1 + (j % 4 ? 0 : 1), y + j, Y[0]);
+      r(c, d > 0 ? x + 2 : x, y + 2, 1, 5, G[2]); r(c, d > 0 ? x : x + 2, y + 4, 1, 3, G[1]); px(c, x + 1, y - 1, T[1]);
+    }
+  } else { r(c, 9, top + 9, 2, 4, G[3]); px(c, 9, top + 8, '#e8dca0'); }
+}
+function paintMelon(c, s) {
+  const L = ['#235a2a', '#327a35', '#45973f', '#6cbd56'], M = ['#2a5a22', '#3f8a35', '#7cc45a', '#c8f09a'];
+  const leaf = (x, y, rr = 2) => { disc(c, x, y, rr + 1, rr, L[2]); px(c, x - 1, y - 1, L[3]); px(c, x, y + rr - 1, L[1]); };
+  // curling vine along the ground
+  r(c, 2, 11, 12, 1, L[1]); px(c, 1, 10, L[1]); px(c, 14, 10, L[1]); px(c, 15, 9, L[2]);
+  leaf(4, 9); leaf(12, 8);
+  if (s === 2) { leaf(8, 6, 3); px(c, 6, 11, '#f5d742'); px(c, 13, 11, '#f5d742'); px(c, 7, 12, '#f5d742'); return; }
+  leaf(2, 5, 2); leaf(14, 4, 2);
+  disc(c, 8, 10, 7, 5, M[1]); disc(c, 8, 9, 7, 5, M[2]);
+  for (const x of [3, 6, 9, 12]) { r(c, x, 6, 1, 3, M[0]); r(c, x + 1, 9, 1, 3, M[0]); r(c, x, 12, 1, 2, M[0]); }
+  r(c, 4, 6, 1, 2, M[3]); px(c, 5, 5, M[3]); px(c, 7, 5, M[3]); r(c, 2, 11, 1, 2, M[1]);
+  r(c, 8, 3, 1, 2, '#5a6a2a'); px(c, 9, 2, L[2]); px(c, 10, 3, L[3]);
+}
+function paintKale(c, s) {
+  const K = ['#1e4a3a', '#2e6a52', '#3f8a6a', '#6cb88e'], P = ['#5a2a6a', '#8a4aa0'];
+  const curl = (cx, cy, rx, ry, base, hi) => { disc(c, cx, cy, rx, ry, base); for (let x = cx - rx + 1; x < cx + rx; x += 2) px(c, x, cy - ry, hi); px(c, cx - rx, cy, hi); };
+  if (s === 2) {
+    curl(5, 8, 3, 3, K[1], K[3]); curl(11, 8, 3, 3, K[1], K[3]); curl(8, 6, 3, 4, K[2], K[3]);
+    r(c, 8, 4, 1, 8, P[1]); return;
+  }
+  // a big ruffled rosette: outer leaves, then inner ones, with purple ribs
+  curl(3, 9, 3, 3, K[1], K[2]); curl(13, 9, 3, 3, K[1], K[2]); curl(5, 5, 3, 3, K[1], K[3]); curl(11, 4, 3, 3, K[1], K[3]);
+  curl(8, 3, 3, 3, K[2], K[3]); curl(6, 9, 3, 3, K[2], K[3]); curl(10, 9, 3, 3, K[2], K[3]);
+  r(c, 8, 4, 1, 9, P[0]); px(c, 7, 5, P[1]); px(c, 9, 6, P[1]); r(c, 4, 6, 1, 3, P[1]); r(c, 12, 5, 1, 3, P[1]);
+  px(c, 5, 8, K[0]); px(c, 11, 8, K[0]); px(c, 8, 12, K[0]);
+  r(c, 7, 12, 3, 2, K[0]);
+}
+const CROP_PAINT = { wheat: paintWheat, corn: paintCorn, melon: paintMelon, kale: paintKale };
+
 export function cropSprite(type, stage) {
-  return bake(`crop|${type}|${stage}`, 2, 4, 20, 22, (cc) => paintCrop(cc, type, stage));
+  const tall = type === 'corn' ? 12 : 0;   // corn grows well above its tile
+  return bake(`crop|${type}|${stage}`, 2, 4 + tall, 20, 22 + tall, (cc) => paintCrop(cc, type, stage));
 }
 
 function drawCrop(c, o, x, y, now) {
@@ -1845,12 +1952,209 @@ export function drawShop(c, shop) {
 // Where the shop's name should be printed (world px, text baseline).
 export const shopSignY = (shop) => shop.y * TILE + 19;
 
+// ---------- animal houses & dairy ----------
+const BARN_R = ['#6e1a13', '#9e271e', '#c8352a', '#de5244', '#f08a7a'];
+const SLATE = ['#2f3644', '#3f4a5e', '#5b6b8a', '#7487a8', '#9aaac8'];
+const SNOW = ['#b9c1c8', '#d4dbe0', '#f4f6f7', '#ffffff'];
+const HAY = ['#a8802a', '#d9b44a', '#e8c867', '#f3dc94'];
+const HOLE = '#3a2416';
+// Filled shape symmetric about cx, from row y0 upwards: prof = [[rise, halfWidth], ...] (linear between points).
+function gableShape(c, cx, y0, prof, col) {
+  const top = prof[prof.length - 1][0];
+  for (let k = 0; k <= top; k++) {
+    let i = 0;
+    while (i < prof.length - 2 && prof[i + 1][0] < k) i++;
+    const [a, ha] = prof[i], [b, hb] = prof[i + 1];
+    const hw = Math.round(ha + (hb - ha) * Math.min(1, Math.max(0, (k - a) / (b - a || 1))));
+    if (hw > 0) r(c, cx - hw, y0 - k, hw * 2, 1, col);
+  }
+}
+// A white X-braced door panel.
+function xDoor(c, x, y, w, h, fill) {
+  r(c, x, y, w, h, fill); r(c, x, y, w, 1, SNOW[2]); r(c, x, y + h - 1, w, 1, SNOW[1]); r(c, x, y, 1, h, SNOW[2]); r(c, x + w - 1, y, 1, h, SNOW[1]);
+  for (let i = 0; i < h - 2; i++) {
+    const t = (i + 0.5) / (h - 2), dx = Math.round(1 + t * (w - 3));
+    px(c, x + dx, y + 1 + i, SNOW[2]); px(c, x + w - 1 - dx, y + 1 + i, SNOW[2]);
+  }
+}
+const pickets = (c, x0, x1, y, col = SNOW[2], sh = SNOW[0]) => {
+  r(c, x0, y + 2, x1 - x0, 1, col); r(c, x0, y + 5, x1 - x0, 1, sh);
+  for (let x = x0; x < x1; x += 4) { r(c, x, y, 2, 7, col); px(c, x + 1, y + 6, sh); }
+};
+
+Object.assign(FACE, {
+  coop: {
+    down(c) {
+      const R = BARN_R, S = SLATE;
+      r(c, 1, 15, 30, 16, '#e6d2a8'); for (const [x, y] of [[4, 18], [9, 25], [15, 20], [22, 27], [27, 17], [13, 28]]) r(c, x, y, 2, 1, '#cdb684');
+      r(c, 20, 19, 8, 4, W8[2]); r(c, 20, 19, 8, 1, W8[4]); r(c, 21, 19, 6, 1, '#f0c24a'); r(c, 21, 23, 1, 1, W8[1]); r(c, 26, 23, 1, 1, W8[1]);
+      px(c, 15, 24, '#f0c24a'); px(c, 18, 26, '#f0c24a'); px(c, 12, 22, '#f0c24a');
+      r(c, 4, 7, 2, 9, W8[1]); r(c, 26, 7, 2, 9, W8[1]); r(c, 15, 7, 2, 8, W8[0]);
+      r(c, 2, 6, 28, 2, W8[3]); r(c, 2, 6, 28, 1, W8[4]);
+      r(c, 3, -9, 26, 15, R[2]); for (const y of [-6, -3, 0, 3]) r(c, 3, y, 26, 1, R[1]); r(c, 4, -9, 1, 15, R[3]);
+      r(c, 2, -9, 2, 15, SNOW[2]); r(c, 28, -9, 2, 15, SNOW[1]);
+      r(c, 29, -4, 3, 8, R[1]); r(c, 29, -4, 3, 1, R[3]); r(c, 29, -5, 3, 1, S[1]); px(c, 30, 0, '#c9a24c');
+      // roof (front slope, shingles) and white ridge
+      r(c, 0, -12, 32, 4, S[1]); r(c, 1, -16, 30, 4, S[2]); r(c, 2, -19, 28, 3, S[1]); r(c, 2, -20, 28, 1, SNOW[2]);
+      for (const [y, o] of [[-9, 0], [-13, 2], [-17, 0]]) { r(c, 0, y, 32, 1, S[0]); for (let x = 1 + o; x < 31; x += 4) px(c, x, y - 2, S[3]); }
+      r(c, 15, -25, 1, 5, '#2f3542'); r(c, 13, -24, 4, 2, '#2f3542'); px(c, 17, -25, '#2f3542'); px(c, 17, -24, '#d9443a');
+      // door, ramp, window with flower box
+      r(c, 6, -3, 7, 10, SNOW[2]); r(c, 7, -2, 5, 9, HOLE); r(c, 8, -3, 3, 1, HOLE);
+      r(c, 7, 7, 5, 15, W8[3]); r(c, 7, 7, 1, 15, W8[4]); r(c, 11, 7, 1, 15, W8[2]); for (const y of [9, 12, 15, 18]) r(c, 7, y, 5, 1, W8[1]);
+      r(c, 17, -7, 9, 7, SNOW[2]); r(c, 18, -6, 7, 5, '#9fd8ef'); r(c, 18, -6, 7, 1, '#d7f1fb'); r(c, 21, -6, 1, 5, SNOW[2]); r(c, 18, -4, 7, 1, SNOW[2]);
+      r(c, 16, 0, 11, 2, W8[3]); px(c, 17, -1, '#f5c542'); px(c, 19, -1, '#e9668a'); px(c, 22, -1, '#f5c542'); px(c, 24, -1, '#e9668a'); px(c, 18, -1, '#5aa842'); px(c, 23, -1, '#5aa842');
+      // low picket fence round the run, gate gap in the middle
+      r(c, 0, 14, 1, 16, SNOW[1]); r(c, 31, 14, 1, 16, SNOW[1]); r(c, 0, 14, 1, 1, SNOW[3]); r(c, 31, 14, 1, 1, SNOW[3]);
+      pickets(c, 0, 14, 25); pickets(c, 19, 32, 25);
+    },
+    up(c) {
+      const R = BARN_R, S = SLATE;
+      r(c, 1, 0, 30, 14, '#e6d2a8'); pickets(c, 0, 32, -2);
+      r(c, 4, 22, 2, 9, W8[1]); r(c, 26, 22, 2, 9, W8[1]); r(c, 2, 21, 28, 2, W8[2]);
+      r(c, 3, 7, 26, 15, R[1]); for (const y of [10, 13, 16, 19]) r(c, 3, y, 26, 1, R[0]); r(c, 2, 7, 2, 15, SNOW[1]); r(c, 28, 7, 2, 15, SNOW[1]);
+      r(c, 0, 3, 32, 5, S[1]); r(c, 1, -1, 30, 4, S[2]); r(c, 2, -4, 28, 3, S[1]); r(c, 2, -5, 28, 1, SNOW[2]);
+      r(c, 0, 7, 32, 1, S[0]); r(c, 0, 2, 32, 1, S[0]);
+    },
+    side(c) {
+      const R = BARN_R, S = SLATE;
+      r(c, 1, 1, 15, 30, '#e6d2a8'); r(c, 0, 0, 1, 31, SNOW[1]); r(c, 0, 8, 16, 1, SNOW[2]); r(c, 0, 30, 16, 1, SNOW[2]);
+      for (const y of [0, 15, 29]) r(c, 0, y - 2, 2, 4, SNOW[2]);
+      r(c, 18, 24, 2, 7, W8[1]); r(c, 28, 24, 2, 7, W8[1]); r(c, 16, 23, 15, 2, W8[3]);
+      r(c, 17, 4, 13, 19, R[2]); for (const y of [7, 10, 13, 16, 19]) r(c, 17, y, 13, 1, R[1]); r(c, 17, 4, 1, 19, SNOW[2]); r(c, 29, 4, 1, 19, SNOW[1]);
+      // gable end under the stepped roof
+      gableShape(c, 23, 3, [[0, 7], [8, 1]], R[2]); r(c, 22, -2, 3, 3, SNOW[2]); px(c, 23, -1, HOLE);
+      for (let k = 0; k < 9; k++) { r(c, 14 + k, 3 - k, 2, 2, S[2]); r(c, 31 - k, 3 - k, 2, 2, S[1]); }
+      r(c, 21, -6, 4, 1, SNOW[2]);
+      // ramp down to the left, little door
+      r(c, 16, 12, 2, 10, SNOW[2]); r(c, 16, 13, 1, 8, HOLE);
+      for (let i = 0; i < 6; i++) r(c, 4 + i * 2, 22 - i * 2, 3, 2, i % 2 ? W8[2] : W8[3]);
+    },
+  },
+  barn: {
+    down(c) {
+      const R = BARN_R, S = SLATE, prof = [[0, 24], [9, 21], [16, 16], [22, 10], [27, 4], [29, 1]];
+      r(c, 1, 44, 46, 4, STN[2]); r(c, 1, 44, 46, 1, STN[3]); for (let x = 4; x < 46; x += 7) r(c, x, 45, 1, 3, STN[1]);
+      // the slate roof shows round the gable's stepped edge
+      gableShape(c, 24, -6, [[0, 26], [9, 23], [16, 18], [22, 12], [27, 6], [30, 2]], S[1]);
+      gableShape(c, 24, -6, prof.map(([a, h]) => [a, h - 1]), SNOW[2]);
+      gableShape(c, 24, -6, prof.map(([a, h]) => [a, h - 2]), R[2]);
+      r(c, 2, -7, 44, 52, R[2]);
+      for (let x = 5; x < 44; x += 4) if (x < 12 || x > 36) r(c, x, -3, 1, 47, R[1]);
+      r(c, 3, -7, 1, 51, R[3]);
+      r(c, 1, -7, 3, 51, SNOW[2]); r(c, 44, -7, 3, 51, SNOW[1]); r(c, 0, -8, 48, 2, SNOW[2]); r(c, 0, -6, 48, 1, SNOW[0]);
+      // hay loft door, ajar with hay spilling, hoist beam
+      r(c, 17, -22, 14, 13, SNOW[2]); r(c, 18, -21, 12, 11, HOLE); r(c, 18, -14, 12, 4, HAY[1]); r(c, 19, -15, 8, 1, HAY[2]); px(c, 22, -16, HAY[3]);
+      r(c, 18, -21, 3, 11, R[1]); r(c, 18, -21, 1, 11, R[3]);
+      r(c, 22, -27, 4, 3, W8[1]); r(c, 23, -24, 1, 4, '#2f3542'); r(c, 22, -21, 3, 2, '#2f3542');
+      // big X-braced doors and a lamp
+      r(c, 12, 16, 24, 28, SNOW[2]); xDoor(c, 13, 17, 11, 27, R[1]); xDoor(c, 24, 17, 11, 27, R[1]); r(c, 23, 17, 2, 27, HOLE);
+      r(c, 21, 29, 1, 3, '#2f3542'); r(c, 26, 29, 1, 3, '#2f3542');
+      r(c, 22, 12, 4, 2, '#2f3542'); r(c, 23, 14, 2, 2, '#ffe58a'); px(c, 23, 14, '#fff6cf');
+      // hay bale and milk churn by the doors
+      r(c, 3, 37, 8, 7, HAY[1]); r(c, 3, 37, 8, 1, HAY[3]); r(c, 3, 43, 8, 1, HAY[0]); r(c, 5, 37, 1, 7, W8[1]); r(c, 9, 37, 1, 7, W8[1]);
+      r(c, 39, 35, 5, 9, MTL[3]); r(c, 39, 35, 1, 9, MTL[4]); r(c, 43, 35, 1, 9, MTL[1]); r(c, 40, 33, 3, 2, MTL[2]); r(c, 39, 38, 5, 1, MTL[1]);
+      // weathervane
+      r(c, 24, -40, 1, 5, '#2f3542'); r(c, 21, -41, 6, 2, '#2f3542'); px(c, 27, -42, '#2f3542');
+    },
+    up(c) {
+      const R = BARN_R, S = SLATE;
+      r(c, 1, 44, 46, 4, STN[1]); r(c, 1, 44, 46, 1, STN[3]);
+      gableShape(c, 24, -6, [[0, 26], [9, 23], [16, 18], [22, 12], [27, 6], [30, 2]], S[1]);
+      gableShape(c, 24, -6, [[0, 23], [9, 20], [16, 15], [22, 9], [27, 3], [29, 0]], SNOW[1]);
+      gableShape(c, 24, -6, [[0, 22], [9, 19], [16, 14], [22, 8], [27, 2], [28, 0]], R[1]);
+      r(c, 2, -7, 44, 52, R[1]); for (let x = 5; x < 44; x += 4) r(c, x, -3, 1, 47, R[0]);
+      r(c, 1, -7, 3, 51, SNOW[1]); r(c, 44, -7, 3, 51, SNOW[1]); r(c, 0, -8, 48, 2, SNOW[1]);
+      r(c, 19, 14, 10, 10, SNOW[1]); r(c, 20, 15, 8, 8, '#7fb8d0'); r(c, 23, 15, 2, 8, SNOW[1]); r(c, 20, 18, 8, 2, SNOW[1]);
+    },
+    side(c) {
+      const R = BARN_R, S = SLATE;
+      r(c, 1, 44, 46, 4, STN[2]); r(c, 1, 44, 46, 1, STN[3]);
+      r(c, 2, -6, 44, 50, R[2]); for (let y = -2; y < 44; y += 4) r(c, 2, y, 44, 1, R[1]);
+      r(c, 1, -6, 3, 50, SNOW[2]); r(c, 44, -6, 3, 50, SNOW[1]);
+      // gambrel roof seen side-on: two slate bands with a ridge
+      r(c, -1, -18, 50, 13, S[2]); r(c, -1, -18, 50, 1, S[3]); r(c, -1, -6, 50, 1, S[0]);
+      r(c, 1, -30, 46, 12, S[1]); r(c, 1, -30, 46, 1, S[3]); r(c, 1, -19, 46, 1, S[0]); r(c, 1, -31, 46, 1, SNOW[2]);
+      for (let x = 2; x < 48; x += 5) { r(c, x, -16, 1, 10, S[1]); r(c, x + 2, -28, 1, 9, S[0]); }
+      for (const x of [10, 30]) { r(c, x, 4, 9, 10, SNOW[2]); r(c, x + 1, 5, 7, 8, '#9fd8ef'); r(c, x + 1, 5, 7, 2, '#d7f1fb'); r(c, x + 4, 5, 1, 8, SNOW[2]); r(c, x + 1, 8, 7, 1, SNOW[2]); }
+      r(c, 0, 36, 3, 8, HAY[1]); r(c, 0, 36, 3, 1, HAY[3]);
+      r(c, 23, -36, 1, 5, '#2f3542'); r(c, 20, -37, 6, 2, '#2f3542');
+    },
+  },
+  cheesepress: {
+    down(c) {
+      r(c, 1, 11, 2, 5, W8[1]); r(c, 13, 11, 2, 5, W8[1]);
+      r(c, 6, 11, 4, 4, W8[4]); r(c, 6, 12, 4, 1, '#2f3542'); r(c, 7, 11, 2, 1, '#f4ecd8'); px(c, 8, 10, '#f4ecd8');
+      r(c, 0, 3, 16, 9, W8[3]); r(c, 0, 3, 16, 1, W8[4]); r(c, 0, 8, 16, 3, W8[2]); r(c, 0, 10, 16, 1, W8[1]); r(c, 7, 8, 2, 2, W8[0]);
+      r(c, 1, -14, 2, 18, W8[3]); r(c, 1, -14, 1, 18, W8[4]); r(c, 13, -14, 2, 18, W8[2]);
+      r(c, 0, -17, 16, 3, W8[4]); r(c, 0, -15, 16, 1, W8[2]);
+      // mould with iron hoops, plate and screw
+      r(c, 4, -3, 8, 8, W8[4]); r(c, 4, -3, 2, 8, '#e0b07a'); r(c, 4, -1, 8, 1, '#2f3542'); r(c, 4, 2, 8, 1, '#2f3542'); r(c, 5, 4, 6, 1, '#f4ecd8');
+      r(c, 3, -5, 10, 2, W8[1]); r(c, 3, -5, 10, 1, W8[2]);
+      r(c, 7, -14, 2, 9, '#2f3542'); for (const y of [-12, -10, -8]) px(c, 7, y, '#c9d2d8');
+      r(c, 7, -20, 2, 3, '#2f3542'); r(c, 3, -19, 10, 1, '#2f3542'); r(c, 1, -20, 3, 2, '#d9443a'); r(c, 12, -20, 3, 2, '#d9443a'); px(c, 1, -20, '#f08a7a');
+      // cheese wheel and a wedge
+      disc(c, 3, 6, 3, 2, '#e0a526'); disc(c, 3, 5, 3, 1, '#f5c542'); px(c, 2, 5, '#fbe08a');
+      r(c, 11, 5, 4, 2, '#f5c542'); r(c, 12, 4, 3, 1, '#fbe08a'); r(c, 14, 4, 1, 3, '#e0a526');
+    },
+    up(c) {
+      r(c, 1, 11, 2, 5, W8[1]); r(c, 13, 11, 2, 5, W8[1]); r(c, 0, 3, 16, 9, W8[2]); r(c, 0, 3, 16, 1, W8[3]);
+      r(c, 1, -14, 2, 18, W8[2]); r(c, 13, -14, 2, 18, W8[2]); r(c, 0, -17, 16, 3, W8[3]);
+      r(c, 4, -3, 8, 7, W8[3]); r(c, 4, -1, 8, 1, '#2f3542'); r(c, 4, 2, 8, 1, '#2f3542'); r(c, 3, -5, 10, 2, W8[1]);
+      r(c, 7, -14, 2, 9, '#2f3542'); r(c, 7, -20, 2, 3, '#2f3542'); r(c, 3, -19, 10, 1, '#2f3542'); r(c, 1, -20, 3, 2, '#d9443a'); r(c, 12, -20, 3, 2, '#d9443a');
+    },
+    side(c) {
+      r(c, 3, 11, 2, 5, W8[1]); r(c, 12, 11, 2, 5, W8[1]); r(c, 2, 3, 13, 9, W8[3]); r(c, 2, 3, 13, 1, W8[4]); r(c, 2, 8, 13, 3, W8[2]);
+      r(c, 0, 6, 3, 2, W8[1]); r(c, 0, 11, 4, 4, W8[4]); r(c, 0, 12, 4, 1, '#2f3542');
+      r(c, 7, -14, 3, 18, W8[3]); r(c, 6, -17, 5, 3, W8[4]);
+      r(c, 4, -3, 8, 8, W8[4]); r(c, 4, -1, 8, 1, '#2f3542'); r(c, 4, 2, 8, 1, '#2f3542'); r(c, 3, -5, 10, 2, W8[1]);
+      r(c, 7, -20, 3, 3, '#2f3542'); r(c, 7, -20, 3, 1, '#d9443a');
+      disc(c, 13, 5, 2, 1, '#f5c542');
+    },
+  },
+  loom: {
+    down(c) {
+      const Y = ['#d9534f', '#f5c542', '#4a90d9', '#5cb85c', '#9b59b6'];
+      r(c, 1, -14, 2, 28, W8[3]); r(c, 1, -14, 1, 28, W8[4]); r(c, 29, -14, 2, 28, W8[2]);
+      r(c, 0, -17, 32, 3, W8[4]); r(c, 0, -15, 32, 1, W8[2]);
+      // heddles and the cream warp
+      r(c, 4, -11, 24, 1, W8[2]); r(c, 4, -5, 24, 1, W8[2]); for (let x = 5; x < 28; x += 2) r(c, x, -10, 1, 5, '#c9d2d8');
+      r(c, 4, -4, 24, 4, '#f4ecd8'); for (let x = 5; x < 28; x += 3) r(c, x, -4, 1, 4, '#e6d2a8');
+      r(c, 3, -1, 26, 1, W8[1]);
+      for (let i = 0; i < 5; i++) r(c, 4, i, 24, 1, Y[i]);
+      r(c, 12, 1, 8, 2, W8[4]); px(c, 15, 1, Y[0]);
+      r(c, 2, 5, 28, 2, W8[4]); r(c, 2, 6, 28, 1, W8[2]);
+      for (let i = 0; i < 4; i++) r(c, 4, 7 + i, 24, 1, Y[(i + 2) % 5]);
+      // bench
+      r(c, 6, 11, 20, 3, W8[4]); r(c, 6, 11, 20, 1, '#e0b07a'); r(c, 6, 13, 20, 1, W8[2]); r(c, 7, 14, 2, 2, W8[1]); r(c, 23, 14, 2, 2, W8[1]);
+      disc(c, 30, 14, 2, 2, Y[4]); px(c, 29, 13, '#b98ad0'); disc(c, 1, 15, 1, 1, Y[2]);
+    },
+    up(c) {
+      const Y = ['#d9534f', '#f5c542', '#4a90d9', '#5cb85c', '#9b59b6'];
+      r(c, 6, -3, 20, 3, W8[3]); r(c, 7, 0, 2, 2, W8[1]); r(c, 23, 0, 2, 2, W8[1]);
+      r(c, 1, -14, 2, 28, W8[2]); r(c, 29, -14, 2, 28, W8[2]); r(c, 0, -17, 32, 3, W8[3]);
+      r(c, 4, -11, 24, 1, W8[1]); r(c, 4, -5, 24, 1, W8[1]); for (let x = 5; x < 28; x += 2) r(c, x, -10, 1, 5, '#b9c1c8');
+      r(c, 3, 2, 26, 3, W8[1]); r(c, 4, 5, 24, 6, '#f4ecd8'); for (let x = 5; x < 28; x += 3) r(c, x, 5, 1, 6, '#e6d2a8');
+      r(c, 4, -4, 24, 2, Y[0]); r(c, 4, -2, 24, 2, Y[1]);
+    },
+    side(c) {
+      const Y = ['#d9534f', '#f5c542', '#4a90d9', '#5cb85c', '#9b59b6'];
+      r(c, 11, -14, 2, 44, W8[3]); r(c, 11, -14, 1, 44, W8[4]); r(c, 7, 10, 2, 20, W8[2]);
+      r(c, 7, 9, 9, 2, W8[4]); r(c, 10, -17, 4, 3, W8[4]);
+      r(c, 8, -11, 2, 40, W8[1]); for (let y = -10; y < 28; y += 3) px(c, 9, y, '#c9d2d8');
+      r(c, 4, 0, 4, 28, W8[4]); for (let i = 0; i < 5; i++) r(c, 4, 2 + i * 5, 4, 2, Y[i]);
+      r(c, 0, 4, 3, 24, W8[4]); r(c, 0, 4, 3, 1, '#e0b07a'); r(c, 0, 27, 3, 1, W8[1]);
+      disc(c, 2, 30, 2, 2, Y[4]);
+    },
+  },
+});
+
 // ---------- icons ----------
 // How far tall items reach above their tile (px), so the icon fits them in.
 const ICON_TOP = { fireplace: 28, grandclock: 23, wardrobe: 30, shower: 22, fridge: 20, floorvase: 20,
   arcade: 24, arclamp: 21, trellis: 21, cattree: 19, easel: 19, vanity: 18, cactus: 16, pedestalsink: 13, lantern: 7,
   shelf: 23, coolercase: 22, producestand: 25, juicer: 20, bakeryoven: 19, soupot: 19, preservesjar: 17, register: 12,
-  spout: 6, powerbox: 10, sprinkler: 7, bigsprinkler: 13, harvester: 11, pipe: 1, cable: 1 };
+  spout: 6, powerbox: 10, sprinkler: 7, bigsprinkler: 13, harvester: 11, pipe: 1, cable: 1,
+  coop: 25, barn: 42, cheesepress: 20, loom: 17 };
 export function itemIcon(itemId, size = 44) {
   const cv = document.createElement('canvas');
   cv.width = size; cv.height = size;

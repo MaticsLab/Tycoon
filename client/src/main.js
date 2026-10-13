@@ -9,7 +9,7 @@ import {
   stepLevel, heightAt, roadEditError, roadIn, plotEntrance, occChanged,
 } from '@shared/plot.js';
 import { ITEMS, GOODS, CATEGORIES, cropStage, isWet, itemName } from '@shared/catalog.js';
-import { FARMHANDS, TRACTOR_MODES, SEEDS, connected, networks, UTILITIES } from '@shared/farm.js';
+import { FARMHANDS, TRACTOR_MODES, SEEDS, connected, networks, UTILITIES, QUALITY, ANIMALS, seasonOf, seasonDay, inSeason, growsAt, seasonsLabel } from '@shared/farm.js';
 import { NPCS } from '@shared/npcs.js';
 import { itemIcon } from './sprites.js';
 import { View, LEVEL_H } from './gfx/view.js';
@@ -154,6 +154,7 @@ function onMessage(m) {
       S.me = { ...m.you, dir: 0, moving: false, level: m.you.level || 0 };
       S.coins = m.you.coins;
       S.inv = m.you.inv || {};
+      S.qual = m.qual || {};
       S.myPlot = S.homePlot = m.you.plotId;
       S.username = m.you.username;
       S.library = m.you.library || [];
@@ -336,6 +337,7 @@ function onMessage(m) {
       break;
     case 'inv':
       S.inv = m.inv;
+      S.qual = m.qual || {};
       updateHud();
       if (S.stockRedraw && modalKind === 'stock') S.stockRedraw();
       if (S.mode === 'build' && S.cat === 'special') renderItems();
@@ -349,9 +351,10 @@ function onMessage(m) {
       break;
     case 'harvested': {
       const parts = Object.entries(m.items).map(([k, n]) => `${n} ${GOODS[k].icon}`);
-      if (m.quiet) break;
+      if (m.silver || m.gold) parts.push(`(${[m.gold && `${m.gold} ★★ gold`, m.silver && `${m.silver} ★ silver`].filter(Boolean).join(', ')})`);
+      if (m.quiet && !m.gold) break;
       if (m.auto) { if (performance.now() - (S.autoToast || 0) > 20_000) { S.autoToast = performance.now(); toast(`🤖 Your farm harvested ${parts.join(' ')}`); } break; }
-      toast(`🌾 Harvested ${parts.join(' ')} — sell them at Rosa’s Market`);
+      toast(`${GOODS[Object.keys(m.items)[0]]?.kind === 'animal' ? '🧺 Collected' : '🌾 Harvested'} ${parts.join(' ')}`);
       break;
     }
     case 'toast':
@@ -489,9 +492,10 @@ function updateHud() {
 }
 
 function fmtClock() {
-  const { dayOfYear: day, year, shownHours: h, minutes: mi } = worldClock(serverNow(), S.epoch);
+  const { day, year, shownHours: h, minutes: mi } = worldClock(serverNow(), S.epoch);
   const h12 = ((h + 11) % 12) + 1;
-  return `Y${year} Day ${day} · ${h12}:${String(mi).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+  const se = seasonOf(day);
+  return `Y${year} ${se.icon} ${se.name} ${seasonDay(day)} · ${h12}:${String(mi).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
 function nearestNpc(range = TILE * 2.6) {
@@ -508,6 +512,7 @@ let lastAction = '';
 function updateContext() {
   if (!S.me) return;
   $('clock').textContent = fmtClock();
+  view.setSeason(S.seasonOverride || seasonOf(worldClock(serverNow(), S.epoch).day).id);
   syncBuildBtn();
   const here = plotIdAtPixel(world, S.me.x, S.me.y);
   const plot = here >= 0 ? S.plots[here] : null;
@@ -811,8 +816,10 @@ function renderExtra() {
       for (const b of t.view.buys) {
         const have = S.inv[b.item] || 0;
         const m = S.market?.mult?.[b.item] || 1;
-        const trend = S.market?.pick === b.item ? ' · ⭐ today’s pick: +50%' : m < 0.9 ? ' · 📉 lots sold lately' : m > 1.05 ? ' · 📈 in demand' : '';
-        list.appendChild(itemRow(b.item, `🪙${b.price} each · you have ${have}${trend}`, [
+        const trend = S.market?.pick === b.item ? ' · ⭐ today’s pick: +50%' : m > 1.25 ? ' · ❄️ out of season: scarce!' : m < 0.9 ? ' · 📉 lots sold lately' : m > 1.05 ? ' · 📈 in demand' : '';
+        const bq = S.qual?.[b.item];
+        const qnote = bq ? ` (${[bq[1] && `${bq[1]} ★★ +60%`, bq[0] && `${bq[0]} ★ +25%`].filter(Boolean).join(', ')}, sold first)` : '';
+        list.appendChild(itemRow(b.item, `🪙${b.price} each · you have ${have}${qnote}${trend}`, [
           ['Sell 1', () => send({ type: 'sell', npc: t.npc, item: b.item, qty: 1 }), !have],
           ['Sell all', () => send({ type: 'sell', npc: t.npc, item: b.item, qty: have }), !have],
         ]));
@@ -903,13 +910,15 @@ function showBag() {
   const list = document.createElement('div');
   list.className = 'list';
   for (const [k, n] of entries) {
-    const sub = ITEMS[k] ? 'Furniture · place it from the Bag tab in Build mode' : GOODS[k].kind === 'tool' ? 'Tool · walk through your crops to water them' : GOODS[k].kind === 'produce' ? 'Crop · Rosa buys these, or sell them in your shop' : GOODS[k].kind === 'product' ? 'Homemade · sell it in your shop or to Rosa' : 'Gift · give it to a villager';
+    const sub = ITEMS[k] ? 'Furniture · place it from the Bag tab in Build mode' : GOODS[k].kind === 'tool' ? 'Tool · walk through your crops to water them' : GOODS[k].kind === 'feed' ? 'Animal feed · feed your animals at their coop or barn' : GOODS[k].kind === 'animal' ? 'From your animals · Rosa buys these, or make cheese, cloth and cake' : GOODS[k].kind === 'produce' ? 'Crop · Rosa buys these, or sell them in your shop' : GOODS[k].kind === 'product' ? 'Homemade · sell it in your shop or to Rosa' : 'Gift · give it to a villager';
     const food = FOODS[k];
     const gives = food ? Object.entries(food).map(([nd, v]) => `+${v} ${(NEEDS.find((x) => x.id === nd) || HEALTH).icon}`).join(' ') : '';
+    const ql = S.qual?.[k];
+    const qtxt = ql ? ` · ${[ql[1] && `${ql[1]} ★★`, ql[0] && `${ql[0]} ★`].filter(Boolean).join(' ')}` : '';
     const btns = food ? [['😋 Eat', () => { send({ type: 'eat', item: k }); closeModal(); }]] : [];
     btns.push(['⬇️ Drop', () => send({ type: 'drop', item: k, n: Math.min(n, bagN) }), S.ride && k === 'tractor']);
     if (bagTo) btns.push(['🎁 Give', () => send({ type: 'giveTo', to: bagTo, item: k, n: Math.min(n, bagN) }), S.ride && k === 'tractor']);
-    list.appendChild(itemRow(k, `×${n} · ${sub}${gives ? ` · eat: ${gives}` : ''}`, btns));
+    list.appendChild(itemRow(k, `×${n}${qtxt} · ${sub}${gives ? ` · eat: ${gives}` : ''}`, btns));
   }
   body.appendChild(list);
 }
@@ -1054,7 +1063,7 @@ function renderItems() {
     b.className = id === S.tool.id ? 'sel' : '';
     b.appendChild(iconFor(id));
     const [w, h] = footprint(id, 0);
-    b.title = `${def.name} · ${def.shop ? `×${S.inv[id]} in your bag` : `🪙${def.price}`}${w * h > 1 ? ` · ${w}×${h}` : ''}${canRotate(id) ? ' · rotatable' : ''}${def.light ? ' · glows at night' : ''}${def.solid ? '' : ' · walk-through'}`;
+    b.title = `${def.name}${def.crop ? ` · grows in ${seasonsLabel(def.crop)}` : ''} · ${def.shop ? `×${S.inv[id]} in your bag` : `🪙${def.price}`}${w * h > 1 ? ` · ${w}×${h}` : ''}${canRotate(id) ? ' · rotatable' : ''}${def.light ? ' · glows at night' : ''}${def.solid ? '' : ' · walk-through'}`;
     const size = def.layer === 'obj' && w * h > 1 ? ` · ${w}×${h}` : '';
     const unit = def.layer === 'wall' ? '/wall' : def.layer === 'roof' || def.layer === 'floor' ? '/tile' : '';
     b.insertAdjacentHTML('beforeend', def.shop
@@ -1408,6 +1417,7 @@ function previewInner() {
     const [w, h] = footprint(t.id, r);
     const lx = Math.round(q.fx - w / 2), ly = Math.round(q.fz - h / 2);
     const bad = placementError(plot, lx, ly, t.id, r, S.level, world)
+      || (d.crop && !growsAt(plot, lx, ly, d.crop, worldClock(serverNow(), S.epoch).day) ? `Out of season (grows in ${seasonsLabel(d.crop)}): plant it under a roof` : null)
       || (S.freeBuild ? null : d.shop ? (S.inv[t.id] > 0 ? null : `None left: buy more from ${NPCS[d.shop].name}`) : coinsErr(d.price));
     ghost.item(t.id, r, def, lx, ly, S.level, !bad);
     tip(`${d.name} · ${d.shop ? `×${S.inv[t.id] || 0}` : `🪙${d.price}`}${w * h > 1 ? ` · ${w}×${h}` : ''}${canRotate(t.id) ? ' · R / right-click ↻' : ''}`, bad);
@@ -2412,7 +2422,7 @@ function plotOpts(id) {
     const def = S.plots[id];
     const lx = Math.floor(U(S.me.x)) - def.x, ly = Math.floor(U(S.me.y)) - def.y;
     const f = S.plots[id].floor[key(lx, ly)];
-    if (f && f !== 'soil' && f !== 'floor_stone') return { ...base, cut: 'cut', maxLevel: 0, roofs: false };
+    if (f && f !== 'soil' && f !== 'soil_rich' && f !== 'floor_stone') return { ...base, cut: 'cut', maxLevel: 0, roofs: false };
   }
   return base;
 }
@@ -2542,6 +2552,13 @@ const SHOP_ACTS = {
   'shop:collect': { icon: '✅', label: 'Collect' },
   'shop:wait': { icon: '⏳', label: 'Working…' },
   'farm:drive': { icon: '🚜', label: 'Drive' },
+  'animal:feed': { icon: '🌿', label: 'Feed (hay or wheat)' },
+  'animal:pet': { icon: '❤️', label: 'Pet them' },
+  'animal:collect': { icon: '🧺', label: 'Collect' },
+  ...Object.fromEntries(Object.entries(ANIMALS).flatMap(([k, A]) => [
+    [`animal:buy:${k}`, { icon: A.icon, label: `Buy a ${A.name.toLowerCase()} (🪙${A.price})` }],
+    [`animal:sell:${k}`, { icon: '👋', label: `Sell a ${A.name.toLowerCase()} (🪙${Math.round(A.price / 2)})` }],
+  ])),
 };
 const actInfo = (id) => ACTIVITIES[id] || SHOP_ACTS[id];
 function actionsFor(plot, o) {
@@ -2550,6 +2567,14 @@ function actionsFor(plot, o) {
   if (slotsOf(o.t)) { if (mine) out.push('shop:stock'); else if (plot.biz) out.push('shop:browse'); }
   if (isMachine(o.t) && mine) out.push(o.job ? (serverNow() >= o.job.ready ? 'shop:collect' : 'shop:wait') : 'shop:make');
   if (o.t === 'tractor' && mine && !S.ride) out.push('farm:drive');
+  const home = ITEMS[o.t]?.animals;
+  if (home && mine) {
+    const list = o.animals || [];
+    if (o.goods?.length) out.push('animal:collect');
+    if (list.length) out.push('animal:feed', 'animal:pet');
+    if (list.length < ITEMS[o.t].cap) for (const k of home) out.push(`animal:buy:${k}`);
+    for (const k of home) if (list.some((a) => a.k === k)) out.push(`animal:sell:${k}`);
+  }
   return out;
 }
 
@@ -2606,6 +2631,10 @@ function usableAt(cx, cy) {
 function useThing(u, act) {
   closeUseMenu();
   if (act === 'farm:drive') return send({ type: 'drive', plotId: u.plot.id, lx: u.lx, ly: u.ly });
+  if (act.startsWith('animal:')) {
+    const [, what, kind] = act.split(':');
+    return send({ type: 'animal', plotId: u.plot.id, lx: u.lx, ly: u.ly, act: what, kind });
+  }
   if (act.startsWith('shop:')) return shopAction(u, act);
   const a = ACTIVITIES[act];
   if (a.cost && S.coins < a.cost) return toast('Not enough coins');
@@ -2623,6 +2652,8 @@ function openUseMenu(u, x, y) {
     const off = (a.stove && !hasStove) || id === 'shop:wait';
     let label = a.label;
     if (id === 'shop:collect') label = `Collect ${GOODS[RECIPES[o.job.r].out].name}`;
+    if (id === 'animal:collect') label = `Collect ${o.goods.map(([it]) => GOODS[it].icon).join('')}`;
+    if (id === 'animal:feed') { const hungry = (o.animals || []).filter((x) => x.fed !== worldClock(serverNow(), S.epoch).day).length; label = hungry ? `Feed ${hungry} hungry (hay or wheat)` : 'Everyone’s fed today'; }
     if (id === 'shop:wait') label = `${RECIPES[o.job.r].label}: ready in ${Math.max(1, Math.ceil((o.job.ready - serverNow()) / (DAY_MS / 24 / 6))) * 10} min`;
     b.innerHTML = `<span>${a.icon}</span>${esc(label)}${a.cost ? ` <small>🪙${a.cost}</small>` : ''}${a.stove && !hasStove ? ' <small>(needs a stove)</small>' : ''}`;
     b.disabled = off;
@@ -2846,7 +2877,7 @@ function petSpot(plot) {
   let best = null, score = -1;
   for (const [k, o] of Object.entries(plot.obj)) if (o.t === 'petbed') { const [x, y] = k.split(',').map(Number); best = [x, y]; score = 99; break; }
   if (!best) {
-    const indoor = (x, y) => { const f = plot.floor[key(x, y)]; return f && f !== 'soil' && f !== 'floor_stone'; };
+    const indoor = (x, y) => { const f = plot.floor[key(x, y)]; return f && f !== 'soil' && f !== 'soil_rich' && f !== 'floor_stone'; };
     for (const k of Object.keys(plot.floor)) {
       const [x, y] = k.split(',').map(Number);
       if (!indoor(x, y) || objAt(plot, x, y) || roadIn(world, plot, x, y)) continue;
@@ -3073,6 +3104,7 @@ function render(now) {
   drawPerson(S.me, myH);
   drawShopPeople(now);
   drawFarmhands(now);
+  drawAnimals(now);
   for (const [id, p] of pets) {
     const owner = id === S.me.id ? S.me : S.players.get(id);
     if (!owner) continue;
@@ -3342,7 +3374,7 @@ if (new URLSearchParams(location.search).has('debug')) {
     plotToClient: (lx, ly, h = 0, plotId = S.myPlot) => { const d = S.plots[plotId]; return view.toScreen(d.x + lx, S.level * LEVEL_H + h, d.y + ly); },
     worldToClient: (x, z, h = 0) => view.toScreen(x, h, z),
     tileToClient: (tx, ty) => view.toScreen(tx + 0.5, 0, ty + 0.5),
-    setLevel, cycleWalls, turnCamera, setMode, send, nearestUsable, usableAt, showCity: () => showCity(), showBag: () => showBag(),
+    setLevel, cycleWalls, turnCamera, setMode, send, nearestUsable, usableAt, showCity: () => showCity(), showBag: () => showBag(), season: (id) => { S.seasonOverride = id; },
   };
 }
 
@@ -3363,7 +3395,8 @@ function renderRideBar() {
   }
   if (S.ride.mode === 'plant') {
     const sel = document.createElement('select');
-    for (const id of SEEDS) sel.add(new Option(`${GOODS[ITEMS[id].crop]?.icon || '🌱'} ${ITEMS[id].name} · 🪙${ITEMS[id].price}`, id, false, id === S.ride.seed));
+    const today = worldClock(serverNow(), S.epoch).day;
+    for (const id of SEEDS.filter((x) => inSeason(ITEMS[x].crop, today))) sel.add(new Option(`${GOODS[ITEMS[id].crop]?.icon || '🌱'} ${ITEMS[id].name} · 🪙${ITEMS[id].price}`, id, false, id === S.ride.seed));
     sel.onchange = () => send({ type: 'rideMode', seed: sel.value });
     el.appendChild(sel);
   }
@@ -3393,7 +3426,7 @@ function tractorWork() {
     const k = key(x, y), o = plot.obj[k], crop = o && ITEMS[o.t]?.crop;
     if (mode === 'harvest') return !!crop && cropStage(o, sNow) >= 3;
     if (mode === 'water') return !!crop && cropStage(o, sNow) < 3 && !isWet(o, sNow + DAY_MS * 0.3) && !!plot.util?.water;
-    if (mode === 'plant') return !o && plot.floor[k] === 'soil' && !objAt(plot, x, y);
+    if (mode === 'plant') return !o && (plot.floor[k] === 'soil' || plot.floor[k] === 'soil_rich') && !objAt(plot, x, y);
     return !o && !plot.floor[k] && !objAt(plot, x, y);
   };
   const tiles = [];
@@ -3450,5 +3483,50 @@ function drawFarmOverlay(onScreen, now) {
     if (!onScreen(p)) continue;
     const ok = connected(plot, k, d.needs);
     octx.fillText(ok ? UTILITIES[d.needs].icon : '⚠️', p.x, p.y);
+  }
+}
+
+// Farm animals wander around in front of their coop or barn (cosmetic, run locally:
+// each one strolls between spots near home and rests now and then). At night they're
+// tucked in.
+const animalSpots = new WeakMap();
+function drawAnimals(now) {
+  const { hours, day } = worldClock(serverNow(), S.epoch);
+  if (hours < 6 || hours >= 20) return;
+  for (const plot of Object.values(S.plots)) {
+    if (Math.abs(plot.x + plot.w / 2 - U(S.me.x)) > 50 || Math.abs(plot.y + plot.h / 2 - U(S.me.y)) > 50) continue;
+    for (const [k, o] of Object.entries(plot.obj)) {
+      if (!o.animals?.length) continue;
+      const [ax, ay] = k.split(',').map(Number);
+      const [w, h] = footprint(o.t, o.r || 0);
+      // Free tiles in front of the building (up to 3 out), cached per plot revision.
+      let spots = animalSpots.get(o);
+      if (!spots || spots.rev !== plot.rev) {
+        const list = [];
+        const [fx, fy] = [[0, 1], [-1, 0], [0, -1], [1, 0]][o.r || 0];
+        for (let y = ay - 3; y < ay + h + 3; y++) for (let x = ax - 3; x < ax + w + 3; x++) {
+          const ahead = fx > 0 ? x - (ax + w - 1) : fx < 0 ? ax - x : fy > 0 ? y - (ay + h - 1) : ay - y;
+          const side = fx ? y >= ay - 1 && y <= ay + h : x >= ax - 1 && x <= ax + w;
+          if (ahead < 1 || !side) continue;
+          if (!inInterior(plot, x, y) || objAt(plot, x, y) || roadIn(world, plot, x, y)) continue;
+          const f = plot.floor[key(x, y)];
+          if (f && f !== 'soil' && f !== 'soil_rich' && f !== 'floor_stone') continue;
+          list.push([x, y]);
+        }
+        spots = { rev: plot.rev, list };
+        animalSpots.set(o, spots);
+      }
+      if (!spots.list.length) continue;
+      o.animals.forEach((a, i) => {
+        const seed = (a.n.length * 31 + i * 17 + plot.id * 7) % 97;
+        const T = 6000 + seed * 40, t = now / T + seed / 10, n = Math.floor(t), f = t - n;
+        const at = (m) => spots.list[(m * 13 + seed) % spots.list.length];
+        const p = at(n), q = at(n + 1);
+        const walk = Math.min(1, f / 0.4);
+        const x = p[0] + 0.5 + (q[0] - p[0]) * walk, y = p[1] + 0.6 + (q[1] - p[1]) * walk;
+        const rest = walk >= 1 && (seed + n) % 3 === 0;
+        view.actor(`animal:${plot.id}:${k}:${i}`, plot.x + x, plot.y + y, 0, walk < 1, null, now, true, 0, { animal: a.k, sit: rest });
+      });
+    }
   }
 }

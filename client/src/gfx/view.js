@@ -7,6 +7,7 @@ import { Camera } from '@babylonjs/core/Cameras/camera.js';
 import { MAP_W, MAP_H, SHOPS, FOUNTAIN } from '@shared/world.js';
 import { personSprite, sleeperSprite } from '../people.js';
 import { petSprite } from '../pets.js';
+import { animalSprite } from '../animals.js';
 import { sanitizeLook } from '@shared/look.js';
 import { BillboardSet, texOf, blobMesh } from './billboards.js';
 import { buildTerrain, buildRocks, treeCards, buildFountain, fountainSpray, buildPlazaLamps, PLAZA_LAMPS, buildShop, buildDecor, buildCityHall } from './scenery.js';
@@ -69,7 +70,8 @@ export class View {
     for (const shop of SHOPS) buildShop(shop);
     this.spray = fountainSpray();
     this.trees = new BillboardSet();
-    treeCards(world, this.trees);
+    this.treeSet = new BillboardSet(); // trees alone, rebuilt when the season changes
+    treeCards(world, this.treeSet);
     const decor = buildDecor(world, this.trees);
     this.staticLights = [
       ...decor.lights,
@@ -121,6 +123,7 @@ export class View {
     if (!force && now - this.lastCardBuild < 90) return;
     const b = this.basis();
     this.trees.build(b);
+    this.treeSet.build(b);
     for (const p of this.plots.values()) p.cards.build(b);
     this.builtVersion = this.basisVersion;
     this.lastCardBuild = now;
@@ -163,7 +166,7 @@ export class View {
     this.snap = { right, up, unit }; // sprites snap to the same grid (see actor)
     this.camera.position.set(eye.x + back.x * 80, eye.y + back.y * 80, eye.z + back.z * 80);
     this.camera.setTarget(eye);
-    if (first) this.trees.build(this.basis());
+    if (first) { this.trees.build(this.basis()); this.treeSet.build(this.basis()); }
   }
 
   // ---------- picking ----------
@@ -190,6 +193,19 @@ export class View {
   }
 
   // Repaint the ground after the road layout changed.
+  // The game's season: fall colours, snow in winter.
+  setSeason(id) {
+    const s = this.world.season || {};
+    if (s.id === id) return;
+    this.world.season = { ...s, id, fall: id === 'fall', winter: id === 'winter' };
+    this.treeSet.dispose();
+    this.treeSet = new BillboardSet();
+    treeCards(this.world, this.treeSet);
+    this.treeSet.build(this.basis());
+    this.terrainRoads = null;
+    this.refreshTerrain();
+  }
+
   refreshTerrain() {
     if (this.terrainRoads === this.world.roadsVersion) return;
     this.terrainRoads = this.world.roadsVersion;
@@ -255,7 +271,7 @@ export class View {
     const dir = Math.abs(along) > Math.abs(away) * 1.05 ? (along > 0 ? 3 : 2) : away > 0 ? 1 : 0;
     const frame = moving ? Math.floor(now / (pet ? 100 : moving === 'run' ? 80 : 130)) % 4 : 0;
     let spr;
-    if (pet) spr = petSprite(pet.idx, dir, frame, pet.sit);
+    if (pet) spr = pet.animal ? animalSprite(pet.animal, dir, frame, pet.sit ? 'sit' : null) : petSprite(pet.idx, dir, frame, pet.sit);
     else {
       if (a.lookRef !== look) { a.lookRef = look; a.look = sanitizeLook(look); }
       spr = personSprite(a.look, dir, frame, kind === 'sit' ? 'sit' : null);

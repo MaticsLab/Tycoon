@@ -14,6 +14,7 @@ const buildInto = (batch, grp) => { batch.build(grp, { noCast: materials().glowM
 
 export function buildTerrain(world) {
   const cv = renderGround(world, { three: true });
+  if (world.season?.winter) snowGround(cv);
   const grp = node('terrain');
   const g = planeGeo(MAP_W, MAP_H).rotateX(-Math.PI / 2).translate(MAP_W / 2, 0, MAP_H / 2);
   toMesh(g, lambert({ map: canvasTex(cv) }), { parent: grp });
@@ -59,6 +60,46 @@ export function buildRocks(world) {
   return freeze(grp);
 }
 
+// Winter: grass under a blanket of snow (roads, paths and water stay as they are).
+function snowGround(cv) {
+  const g = cv.getContext('2d');
+  const img = g.getImageData(0, 0, cv.width, cv.height), d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i], gr = d[i + 1], b = d[i + 2];
+    if (gr > r + 8 && gr > b + 8) {
+      const n = ((i * 2654435761) >>> 0) % 7; // a little sparkle
+      const v = 226 + n * 4;
+      d[i] = (r * 0.12 + v * 0.88) | 0; d[i + 1] = (gr * 0.12 + v * 0.88) | 0; d[i + 2] = (b * 0.1 + 255 * 0.9) | 0;
+    }
+  }
+  g.putImageData(img, 0, 0);
+}
+
+// A tree sprite with snow on every upward-facing edge (cached per sprite).
+const snowCache = new Map();
+function snowy(spr) {
+  let out = snowCache.get(spr.cv);
+  if (out) return out;
+  const cv = document.createElement('canvas');
+  cv.width = spr.cv.width; cv.height = spr.cv.height;
+  const g = cv.getContext('2d');
+  g.drawImage(spr.cv, 0, 0);
+  const img = g.getImageData(0, 0, cv.width, cv.height), d = img.data, W = cv.width;
+  const solid = (x, y) => y >= 0 && d[(y * W + x) * 4 + 3] > 0;
+  const mark = [];
+  for (let y = 0; y < cv.height; y++) for (let x = 0; x < W; x++) {
+    if (!solid(x, y)) continue;
+    const i = (y * W + x) * 4;
+    const leafy = d[i + 1] > d[i] * 0.9 || d[i] > 150; // foliage, not trunk
+    if (leafy && (!solid(x, y - 1) || !solid(x, y - 2))) mark.push(i);
+  }
+  for (const i of mark) { d[i] = 238; d[i + 1] = 244; d[i + 2] = 250; }
+  g.putImageData(img, 0, 0);
+  out = { ...spr, cv };
+  snowCache.set(spr.cv, out);
+  return out;
+}
+
 // Trees as pixel-art billboards. Returns entries for a BillboardSet.
 export function treeCards(world, set) {
   for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
@@ -72,7 +113,7 @@ export function treeCards(world, set) {
       const f = tileHash(x * 11 + 5, y * 3 + 1);
       kind = inSquare ? (f < 0.5 ? 'maple' : 'amber') : f < 0.3 ? 'maple' : f < 0.55 ? 'amber' : f < 0.75 ? 'gold' : kind;
     }
-    const spr = treeSprite(v, kind);
+    const spr = world.season?.winter ? snowy(treeSprite(v, kind)) : treeSprite(v, kind);
     // Trees are drawn 1.5x so they tower over houses and villagers.
     set.add(spr, 8, 14, x + 0.5, 0, y + 0.55, { shadow: 1.5, scale: 1.5 });
   }

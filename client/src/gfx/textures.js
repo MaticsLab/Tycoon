@@ -202,6 +202,14 @@ export function roofTex(m) {
   const col = ITEMS[m]?.color || '#b2412f';
   return paintTex(`roof|${m}`, 16, 16, (c) => {
     const [s, sh, b, l] = ramp(col);
+    if (m === 'roof_glass') {
+      // Greenhouse panes in white frames.
+      r(c, 0, 0, 16, 16, '#9fd0e2');
+      r(c, 1, 1, 6, 6, '#c6e8f2'); r(c, 9, 1, 6, 6, '#b4dfec'); r(c, 1, 9, 6, 6, '#b4dfec'); r(c, 9, 9, 6, 6, '#c6e8f2');
+      r(c, 2, 2, 2, 1, '#eef9fc'); r(c, 10, 10, 2, 1, '#eef9fc');
+      r(c, 0, 0, 16, 1, '#f4f4ee'); r(c, 0, 8, 16, 1, '#f4f4ee'); r(c, 0, 0, 1, 16, '#f4f4ee'); r(c, 8, 0, 1, 16, '#f4f4ee');
+      return;
+    }
     if (m === 'roof_thatch') {
       r(c, 0, 0, 16, 16, b);
       for (let x = 0; x < 16; x++) { const h = tileHash(x, 4); r(c, x, 0, 1, 16, h > 0.6 ? l : h < 0.25 ? sh : b); }
