@@ -41,20 +41,119 @@ function legs(c, L, dir, frame) {
     if (!dress) { r(c, -4, -10, 8, 4, P[2]); r(c, -4, -10, 1, 4, P[3]); r(c, 3, -10, 1, 4, P[1]); r(c, -1, -7, 2, 1, P[1]); }
     return;
   }
-  // side view (facing right; left is mirrored): back leg, then front leg
-  const swing = [0, 2, 0, -2][frame];
-  for (const [dx, col] of [[-swing, 1], [swing, 2]]) {
-    const x0 = -2 + dx;
-    if (dress) r(c, x0 + 1, -4, 2, 2, L.K[col === 1 ? 0 : 1]);
-    else r(c, x0, -7, 3, 5, P[col]);
-    r(c, x0, -2, 4, 2, SHOE[col]); r(c, x0, -2, 4, 1, SHOE[col + (col < 2 ? 1 : 0)]);
+  // side view (facing right; left is mirrored): far leg, then near leg. Each foot swings
+  // forward and back with the stride, the lifted one tucked up a little at the knee.
+  const swing = [0, 2.5, 0, -2.5][frame], lift = [0, 1, 0, 1][frame];
+  leg(c, L, -0.5, -9, -swing, -2 - (swing < 0 ? lift : 0), false);
+  leg(c, L, 0, -9, swing, -2 - (swing > 0 ? lift : 0), true);
+  if (!dress) { r(c, -3, -10, 6, 3, P[2]); r(c, -3, -10, 6, 1, P[3]); }
+}
+
+// ---------- the skeleton ----------
+// Arms and (side-on) legs are two bones each: shoulder → elbow → wrist and hip → knee →
+// ankle. A pose says where each hand or foot should be; two-bone IK finds the elbow or
+// knee, and each bone is drawn as a chunky rotated pixel limb. bend: which side the
+// middle joint goes (+1 / -1).
+function ik(sx, sy, tx, ty, a, b, bend) {
+  let dx = tx - sx, dy = ty - sy, d = Math.hypot(dx, dy) || 0.001;
+  const dd = Math.max(Math.abs(a - b) + 0.01, Math.min(a + b - 0.01, d));
+  dx = (dx / d) * dd; dy = (dy / d) * dd;
+  const th = Math.atan2(dy, dx), al = Math.acos(Math.max(-1, Math.min(1, (a * a + dd * dd - b * b) / (2 * a * dd))));
+  const ex = sx + Math.cos(th + bend * al) * a, ey = sy + Math.sin(th + bend * al) * a;
+  return { ex, ey, hx: sx + dx, hy: sy + dy };
+}
+// A bone from (x0, y0) to (x1, y1), w px thick, in colour col with a darker edge.
+function bone(c, x0, y0, x1, y1, w, col, edge) {
+  const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) * 2));
+  const h = (w - 1) / 2;
+  for (let i = 0; i <= n; i++) {
+    const x = x0 + ((x1 - x0) * i) / n, y = y0 + ((y1 - y0) * i) / n;
+    r(c, Math.round(x - h), Math.round(y - h), w, w, col);
   }
-  if (!dress) { r(c, -3, -10, 6, 4, P[2]); r(c, -3, -10, 6, 1, P[3]); }
+  if (edge) for (let i = 0; i <= n; i++) {
+    const x = x0 + ((x1 - x0) * i) / n, y = y0 + ((y1 - y0) * i) / n;
+    px(c, Math.round(x - h), Math.round(y + h), edge);
+  }
+}
+// One arm: shoulder (sx, sy) reaching for (tx, ty). Sleeve colour on the upper arm (and
+// the forearm for long sleeves), a 2x2 hand at the end.
+function arm(c, L, sx, sy, tx, ty, bend, far = false) {
+  const UP = 3.6, LO = 3.4;
+  const j = ik(sx, sy, tx, ty, UP, LO, bend);
+  const sl = sleeveColor(L), K = L.K, t = far ? 0 : 1;
+  const upper = sl ? sl[1 + t] : L.S[1 + t], upperE = sl ? sl[0 + t] : L.S[0 + t];
+  const long = sl && L.shirt.kind !== 'tee' && L.shirt.kind !== 'polo' && L.shirt.kind !== 'sailor';
+  bone(c, sx, sy, j.ex, j.ey, 2, upper, upperE);
+  bone(c, j.ex, j.ey, j.hx, j.hy, 2, long ? upper : K[1 + t], long ? upperE : K[t]);
+  r(c, Math.round(j.hx - 1), Math.round(j.hy - 0.5), 2, 2, K[1 + t]);
+  px(c, Math.round(j.hx - 1), Math.round(j.hy + 0.5), K[t]);
+  return j;
+}
+// One side-on leg: hip → knee → ankle, a shoe at the ankle pointing forward (+x).
+function leg(c, L, hx, hy, tx, ty, near) {
+  const j = ik(hx, hy, tx, ty, 4.2, 4.2, -1);
+  const P = L.P, dress = L.shirt.kind === 'dress', t = near ? 2 : 1;
+  const col = dress ? L.K[t] : P[t], edge = dress ? L.K[t - 1] : P[t - 1];
+  bone(c, hx, hy, j.ex, j.ey, 3, col, edge);
+  bone(c, j.ex, j.ey, j.hx, j.hy, 3, col, edge);
+  const ax = Math.round(j.hx), ay = Math.round(j.hy);
+  r(c, ax - 2, ay, 4, 2, SHOE[t]); r(c, ax - 2, ay, 4, 1, SHOE[t === 2 ? 2 : 2]); px(c, ax + 1, ay + 1, SHOE[0]);
+}
+
+// Little props held in the hands.
+function prop(c, kind, x, y, f) {
+  x = Math.round(x); y = Math.round(y);
+  if (kind === 'book') { r(c, x - 3, y - 3, 6, 4, '#7a3b2e'); r(c, x - 2, y - 3, 4, 3, '#f4ecd8'); px(c, x, y - 3, '#7a3b2e'); if (f % 2) r(c, x - 2, y - 3, 2, 1, '#d8ccb0'); }
+  else if (kind === 'plate') { r(c, x - 3, y, 6, 1, '#f4f6f7'); r(c, x - 2, y - 1, 4, 1, f % 2 ? '#e8a23a' : '#c0392b'); }
+  else if (kind === 'cup') { r(c, x - 1, y - 2, 2, 3, '#f4f6f7'); px(c, x + 1, y - 1, '#f4f6f7'); px(c, x - 1, y - 2, '#8a5a32'); }
+  else if (kind === 'pad') { r(c, x - 3, y - 1, 6, 2, '#2f3542'); px(c, x - 2, y - 1, '#e74c3c'); px(c, x + 1, y - 1, '#3fa9f5'); }
+  else if (kind === 'brush') { r(c, x, y - 4, 1, 4, '#a8703f'); px(c, x, y - 5, ['#e74c3c', '#3fa9f5', '#f5c542', '#5cb85c'][f % 4]); }
+  else if (kind === 'stick') { r(c, x, y - 2, 1, 3, '#c99363'); px(c, x + 1, y - 3, '#d9b27a'); }
+}
+
+// Where the hands go for each activity (front view; back view mirrors it, side view uses
+// SIDE_HANDS), frame f = 0..3 animates them. y0 = torso top, F = face top.
+const SWAY = [0, 1, 0, -1];
+function handsFront(arms, y0, F, f, frame) {
+  const s = SWAY[f];
+  switch (arms) {
+    case 'eat': return { l: [-2, y0 + 6], r: f % 2 ? [1, F + 7] : [2, y0 + 5], prop: ['plate', -2, y0 + 6] };
+    case 'drink': return { l: [-4, y0 + 7], r: f < 2 ? [1, F + 7] : [2, y0 + 4], prop: ['cup', f < 2 ? 1 : 2, f < 2 ? F + 7 : y0 + 4] };
+    case 'read': return { l: [-2.5, y0 + 5], r: [2.5, y0 + 5], prop: ['book', 0, y0 + 6] };
+    case 'type': return { l: [-2.5, y0 + 6 + (f % 2)], r: [2.5, y0 + 6 + (f % 2 ? 0 : 1)] };
+    case 'game': return { l: [-2, y0 + 6], r: [2, y0 + 6 + (f % 2)], prop: ['pad', 0, y0 + 6] };
+    case 'paint': return { l: [-5, y0 + 8], r: [5 + (f % 2), y0 + 1 + s], prop: ['brush', 5 + (f % 2), y0 + 1 + s] };
+    case 'stir': return { l: [-2 + s, y0 + 6], r: [2 - s, y0 + 6 + (f % 2)] };
+    case 'wash': return { l: [-1 + (f % 2), y0 + 7], r: [1 - (f % 2), y0 + 7] };
+    case 'warm': return { l: [-3, y0 + 5 + (f % 2)], r: [3, y0 + 5 + (f % 2 ? 0 : 1)] };
+    case 'wave': return { l: [-5, y0 + 8], r: [6 + (f % 2), y0 - 3] };
+    case 'carry': return { l: [-2.5, y0 + 6], r: [2.5, y0 + 6], prop: ['plate', 0, y0 + 6] };
+    case 'whittle': return { l: [-2, y0 + 7], r: [1 + (f % 2), y0 + 6], prop: ['stick', -2, y0 + 7] };
+    case 'lap': return { l: [-2.5, y0 + 8.5], r: [2.5, y0 + 8.5] };
+    default: return { l: [-5.5, y0 + 8 - SWAY[frame]], r: [5.5, y0 + 8 + SWAY[frame]] };
+  }
+}
+// Side view (facing right): one near hand, sometimes a prop.
+function handSide(arms, y0, F, f, frame) {
+  switch (arms) {
+    case 'eat': return { h: f % 2 ? [3, F + 7] : [4, y0 + 5], prop: ['plate', 4.5, y0 + 6] };
+    case 'drink': return { h: f < 2 ? [3, F + 7] : [4, y0 + 4], prop: ['cup', f < 2 ? 3 : 4, f < 2 ? F + 7 : y0 + 4] };
+    case 'read': return { h: [4, y0 + 4], prop: ['book', 5, y0 + 5] };
+    case 'type': case 'stir': case 'warm': return { h: [5, y0 + 5 + (f % 2)] };
+    case 'game': return { h: [4, y0 + 6], prop: ['pad', 4, y0 + 6] };
+    case 'paint': return { h: [6, y0 + 1 + SWAY[f]], prop: ['brush', 6, y0 + 1 + SWAY[f]] };
+    case 'wash': return { h: [4 + (f % 2), y0 + 6] };
+    case 'wave': return { h: [3 + (f % 2), y0 - 4] };
+    case 'carry': return { h: [4.5, y0 + 6], prop: ['plate', 5, y0 + 6] };
+    case 'whittle': return { h: [4, y0 + 6 + (f % 2)], prop: ['stick', 4, y0 + 6] };
+    case 'lap': return { h: [3.5, y0 + 8] };
+    default: return { h: [0.5 + SWAY[frame] * 2, y0 + 8] };
+  }
 }
 
 // Sitting: thighs come towards you (front/back) or stick out forwards (side), shins
 // hang down to the floor. The body above is lowered by SIT_DROP.
-const SIT_DROP = 5;
+const SIT_DROP = 4;
 function legsSitting(c, L, dir) {
   const { P } = L;
   const dress = L.shirt.kind === 'dress';
@@ -67,11 +166,10 @@ function legsSitting(c, L, dir) {
     }
     return;
   }
-  // side view facing right: thigh forwards, knee, shin down, shoe pointing forward
-  if (!dress) { r(c, -3, -7, 8, 3, P[2]); r(c, -3, -7, 8, 1, P[3]); }
-  else { r(c, 1, -6, 4, 2, L.K[1]); }
-  r(c, 3, -4, 3, 3, dress ? L.K[1] : P[1]);
-  r(c, 3, -1, 4, 1, SHOE[1]); r(c, 6, -1, 1, 1, SHOE[0]);
+  // side view facing right: hip on the seat, thigh straight out, shin down to the floor
+  leg(c, L, 0, -6.5, 5, -2, false);
+  leg(c, L, -0.5, -6.5, 4.5, -2, true);
+  if (!dress) { r(c, -3, -9, 6, 3, P[2]); r(c, -3, -9, 6, 1, P[3]); }
 }
 
 // ---------- torso & arms ----------
@@ -172,17 +270,13 @@ function plaid(c, L, y0) {
   }
 }
 
-function armsFront(c, L, y0, frame) {
-  const sw = [0, 1, 0, -1][frame];
-  const sl = sleeveColor(L);
-  for (const side of [-1, 1]) {
-    const x = side < 0 ? (L.body === 0 ? -6 : -6) : 4;
-    const yy = y0 + (L.body === 0 ? 1 : 2) + side * sw;
-    const len = L.body === 0 ? 6 : 5;
-    if (sl) { r(c, x, yy, 2, len, sl[2]); r(c, x + (side < 0 ? 0 : 1), yy, 1, len, side < 0 ? sl[3] : sl[1]); r(c, x, yy + len - 1, 2, 1, sl[0]); }
-    else { r(c, x, yy, 2, 2, L.S[2]); r(c, x, yy + 2, 2, len - 2, L.K[side < 0 ? 2 : 1]); }
-    r(c, x, yy + len, 2, 2, L.K[2]); px(c, x + (side < 0 ? 0 : 1), yy + len + 1, L.K[1]);
-  }
+function armsFront(c, L, y0, F, frame, arms, f, back) {
+  const H = handsFront(arms, y0, F, f, frame);
+  const sw = L.body === 0 ? 5 : 4.5;
+  const lt2 = back ? [-H.r[0], H.r[1]] : H.l, rt2 = back ? [-H.l[0], H.l[1]] : H.r;
+  arm(c, L, -sw, y0 + 1.5, lt2[0], lt2[1], 1);
+  arm(c, L, sw, y0 + 1.5, rt2[0], rt2[1], -1);
+  if (H.prop && !back) prop(c, H.prop[0], H.prop[1], H.prop[2], f);
 }
 
 function torsoSide(c, L, y0, frame) {
@@ -200,13 +294,6 @@ function torsoSide(c, L, y0, frame) {
   else if (k === 'dress') { r(c, -3, y0 + 6, 6, 1, B[2]); }
   else if (k === 'tank') { r(c, -3, y0, 6, 1, K[1]); }
   r(c, 0, y0 - 1, 2, 1, K[1]);
-  // near arm, swinging
-  const sw = [0, 1, 0, -1][frame];
-  const sl = sleeveColor(L);
-  const ax = -1 + sw, len = 6;
-  if (sl) { r(c, ax, y0 + 1, 2, len, sl[1]); r(c, ax, y0 + 1, 1, len, sl[2]); }
-  else { r(c, ax, y0 + 1, 2, 2, S[1]); r(c, ax, y0 + 3, 2, len - 2, K[1]); }
-  r(c, ax, y0 + 1 + len, 2, 2, K[2]);
 }
 
 // ---------- head ----------
@@ -520,29 +607,35 @@ function hatAcc(c, L, F, dir) {
 }
 
 // ---------- whole person ----------
-function paint(c, L, dir, frame, pose = null) {
+function paint(c, L, dir, frame, pose = null, arms = null, f = 0) {
   const side = dir === 2 || dir === 3;
   if (dir === 2) { c.scale(-1, 1); dir = 3; }
   const sit = pose === 'sit';
   if (sit) frame = 0;
+  if (sit && !arms) arms = 'lap';
   const bob = frame % 2 ? -1 : 0;
   const drop = sit ? SIT_DROP : 0;
   const y0 = -18 + bob + drop;       // torso top
   const F = -28 + bob + drop;        // face top
   if (sit) legsSitting(c, L, dir); else legs(c, L, dir, frame);
   if (side) {
+    // far arm behind the body, near arm in front
+    const H = handSide(arms, y0, F, f, frame);
+    arm(c, L, -0.5, y0 + 1.5, H.h[0] - 1 - (arms ? 0 : SWAY[frame] * 4), H.h[1], 1, true);
     skirt(c, L, y0, true);
     torsoSide(c, L, y0, frame);
+    arm(c, L, 0.5, y0 + 1.5, H.h[0], H.h[1], 1);
+    if (H.prop) prop(c, H.prop[0], H.prop[1], H.prop[2], f);
     face(c, L, F, 3);
     brows(c, L, F, 3);
     faceAcc(c, L, F, 3);
     hairSide(c, L, F);
     ears(c, L, F, 3);
   } else {
-    if (dir === 1) armsFront(c, L, y0, frame);
+    if (dir === 1) armsFront(c, L, y0, F, frame, arms, f, true);
     skirt(c, L, y0, false);
     torsoFront(c, L, y0, dir === 1);
-    if (dir === 0) armsFront(c, L, y0, frame);
+    if (dir === 0) armsFront(c, L, y0, F, frame, arms, f, false);
     face(c, L, F, dir);
     if (dir === 0) brows(c, L, F, 0);
     faceAcc(c, L, F, dir);
@@ -562,9 +655,12 @@ function resolveCached(look) {
 
 // Sprite for a (sanitized) look, facing dir, walk frame 0..3. pose 'sit' draws them
 // seated (feet still at row 0, so it stands on the floor in front of the seat).
-export function personSprite(look, dir, frame, pose = null) {
+// arms: what the hands are doing ('eat', 'read', 'type', 'wave'… see handsFront), with
+// animation frame f 0..3.
+export function personSprite(look, dir, frame, pose = null, arms = null, f = 0) {
   const { k, L } = resolveCached(look);
-  return bake(`pp|${k}|${dir}|${frame}|${pose || ''}`, 12, 40, 24, 42, (cc) => paint(cc, L, dir, frame, pose));
+  if (!arms) f = 0;
+  return bake(`pp|${k}|${dir}|${frame}|${pose || ''}|${arms || ''}|${f}`, 12, 40, 24, 42, (cc) => paint(cc, L, dir, frame, pose, arms, f));
 }
 
 // Someone asleep in bed, seen from straight above: their head on the pillow (eyes

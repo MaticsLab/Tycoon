@@ -291,7 +291,8 @@ export class View {
 
   // ---------- actors (players, NPCs and pets as pixel sprites) ----------
   // pet: { idx, sit } draws a pet instead of a villager.
-  // pose: null, or { kind: 'sit' } (seated sprite, no ground shadow), { kind: 'sleep', r, w, h, quilt }
+  // pose: null, or { kind: 'sit' } (seated sprite, no ground shadow), plus arms: what the
+  // hands are doing (see people.js), animated; { kind: 'sleep', r, w, h, quilt }
   // (a flat top-down sleeper lying on the bed, head at the bed's head end), { kind: 'hidden' }.
   // The old string forms 'sit' and 'lie' (a turned upright sprite) still work.
   actor(id, x, z, dirWorld, moving, look, now, vis = true, y = 0, pet = null, pose = null) {
@@ -321,7 +322,7 @@ export class View {
     if (pet) spr = pet.animal ? animalSprite(pet.animal, dir, frame, pet.sit ? 'sit' : null) : petSprite(pet.idx, dir, frame, pet.sit);
     else {
       if (a.lookRef !== look) { a.lookRef = look; a.look = sanitizeLook(look); }
-      spr = personSprite(a.look, dir, frame, kind === 'sit' ? 'sit' : null);
+      spr = personSprite(a.look, dir, frame, kind === 'sit' ? 'sit' : null, pose?.arms || null, Math.floor(now / 320) % 4);
     }
     const tex = texOf(spr.cv);
     if (a.tex !== tex || a.lie !== lie) {

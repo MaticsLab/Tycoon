@@ -34,7 +34,7 @@ import { makeWeather } from './weather.js';
 import { createAudio } from './audio.js';
 import { FOUNTAIN } from '@shared/world.js';
 import { applyNature, wildKind, treeStage, fruitReady, HITS, TOOL_FOR, weatherAt } from '@shared/nature.js';
-import { drawLook } from './people.js';
+import { drawLook, personSprite } from './people.js';
 import { sanitizeLook, randomLook, PETS } from '@shared/look.js';
 import { httpBase, signInGuest, signIn, signUp, getSession, signOut } from './auth.js';
 
@@ -3596,9 +3596,17 @@ function itemUnder(p) {
   const hit = v && objAt(v, Math.floor(p.x / TILE - plot.x), Math.floor(p.y / TILE - plot.y));
   return hit ? { t: hit.obj.t, r: hit.obj.r || 0, c: hit.obj.c || 0 } : null;
 }
+// What the hands do for each activity (people.js draws the arms with a little skeleton).
+const ACT_ARMS = {
+  eat: 'eat', eatHere: 'eat', snack: 'stir', cook: 'stir', grill: 'stir', read: 'read', tv: 'lap', sit: 'lap', nap: 'lap',
+  piano: 'type', game: 'game', cashier: 'type', paint: 'paint', wash: 'wash', warm: 'warm', music: 'lap', fish: 'lap', stars: 'warm',
+};
+const NPC_ARMS = { lunch: 'eat', coffee: 'drink', read: 'read', nap: 'lap', whittle: 'whittle', chat: 'talk', garden: 'stir' };
 function actPose(p) {
   const a = p.act;
-  if (!a || !ACTIVITIES[a]?.seat) return null;
+  if (!a && p.carry) return { pose: { arms: 'carry' } };
+  if (!a) return null;
+  if (!ACTIVITIES[a]?.seat) return ACT_ARMS[a] ? { pose: { arms: ACT_ARMS[a] } } : null;
   if (a === 'shower' || a === 'bath') return { vis: false };
   const it = itemUnder(p);
   if ((a === 'sleep' || a === 'nap') && it && BEDS.has(it.t)) {
@@ -3606,7 +3614,7 @@ function actPose(p) {
     const [w, h] = footprint(it.t, it.r);
     return { y: 0.56, pose: { kind: 'sleep', r: it.r, w, h } };
   }
-  return { y: SEAT_Y[it?.t] ?? 0.08, pose: { kind: 'sit' } };
+  return { y: SEAT_Y[it?.t] ?? 0.08, pose: { kind: 'sit', arms: ACT_ARMS[a] || 'lap' } };
 }
 
 // Walk into a ripe crop on your plot and you pick the whole row it's in: the unbroken
@@ -3882,7 +3890,8 @@ function render(now) {
   for (const n of S.npcs.values()) {
     const d = NPCS[n.id];
     const a = NPC_ACTS[n.act];
-    view.actor(`npc:${n.id}`, U(n.x), U(n.y), n.dir, n.moving, d.look, now, !a?.hidden, a?.pose === 'sit' ? 0.12 : 0, null, a?.pose === 'sit' ? { kind: 'sit' } : null);
+    const arms = n.moving ? null : NPC_ARMS[n.act] === 'talk' ? (Math.floor(now / 2600 + n.id.length) % 3 === 0 ? 'wave' : null) : NPC_ARMS[n.act] || null;
+    view.actor(`npc:${n.id}`, U(n.x), U(n.y), n.dir, n.moving, d.look, now, !a?.hidden, a?.pose === 'sit' ? 0.12 : 0, null, a?.pose === 'sit' ? { kind: 'sit', arms: arms || 'lap' } : arms ? { arms } : null);
   }
   drawPerson(S.me, myH);
   drawShopPeople(now);
@@ -4199,7 +4208,7 @@ requestAnimationFrame(frame);
 // Test hook: ?debug exposes state and helpers for automated playtests.
 if (new URLSearchParams(location.search).has('debug')) {
   window.__tycoon = {
-    S, view, world, pets, clock: (ms) => worldClock(ms, S.epoch),
+    S, view, world, pets, personSprite, clock: (ms) => worldClock(ms, S.epoch),
     // Screen position of a plot-local point (at floor height + h).
     plotToClient: (lx, ly, h = 0, plotId = S.myPlot) => { const d = S.plots[plotId]; return view.toScreen(d.x + lx, S.level * LEVEL_H + h, d.y + ly); },
     worldToClient: (x, z, h = 0) => view.toScreen(x, h, z),
