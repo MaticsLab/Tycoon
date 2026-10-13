@@ -216,7 +216,9 @@ export function socialUI(c) {
     if (fishAvailable()) return { id: 'fish', label: '🎣 Fish' };
     const near = (t, r = 2.6) => world.decor.some((d) => d.t === t && Math.hypot((d.x + footprint(t, d.r || 0)[0] / 2) * TILE - S.me.x, (d.y + footprint(t, d.r || 0)[1] / 2) * TILE - S.me.y) < r * TILE);
     if (near('noticeboard', 3)) return { id: 'board', label: '📌 Notice board' };
-    if (near('mailbox')) return { id: 'mailbox', label: '📮 Post a letter' };
+    const nearPlotThing = (t, r = 2.2) => Object.values(S.plots).some((p) => Math.abs(p.x + p.w / 2 - S.me.x / TILE) < p.w / 2 + 3 && Math.abs(p.y + p.h / 2 - S.me.y / TILE) < p.h / 2 + 3
+      && Object.entries(p.obj).some(([k, o]) => { if (o.t !== t) return false; const [x, y] = k.split(',').map(Number); return Math.hypot((p.x + x + 0.5) * TILE - S.me.x, (p.y + y + 0.5) * TILE - S.me.y) < r * TILE; }));
+    if (near('mailbox') || nearPlotThing('mailbox')) return { id: 'mailbox', label: `📬 Mailbox${unread() ? ` (${unread()} new)` : ''}` };
     const f = S.fest?.fest;
     const area = publicAreaAt(Math.floor(S.me.x / TILE), Math.floor(S.me.y / TILE));
     if (f && !f.judged && f.day === worldClock(Date.now() + S.timeOffset, S.epoch).day && (area === FAIR || area === SQUARE) && !f.entries.some((e) => e.pid === S.me.id)) return { id: 'fest', label: `${EVENTS[f.id].icon} Enter the ${EVENTS[f.id].name}` };

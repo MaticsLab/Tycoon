@@ -95,18 +95,16 @@
 
   <div id="hud" hidden>
     <div id="topbar">
+      <button id="btn-settings" class="gear" title="Settings" aria-label="Settings">⚙️</button>
       <span id="clock" class="pill">Day 1 · 6:00 AM</span>
+      <span id="mailflag" class="pill" title="You’ve got mail: read it at any mailbox" hidden>📬</span>
     </div>
     <div id="side">
       <span id="coins" class="pill" title="Coins">🪙 0</span>
       <button id="btn-build" title="Build (B)" hidden>🔨<small>Build</small></button>
-      <button id="btn-bag" title="Bag (I)">🎒<small>Bag</small></button>
-      <button id="btn-quests" title="Requests from villagers">📜<small>Quests</small></button>
-      <button id="btn-journal" title="Goals, festivals and the Gazette">📖<small>Journal</small></button>
-      <button id="btn-mail" title="Mail">📬<small>Mail</small></button>
+      <button id="btn-bag" title="Bag, quests and journal (I)">🎒<small>Bag</small></button>
       <button id="btn-shop" title="Your business" hidden>🏪<small>Shop</small></button>
       <button id="btn-chat" title="Chat (Enter)">💬<small>Chat</small></button>
-      <button id="btn-settings" title="Settings">⚙️<small>Settings</small></button>
     </div>
     <button id="action" hidden></button>
     <div id="needs" hidden>
@@ -121,16 +119,14 @@
       <button id="stage-ok" aria-label="Place">✓</button>
     </div>
     <div id="chatlog"></div>
-    <form id="chatform" hidden>
-      <input id="chatinput" maxlength="120" autocomplete="off" placeholder="Say something…" />
-      <button>Send</button>
-    </form>
-
-    <div id="camctl">
-      <button id="cam-left" title="Turn camera (Q)">⟲</button>
-      <button id="cam-right" title="Turn camera (E)">⟳</button>
-      <button id="zoom-in" title="Zoom in">＋</button>
-      <button id="zoom-out" title="Zoom out">－</button>
+    <div id="chatpanel" hidden>
+      <div id="chathead"><b>💬 Village chat</b><span id="chatwho"></span><button id="chatclose" class="x" aria-label="Close chat">✕</button></div>
+      <div id="chathist"></div>
+      <div id="chatquick"></div>
+      <form id="chatform">
+        <input id="chatinput" maxlength="120" autocomplete="off" enterkeyhint="send" placeholder="Say something to everyone nearby…" />
+        <button id="chatsend" aria-label="Send">➤</button>
+      </form>
     </div>
 
     <div id="tray" hidden>

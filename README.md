@@ -11,7 +11,7 @@ You can also befriend villagers whose personalities change based on how you trea
 - **A 3D village that still looks like pixel art.** The world renders at low resolution and is scaled up with sharp pixels.
   Ground, walls, floors and roofs use hand-painted pixel textures.
   Characters, NPCs, trees and crops are pixel sprites that always face the camera (the "HD-2D" look).
-  - The camera orbits freely. Hold the **middle mouse button (scroll wheel) and drag** to rotate and tilt it, **right-drag** to move it anywhere, or turn in 90° steps with ⟲ ⟳ or Q / E. Zoom with + −, the mouse wheel or a pinch.
+  - The camera orbits freely. Hold the **middle mouse button (scroll wheel) and drag** to rotate and tilt it, **right-drag** to move it anywhere, or turn in 90° steps with Q / E. Zoom with the mouse wheel or a pinch.
   - Distant textures are mip-mapped and the camera snaps to whole pixels, so the zoomed-out view stays steady instead of shimmering.
   - Sunlight casts shadows. At night, lamps, fireplaces and windows light up.
 - **Land you can reshape.** Plots are open land with no fences, laid out along wide dirt roads with grassy verges.
@@ -126,7 +126,7 @@ You can also befriend villagers whose personalities change based on how you trea
   Rosa buys fish. You can eat them, smoke them in a **Fish Smoker**, or make **Fish Stew**.
 - **Trading.** In the bag, choose someone standing near you and tap **🤝 Trade**. Each side puts items and coins in a two-sided window, and nothing changes hands until both agree.
 - **The notice board** (town square or City Hall) is a player market. Post items at your price, up to 5 notices each. Anyone can buy them, and you're paid even when offline, with a letter to tell you.
-- **Mail** (📬). Write letters from any mailbox (the square, City Hall, or one on someone's plot) and attach items or coins; postage is 🪙5. Letters wait in the recipient's mail even if they're offline. Bills, festival prizes and villagers' letters arrive here too.
+- **Mail** (📬). Every home and shop comes with a mailbox by the road. Walk up to any mailbox (yours, the square's, City Hall's or a neighbour's) to read your letters and write new ones, attaching items or coins; postage is 🪙5. An envelope by the clock tells you when there's unread mail. Letters wait in the recipient's mail even if they're offline. Bills, festival prizes and villagers' letters arrive here too.
 - **Co-op farms.** In build mode, open **Lot** and add friends by name, either as farm helpers or co-builders:
   - **Farm helpers** can harvest, water, plant, look after animals and drive your tractor.
   - **Co-builders** can do all of that and build too.
@@ -140,6 +140,9 @@ You can also befriend villagers whose personalities change based on how you trea
   - the Animal Fair (eggs, milk, wool).
 
   Enter before 6 PM. Entries are judged on value × quality, and the top three win 🪙500 / 🪙250 / 🪙100, with a **Festival Trophy** for first place.
+- **Bag, Quests and Journal** share one popup: the 🎒 Bag button opens it, with a tab for each (red badges show open requests and a new paper).
+- **Chat** (💬): a chat panel with the whole conversation, your own messages on the right, colour-coded names, quick replies and emoji, and an unread count on the button. New lines also float up over the corner for a few seconds.
+- **Settings** is the ⚙️ gear in the top-left corner.
 - **Journal** (📖):
   - **Daily and weekly goals:** 3 small goals a day and 1 bigger one a week, paid as soon as you finish.
   - **The festival:** entries and results.
@@ -315,7 +318,7 @@ Players can also change the server under **Server** on the join screen.
 |-----------------|-----------------------------------------------|------------------------------------|
 | Walk            | WASD / arrows (relative to the camera)        | drag anywhere: a floating joystick that follows your finger |
 | Run             | hold Shift while walking                      | hold the joystick out at its edge (it glows orange) |
-| Camera          | middle-drag to orbit, right-drag to pan, Q / E to turn, wheel to zoom | pinch to zoom, twist or two-finger swipe sideways to turn, two-finger swipe up/down to tilt (pans in build mode), ⟲ ⟳ + − buttons |
+| Camera          | middle-drag to orbit, right-drag to pan, Q / E to turn, wheel to zoom | pinch to zoom, twist or two-finger swipe sideways to turn, two-finger swipe up/down to tilt (pans in build mode) |
 | Talk / interact | Enter, or click an NPC                        | tap the action button or the NPC   |
 | Build mode      | B · H select/move · C copy (or Alt+click) · K sledgehammer · T design · L time of day · R or right-click rotate · V walls · PgUp/PgDn floors · Ctrl/Cmd+Z undo · Ctrl/Cmd+Y redo · Delete sells a held item · Enter or double-click finishes a custom room · Esc cancels · WASD or right-drag to pan | two-finger drag to pan, tool strip buttons |
 | Village map     | M, or click the minimap                       | tap the minimap                    |

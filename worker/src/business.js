@@ -51,6 +51,7 @@ export class Business {
     plot.biz = { name: p.biz.name, staff: p.biz.staff, closed: p.biz.closed };
     p.biz.plotId = plot.id;
     this.game.markProfile(p);
+    this.game.ensureMailbox(plot);
     this.game.plotChanged(plot);
     s.send({ type: 'toast', text: `🏪 This is the home of “${p.biz.name}”! Build it like a house, add shelves and a cash register (Build → Shop & Machines).` });
     this.send(s);

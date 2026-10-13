@@ -635,6 +635,8 @@ test('roads across a plot stay public: they can be moved but not cut', async () 
   a.send({ type: 'cheat', cmd: 'motherlode' });
   a.send({ type: 'claim', plotId: 0 });
   const plot = game.plots[0];
+  assert.ok(Object.values(plot.obj).some((o) => o.t === 'mailbox'), 'a new home comes with a mailbox');
+  delete plot.obj[Object.keys(plot.obj).find((k) => plot.obj[k].t === 'mailbox')];
   stand(game, a, 1, 2, 2);
   // Grow south over the 4-wide road (world rows 21..24 = local rows 17..20).
   a.send({ type: 'resizePlot', plotId: 0, x: plot.x, y: plot.y, w: plot.w, h: 21 });
@@ -783,6 +785,7 @@ test('Sims build tools: styled rooms, move/rotate rooms, move furniture, design,
   a.send({ type: 'cheat', cmd: 'motherlode' });
   a.send({ type: 'claim', plotId: 0 });
   const plot = game.plots[0];
+  delete plot.obj[Object.keys(plot.obj).find((k) => plot.obj[k].t === 'mailbox')]; // start from bare land
   stand(game, a, 1, 2, 2);
   // Every styled room is a valid build: place each on an empty plot copy and check its furniture.
   for (const [id, r] of Object.entries(STYLED_ROOMS)) {

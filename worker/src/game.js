@@ -1,4 +1,4 @@
-import { generateWorld, applyRoads, worldClock, publicAreaAt, plotIdAtPixel, TILE, PLAYER_SPEED, RUN_MULT, WORLD_VERSION, STARTER_PLOTS, MAP_W, CIVIC } from '../../shared/world.js';
+import { generateWorld, applyRoads, worldClock, publicAreaAt, plotIdAtPixel, TILE, PLAYER_SPEED, RUN_MULT, WORLD_VERSION, STARTER_PLOTS, MAP_W, CIVIC, T } from '../../shared/world.js';
 import { City } from './city.js';
 import { roomRegion, roomTiles as roomTilesOf, extract, stockFragment, rotateTimes, removeAt, placeError as fragError, applyAt, fragmentValue, cleanFragment } from '../../shared/blueprint.js';
 import { STYLED_ROOMS } from '../../shared/rooms.js';
@@ -122,6 +122,8 @@ export class Game {
     // Wild trees and rocks (cleared from land people own).
     this.nature = new Nature(this, saved.nature);
     for (const p of Object.values(this.plots)) if (p.owner) this.nature.clearPlot(p);
+    // Older homes and shops get their mailbox too.
+    for (const p of Object.values(this.plots)) if (this.ensureMailbox(p)) { p.rev = (p.rev || 0) + 1; this.dirty.add(`plot:${p.id}`); }
     this.lastTick = this.now();
   }
 
@@ -544,7 +546,28 @@ export class Game {
     s.send({ type: 'claimed', plotId: plot.id });
     this.plotChanged(plot);
     this.nature.clearPlot(plot, s.profile);
+    if (this.ensureMailbox(plot)) this.plotChanged(plot);
     this.addGossip('the village', `${s.profile.name} just moved into plot ${plot.id + 1}`);
+  }
+
+  // Every home and shop gets a mailbox by the road (mail is sent and read from one).
+  // Returns true if it added one.
+  ensureMailbox(plot) {
+    if (!plot?.owner || plot.town || Object.values(plot.obj).some((o) => o.t === 'mailbox')) return false;
+    const w = this.world, best = [];
+    for (let ly = 0; ly < plot.h; ly++) for (let lx = 0; lx < plot.w; lx++) {
+      if (lx > 0 && ly > 0 && lx < plot.w - 1 && ly < plot.h - 1) continue; // edge tiles only
+      if (placementError(plot, lx, ly, 'mailbox', 0, 0, w) || this.someoneOn(plot, [[lx, ly]])) continue;
+      // By the road, near a corner, is best.
+      const x = plot.x + lx, y = plot.y + ly;
+      const road = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => w.tiles[(y + dy) * MAP_W + x + dx] === T.PATH && w.plotAt[(y + dy) * MAP_W + x + dx] !== plot.id);
+      const corner = Math.min(lx, plot.w - 1 - lx) + Math.min(ly, plot.h - 1 - ly);
+      best.push([(road ? 0 : 100) + Math.abs(corner - 1), lx, ly]);
+    }
+    if (!best.length) return false;
+    best.sort((a, b) => a[0] - b[0]);
+    plot.obj[key(best[0][1], best[0][2])] = { t: 'mailbox' };
+    return true;
   }
 
   // ----- building (Sims-style) -----

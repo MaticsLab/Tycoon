@@ -204,7 +204,7 @@ function onMessage(m) {
       if (first) {
         sysMsg(`Welcome, ${S.me.name}!`);
         if (S.myPlot == null) sysMsg('Find a plot with a FOR SALE sign to claim it. Rosa, Otto and Juniper are in the town square.');
-        sysMsg('Tip: ⟲ ⟳ (or Q / E) turn the camera.');
+        sysMsg(matchMedia('(pointer: coarse)').matches ? 'Tip: pinch to zoom, twist two fingers to turn the camera.' : 'Tip: Q / E turn the camera, the mouse wheel zooms.');
       }
       break;
     }
@@ -263,7 +263,7 @@ function onMessage(m) {
     case 'chat': {
       const who = m.id === S.me?.id ? S.me : S.players.get(m.id);
       if (who) { who.bubble = m.text; who.bubbleUntil = performance.now() + 6000; }
-      chatMsg(m.to ? `${m.name} → ${m.to}` : m.name, m.text);
+      chatMsg(m.to ? `${m.name} → ${m.to}` : m.name, m.text, m.id === S.me?.id);
       break;
     }
     case 'npcBubble': {
@@ -323,7 +323,7 @@ function onMessage(m) {
       break;
     case 'quests':
       S.quests = m.quests; S.stats = m.stats || {};
-      $('btn-quests').dataset.n = S.quests.length || '';
+      badges();
       if (S.talk) renderQuestCard();
       if (modalKind === 'quests') showQuests();
       break;
@@ -506,18 +506,42 @@ function toast(text) {
   toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
 }
 
-function addLog(html, cls) {
+// ---------- chat ----------
+// Recent lines float up over the bottom-left corner for a few seconds; the chat panel
+// keeps the whole conversation, with quick replies and an unread count on the button.
+const chatHist = [];
+let chatUnread = 0;
+const NAME_COLS = ['#ffd27a', '#9fe0ff', '#ffb0c8', '#b8f0a0', '#e0c0ff', '#ffc89a', '#a8f0e0'];
+const nameCol = (name) => NAME_COLS[[...String(name)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % NAME_COLS.length];
+function chatLine(m) {
   const d = document.createElement('div');
-  d.innerHTML = html;
-  if (cls) d.className = cls;
+  d.className = m.sys ? 'sys' : m.mine ? 'mine' : '';
+  if (m.sys) d.textContent = m.text;
+  else d.innerHTML = `<b style="color:${nameCol(m.name)}">${esc(m.name)}</b><span>${esc(m.text)}</span>`;
+  return d;
+}
+function addLog(m) {
+  chatHist.push({ ...m, t: Date.now() });
+  if (chatHist.length > 80) chatHist.shift();
+  if (!$('chatpanel').hidden) { appendHist(chatHist[chatHist.length - 1]); return; }
+  if (!m.sys && !m.mine) { chatUnread++; $('btn-chat').dataset.n = chatUnread; }
+  const d = chatLine(m);
   const log = $('chatlog');
   log.appendChild(d);
-  while (log.children.length > 6) log.firstChild.remove();
-  setTimeout(() => d.classList.add('old'), 15000);
+  while (log.children.length > 5) log.firstChild.remove();
+  setTimeout(() => d.classList.add('old'), 12000);
+  setTimeout(() => d.remove(), 13500);
+}
+function appendHist(m) {
+  const h = $('chathist'), stick = h.scrollHeight - h.scrollTop - h.clientHeight < 40;
+  const d = chatLine(m);
+  d.title = new Date(m.t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  h.appendChild(d);
+  if (stick) h.scrollTop = h.scrollHeight;
 }
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const chatMsg = (name, text) => addLog(`<b>${esc(name)}:</b> ${esc(text)}`);
-const sysMsg = (text) => addLog(esc(text), 'sys');
+const chatMsg = (name, text, mine = false) => addLog({ name, text, mine });
+const sysMsg = (text) => addLog({ sys: true, text });
 
 function updateHud() {
   $('coins').textContent = `🪙 ${S.coins}`;
@@ -622,29 +646,43 @@ function syncBuildBtn() {
   if ($('btn-build').hidden === show) $('btn-build').hidden = !show;
 }
 $('btn-done').onclick = () => setMode('walk');
-$('btn-chat').onclick = () => openChat();
-$('btn-bag').onclick = () => (modalKind === 'bag' ? closeModal() : showBag());
+$('btn-chat').onclick = () => ($('chatpanel').hidden ? openChat() : closeChat());
+$('btn-bag').onclick = () => (BOOK.some(([k]) => k === modalKind) ? closeModal() : showBag());
 $('btn-settings').onclick = () => (modalKind === 'settings' ? closeModal() : showSettings());
-$('cam-left').onclick = () => turnCamera(-1);
-$('cam-right').onclick = () => turnCamera(1);
-$('zoom-in').onclick = () => view.zoomBy(1 / 1.25);
-$('zoom-out').onclick = () => view.zoomBy(1.25);
 function turnCamera(d) { view.rotate(d); }
 
+const QUICK_CHAT = ['👋 Hi!', '😊', '😂', '❤️', '👍', '🎉', 'Thanks!', 'Want to trade?', 'Come visit my farm!'];
+for (const q of QUICK_CHAT) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'chip'; b.textContent = q;
+  b.onclick = () => { send({ type: 'chat', text: q }); $('chatinput').focus({ preventScroll: true }); };
+  $('chatquick').appendChild(b);
+}
 function openChat() {
-  $('chatform').hidden = false;
+  const panel = $('chatpanel');
+  if (panel.hidden) {
+    panel.hidden = false;
+    $('chatlog').replaceChildren();
+    $('chathist').replaceChildren();
+    for (const m of chatHist) appendHist(m);
+    $('chathist').scrollTop = $('chathist').scrollHeight;
+  }
+  chatUnread = 0; $('btn-chat').dataset.n = '';
+  $('chatwho').textContent = `${S.players.size + 1} online`;
   $('chatinput').focus();
 }
+function closeChat() { $('chatpanel').hidden = true; $('chatinput').blur(); }
+$('chatclose').onclick = closeChat;
 $('chatform').onsubmit = (e) => {
   e.preventDefault();
   const text = $('chatinput').value.trim();
   if (text) send({ type: 'chat', text });
   $('chatinput').value = '';
-  $('chatform').hidden = true;
-  $('chatinput').blur();
+  // Keep chatting on a phone; on a keyboard, Enter sends and hands the keys back to the game.
+  if (!matchMedia('(pointer: coarse)').matches) $('chatinput').blur();
 };
 $('chatinput').addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { $('chatform').hidden = true; $('chatinput').blur(); }
+  if (e.key === 'Escape') closeChat();
   e.stopPropagation();
 });
 
@@ -724,15 +762,18 @@ function showQuests() {
     body.appendChild(c);
   }
 }
-$('btn-quests').onclick = () => (modalKind === 'quests' ? closeModal() : showQuests());
-$('btn-journal').onclick = () => (modalKind === 'journal' ? closeModal() : ui.showJournal());
-$('btn-mail').onclick = () => (modalKind === 'mail' ? closeModal() : ui.showMail());
-// Little numbers on the side buttons: unread letters, a new paper.
+// Little numbers: open requests and a new paper on the Bag button (and its tabs), and an
+// envelope by the clock while there's unread mail (read it at any mailbox).
 function badges() {
   if (!ui) return;
-  $('btn-mail').dataset.n = ui.unread() || '';
-  $('btn-journal').dataset.n = S.paper && S.paperSeen !== S.paper.day ? '!' : '';
+  const n = ui.unread();
+  $('mailflag').hidden = !n;
+  $('mailflag').textContent = `📬 ${n}`;
+  const paper = S.paper && S.paperSeen !== S.paper.day;
+  $('btn-bag').dataset.n = (S.quests?.length || '') || (paper ? '!' : '');
+  for (const b of document.querySelectorAll('.booktabs button')) b.dataset.n = BOOK_BADGE[b.dataset.k]?.() || '';
 }
+const BOOK_BADGE = { quests: () => S.quests?.length || '', journal: () => (S.paper && S.paperSeen !== S.paper.day ? '!' : '') };
 
 function npcSaid(m) {
   if (!S.talk || S.talk.npc !== m.npc) return;
@@ -917,11 +958,28 @@ $('npc-input').addEventListener('keydown', (e) => { if (e.key === 'Escape') clos
 
 // ---------- Modal: bag and account ----------
 let modalKind = null;
+// The Bag button opens one book with three tabs: your bag, villagers' requests and the
+// journal (goals, festivals, the Gazette).
+const BOOK = [['bag', '🎒 Bag', () => showBag()], ['quests', '📜 Quests', () => showQuests()], ['journal', '📖 Journal', () => ui.showJournal()]];
 function openModal(kind, title) {
   modalKind = kind;
   $('modal-title').textContent = title;
   $('modal-body').innerHTML = '';
   $('modal').hidden = false;
+  const book = BOOK.some(([k]) => k === kind);
+  $('modal').classList.toggle('book', book);
+  if (book) {
+    const bar = document.createElement('div');
+    bar.className = 'booktabs';
+    for (const [k, label, show] of BOOK) {
+      const b = document.createElement('button');
+      b.textContent = label; b.dataset.k = k; b.dataset.n = BOOK_BADGE[k]?.() || '';
+      if (k === kind) b.className = 'sel';
+      b.onclick = () => { if (modalKind !== k) show(); };
+      bar.appendChild(b);
+    }
+    $('modal-body').appendChild(bar);
+  }
   return $('modal-body');
 }
 function closeModal() { modalKind = null; $('modal').hidden = true; }
