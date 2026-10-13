@@ -83,6 +83,41 @@ You can also befriend villagers whose personalities change based on how you trea
   - **TV**, **bookshelf**, **low bookcase** or **desk** (read), **piano**, **aquarium** or **fishbowl**, **fireplace** or **fire pit**, **telescope**, **arcade cabinet**, **record player** and **painting easel** fill fun.
   Moving stops what you're doing. Others see a thought bubble with what you're up to, and you can use things in a friend's house while they're home. Crops, Honey Cake and Herbal Tea can be eaten straight from the bag.
 - **Farming.** Till soil and plant seeds. Walk into a ripe crop to pick the whole row (or column) of ripe crops you're walking along, then sell them to Rosa or in your shop.
+- **Seasons.** Each year has four 28-day seasons, shown on the clock: 🌸 spring, ☀️ summer, 🍂 fall and ❄️ winter. The world changes with them: trees turn in fall and snow covers the ground in winter.
+
+  | Crop | Seasons |
+  |---|---|
+  | Turnip | spring, fall |
+  | Carrot | spring to fall |
+  | Strawberry | spring, summer |
+  | Pumpkin | fall |
+  | Wheat | spring to fall |
+  | Corn | summer, fall |
+  | Melon | summer |
+  | Kale | winter |
+
+  - Out-of-season seeds can't be planted outdoors, and when the season turns, out-of-season crops wither.
+  - **Greenhouses:** anything under a roof grows in any season. There's a Greenhouse Glass roof.
+  - Rosa pays 30% more for crops that are out of season.
+- **Crop quality.** Crops come out normal, ★ silver or ★★ gold. Watering them through their growth and planting on **Rich Soil** (🪙14 a tile) raise the odds. Rosa pays +25% for silver and +60% for gold, and sells your best ones first. Your bag shows how many of each you have.
+- **Animals.** Build a **Chicken Coop** (🪙400, up to 4 chickens) or a **Barn** (🪙1,200, up to 4 cows or sheep), then tap it to buy animals:
+
+  | Animal | Price | Gives |
+  |---|---|---|
+  | Chicken | 🪙120 | an egg a day |
+  | Cow | 🪙650 | milk a day |
+  | Sheep | 🪙500 | wool every 2 days |
+
+  - Feed them **hay** (from Rosa) or **wheat** once a day. Each morning, fed animals make their product; tap the building to **Collect**.
+  - **Pet** them daily. Happier animals make better-quality goods; hungry ones get sad.
+  - They wander around their home during the day. A farmhand feeds them from your bag and collects for you.
+  - You can't tear down a coop or barn with animals inside: sell them first (half price).
+  - New machines and recipes:
+    - **Cheese Press:** milk → cheese.
+    - **Loom:** wool → cloth.
+    - **Bakery Oven:** wheat, eggs and milk → Farmhouse Cake; wheat → bread.
+    - **Juice Press:** melon juice.
+    - **Soup Pot:** corn & kale soup.
 - **Watering.** Watered crops grow twice as fast while the soil stays wet (one in-game day; wet soil looks dark). Buy a **watering can** from Rosa and walking through your rows waters them.
 - **Water and electricity.** At City Hall, hook up **💧 water** (🪙100 setup + 🪙120 a month) or **⚡ electricity** (🪙150 + 🪙200 a month). Bills go to the city treasury every 28 days. If you can't pay, the service is cut off until you settle up at City Hall.
   - Water gives you a **ground spout** and electricity a **power box**. Place either anywhere on your plot from Build → Bag.

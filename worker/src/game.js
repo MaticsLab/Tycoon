@@ -2,7 +2,7 @@ import { generateWorld, applyRoads, worldClock, publicAreaAt, plotIdAtPixel, TIL
 import { City } from './city.js';
 import { roomRegion, roomTiles as roomTilesOf, extract, stockFragment, rotateTimes, removeAt, placeError as fragError, applyAt, fragmentValue, cleanFragment } from '../../shared/blueprint.js';
 import { STYLED_ROOMS } from '../../shared/rooms.js';
-import { ITEMS, GOODS, CROPS, START_COINS, cropStage, isWet, itemName } from '../../shared/catalog.js';
+import { ITEMS, GOODS, CROPS, START_COINS, cropStage, isWet, isSoil, itemName } from '../../shared/catalog.js';
 import {
   key, inInterior, tilesOf, footprint, objAt, featurePair, featureWidth, occChanged, placementError, canStand, levelView, canRotate,
   edgeKey, parseEdge, wallError, wallTouchesFeet, roofError, roofAt, indexPlots, roadIn, roadEditError, plotEntrance,
@@ -15,8 +15,32 @@ import { Npc, parseAiReply, REPLY_SCHEMA, setMarket } from './npc.js';
 import { Life } from './life.js';
 import { Business } from './business.js';
 import { Farm } from './farm.js';
-import { waterCrop, WET_MS } from '../../shared/farm.js';
+import { waterCrop, WET_MS, QUALITY, ANIMALS } from '../../shared/farm.js';
 import { NPC_ACTS, readTone, blendTone } from '../../shared/village.js';
+
+// Change a bag's contents, keeping count of silver and gold ones (profile.qual[item] =
+// [silver, gold]; the rest are normal).
+export function changeInv(p, item, delta, q = 0, best = false) {
+  const inv = p.inv;
+  const have = Math.max(0, inv[item] || 0);
+  const qual = (p.qual ||= {});
+  const ql = qual[item] ? [...qual[item]] : [0, 0];
+  const took = [0, 0, 0];
+  if (delta > 0 && q) ql[q - 1] += delta;
+  else if (delta < 0) {
+    let n = Math.min(-delta, have);
+    for (const t of best ? [2, 1, 0] : [0, 1, 2]) {
+      const avail = t ? ql[t - 1] : Math.max(0, have - ql[0] - ql[1]);
+      const k = Math.min(n, avail);
+      took[t] += k; n -= k;
+      if (t) ql[t - 1] -= k;
+    }
+  }
+  inv[item] = have + delta;
+  if (inv[item] <= 0) delete inv[item];
+  if (inv[item] && (ql[0] > 0 || ql[1] > 0)) qual[item] = ql; else delete qual[item];
+  return took;
+}
 
 const randomHex = (n) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, '0')).join('');
 const clean = (s, max) => String(s ?? '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, max);
@@ -223,6 +247,7 @@ export class Game {
       case 'park': return this.farm.park(s);
       case 'rideMode': return this.farm.rideMode(s, msg);
       case 'farmWork': return this.farm.work(s, msg);
+      case 'animal': return this.farm.animal(s, msg);
     }
   }
 
@@ -332,7 +357,7 @@ export class Game {
       city: this.city.view(this.day(), profile),
       drops: this.farm.drops,
       market: this.farm.marketView(),
-      util: profile.util || {}, hand: profile.hand || null,
+      util: profile.util || {}, hand: profile.hand || null, qual: profile.qual || {},
     });
     this.broadcast({ type: 'join', player: this.publicPlayer(s) }, s);
     this.life.send(s);
@@ -406,12 +431,14 @@ export class Game {
     this.markProfile(s.profile);
   }
 
-  bag(s, item, delta) {
-    const inv = s.profile.inv;
-    inv[item] = (inv[item] || 0) + delta;
-    if (inv[item] <= 0) delete inv[item];
-    s.send({ type: 'inv', inv });
+  // Add (or take, delta < 0) items. q: quality of what's added (0, 1 ★, 2 ★★). Taking
+  // uses up normal ones first, or the best first (best: selling). Returns how many of
+  // each quality were taken.
+  bag(s, item, delta, q = 0, best = false) {
+    const took = changeInv(s.profile, item, delta, q, best);
+    s.send({ type: 'inv', inv: s.profile.inv, qual: s.profile.qual || {} });
     this.markProfile(s.profile);
+    return took;
   }
 
   plotChanged(plot) {
@@ -451,7 +478,7 @@ export class Game {
     if (![0, 1, 2, 3].includes(r)) r = 0;
     level = this.lvl(level);
     const def = ITEMS[item];
-    const err = placementError(plot, lx, ly, item, r, level, this.world);
+    const err = placementError(plot, lx, ly, item, r, level, this.world) || (def?.crop && this.farm.seasonError(def.crop, plot, lx, ly));
     if (err) return s.send({ type: 'error', msg: err });
     const view = levelView(plot, level);
     const k = key(lx, ly);
@@ -662,6 +689,7 @@ export class Game {
     }
     const view = levelView(plot, level);
     const hit = objAt(view, lx, ly);
+    if (hit?.obj.animals?.length) return s.send({ type: 'error', msg: `Sell or move out the animals first (tap the ${ITEMS[hit.obj.t].name.toLowerCase()})` });
     if (hit) {
       delete view.obj[hit.key];
       const def = ITEMS[hit.obj.t];
@@ -738,7 +766,7 @@ export class Game {
     const refundOn = !s.cheats.build;
     let coins = 0;
     const bag = {};
-    const outdoor = (f) => f === 'soil' || f === 'floor_stone';
+    const outdoor = (f) => isSoil(f) || f === 'floor_stone';
     for (let l = 0; l < 2; l++) {
       const view = levelView(plot, l);
       for (const [k, o] of Object.entries(view.obj)) {
@@ -747,6 +775,7 @@ export class Game {
         if (def.stairs && terrain) continue;
         delete view.obj[k];
         if (def.shop) bag[o.t] = (bag[o.t] || 0) + 1; else if (!def.crop) coins += def.price;
+        for (const a of o.animals || []) coins += Math.round(ANIMALS[a.k].price / 2); // sold off
       }
       for (const [k, f] of Object.entries(view.floor)) {
         if (terrain && !(l === 0 && outdoor(f))) continue;
@@ -1045,7 +1074,7 @@ export class Game {
     const now = this.now();
     const keys = Array.isArray(tiles) ? tiles.slice(0, 64).filter((t) => Array.isArray(t) && t.every(Number.isInteger)).map(([x, y]) => key(x, y))
       : Number.isInteger(lx) ? [key(lx, ly)] : Object.keys(plot.obj);
-    const got = {};
+    const got = {}, hq = [];
     const can = s.profile.inv.wateringcan > 0;
     let watered = 0;
     for (const k of keys) {
@@ -1056,13 +1085,14 @@ export class Game {
         if (can && Array.isArray(tiles) && !isWet(o, now + WET_MS * 0.3)) { waterCrop(o, now); watered++; }
         continue;
       }
-      const crop = ITEMS[o.t].crop;
+      const { crop, q } = this.farm.yieldOf(plot, k, now);
       got[crop] = (got[crop] || 0) + 1;
+      hq.push([crop, q]);
       delete plot.obj[k];
     }
     if (!Object.keys(got).length) { if (watered) this.plotChanged(plot); return; }
-    for (const [crop, n] of Object.entries(got)) this.bag(s, crop, n);
-    s.send({ type: 'harvested', items: got });
+    for (const [crop, q] of hq) this.bag(s, crop, 1, q);
+    s.send({ type: 'harvested', items: got, ...this.farm.qualCount(hq) });
     this.plotChanged(plot);
   }
 
@@ -1199,8 +1229,9 @@ export class Game {
     if (!n || !n.def.buys.includes(item)) return;
     qty = Math.min(qty, s.profile.inv[item] || 0);
     if (!qty) return s.send({ type: 'error', msg: `You don't have any ${itemName(item)}` });
-    const price = n.price(s.profile, item, false) * qty;
-    this.bag(s, item, -qty);
+    const unit = n.price(s.profile, item, false);
+    const took = this.bag(s, item, -qty, 0, true); // the best ones first
+    const price = took.reduce((a, k, q) => a + k * Math.round(unit * QUALITY[q].mult), 0);
     this.farm.onSold(item, qty);
     this.coins(s, price);
     this.trade(s, n, 0.3, `${s.profile.name} sold me good produce`, `${qty} ${itemName(item)}${qty > 1 ? 's' : ''}? Lovely — here's ${price} coins.`);

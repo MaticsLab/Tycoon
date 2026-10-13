@@ -62,6 +62,7 @@ export const ITEMS = {
   roof_blue:     { name: 'Slate Blue',    cat: 'roof', layer: 'roof', price: 3, color: '#3f5f86' },
   roof_green:    { name: 'Moss Green',    cat: 'roof', layer: 'roof', price: 3, color: '#4f7a3a' },
   roof_thatch:   { name: 'Thatch',        cat: 'roof', layer: 'roof', price: 2, color: '#c9a24c' },
+  roof_glass:    { name: 'Greenhouse Glass', cat: 'roof', layer: 'roof', price: 6, color: '#a9d8e8' },
 
   floor_wood:    { name: 'Wood Floor',   cat: 'floor', layer: 'floor', price: 4 },
   floor_tile:    { name: 'Tile Floor',   cat: 'floor', layer: 'floor', price: 5 },
@@ -159,10 +160,19 @@ export const ITEMS = {
   stall:         { name: 'Market Stall',  cat: 'public', layer: 'obj', price: 0, solid: true, size: [3, 2] },
 
   soil:          { name: 'Tilled Soil',  cat: 'farm', layer: 'floor', price: 2 },
+  soil_rich:     { name: 'Rich Soil',    cat: 'farm', layer: 'floor', price: 14 },   // fertilised: better crops
   seed_turnip:   { name: 'Turnip Seeds', cat: 'farm', layer: 'obj', price: 5, crop: 'turnip' },
   seed_carrot:   { name: 'Carrot Seeds', cat: 'farm', layer: 'obj', price: 10, crop: 'carrot' },
   seed_berry:    { name: 'Strawberry',   cat: 'farm', layer: 'obj', price: 18, crop: 'berry' },
   seed_pumpkin:  { name: 'Pumpkin Seeds', cat: 'farm', layer: 'obj', price: 30, crop: 'pumpkin' },
+  seed_wheat:    { name: 'Wheat Seeds',  cat: 'farm', layer: 'obj', price: 4, crop: 'wheat' },
+  seed_corn:     { name: 'Corn Seeds',   cat: 'farm', layer: 'obj', price: 14, crop: 'corn' },
+  seed_melon:    { name: 'Melon Seeds',  cat: 'farm', layer: 'obj', price: 35, crop: 'melon' },
+  seed_kale:     { name: 'Kale Seeds',   cat: 'farm', layer: 'obj', price: 12, crop: 'kale' },
+  // Animal houses: buy animals from the coop / barn, feed them hay or wheat every day,
+  // collect what they make the next morning.
+  coop:          { name: 'Chicken Coop', cat: 'farm', layer: 'obj', price: 400, solid: true, size: [2, 2], rot: 'face', animals: ['chicken'], cap: 4 },
+  barn:          { name: 'Barn',         cat: 'farm', layer: 'obj', price: 1200, solid: true, size: [3, 3], rot: 'face', animals: ['cow', 'sheep'], cap: 4 },
   scarecrow:     { name: 'Scarecrow',    cat: 'farm', layer: 'obj', price: 15, solid: true },
 
   // Business: shelves hold stock for sale (slots), the register lets you be the cashier,
@@ -177,6 +187,8 @@ export const ITEMS = {
   juicer:        { name: 'Juice Press',    cat: 'shop', layer: 'obj', price: 75, solid: true, rot: 'face', machine: true },
   bakeryoven:    { name: 'Bakery Oven',    cat: 'shop', layer: 'obj', price: 140, solid: true, rot: 'face', machine: true, light: true },
   soupot:        { name: 'Soup Pot',       cat: 'shop', layer: 'obj', price: 50, solid: true, machine: true },
+  cheesepress:   { name: 'Cheese Press',   cat: 'shop', layer: 'obj', price: 160, solid: true, rot: 'face', machine: true },
+  loom:          { name: 'Loom',           cat: 'shop', layer: 'obj', price: 220, solid: true, size: [2, 1], rot: 'face', machine: true },
 
   // Utilities and automation. Spouts and power boxes come from City Hall (Mabel) when you
   // sign up for water or electricity; they live in your bag until you place them. Pipes and cables carry
@@ -215,6 +227,17 @@ export const GOODS = {
   pie:       { name: 'Pumpkin Pie',    kind: 'product', value: 320, icon: '🥧' },
   bread:     { name: 'Turnip Bread',   kind: 'product', value: 60, icon: '🍞' },
   soup:      { name: 'Veggie Soup',    kind: 'product', value: 75, icon: '🍲' },
+  wheat:     { name: 'Wheat',      kind: 'produce', value: 20, icon: '🌾' },
+  corn:      { name: 'Corn',       kind: 'produce', value: 45, icon: '🌽' },
+  melon:     { name: 'Melon',      kind: 'produce', value: 150, icon: '🍈' },
+  kale:      { name: 'Kale',       kind: 'produce', value: 50, icon: '🥬' },
+  egg:       { name: 'Egg',        kind: 'animal', value: 30, icon: '🥚' },
+  milk:      { name: 'Milk',       kind: 'animal', value: 65, icon: '🥛' },
+  wool:      { name: 'Wool',       kind: 'animal', value: 120, icon: '🧶' },
+  hay:       { name: 'Hay',        kind: 'feed', value: 8, icon: '🌿' },
+  cheese:    { name: 'Cheese',         kind: 'product', value: 230, icon: '🧀' },
+  cloth:     { name: 'Cloth',          kind: 'product', value: 330, icon: '🧵' },
+  cake:      { name: 'Farmhouse Cake', kind: 'product', value: 380, icon: '🎂' },
   // Tools: kept in the bag.
   wateringcan: { name: 'Watering Can', kind: 'tool', value: 40, icon: '🚿' },
 };
@@ -224,6 +247,10 @@ export const CROPS = {
   carrot:  { name: 'Carrot',     growMs: 180_000 },
   berry:   { name: 'Strawberry', growMs: 360_000 },
   pumpkin: { name: 'Pumpkin',    growMs: 720_000 },
+  wheat:   { name: 'Wheat',      growMs: 120_000 },
+  corn:    { name: 'Corn',       growMs: 240_000 },
+  melon:   { name: 'Melon',      growMs: 600_000 },
+  kale:    { name: 'Kale',       growMs: 300_000 },
 };
 // Watered crops grow twice as fast while the soil is wet: o.wf..o.wu is the current wet
 // spell, o.b the head start banked from earlier ones.
@@ -233,13 +260,17 @@ export const START_COINS = 500;
 export const itemName = (id) => ITEMS[id]?.name || GOODS[id]?.name || id;
 
 export const isWet = (obj, now) => !!obj.wu && obj.wu > now;
+export const isSoil = (f) => f === 'soil' || f === 'soil_rich';
+// The head start a crop got from being watered (ms).
+export function wetBonus(obj, now) {
+  const wet = obj.wu ? Math.max(0, Math.min(now, obj.wu) - Math.max(obj.wf || 0, obj.p || 0)) : 0;
+  return (obj.b || 0) + wet;
+}
 
 // 0..3, where 3 is ripe.
 export function cropStage(obj, now) {
   const crop = CROPS[ITEMS[obj.t]?.crop];
   if (!crop) return 0;
-  const p = obj.p || 0;
-  const wet = obj.wu ? Math.max(0, Math.min(now, obj.wu) - Math.max(obj.wf || 0, p)) : 0;
-  const f = (now - p + (obj.b || 0) + wet) / crop.growMs;
+  const f = (now - (obj.p || 0) + wetBonus(obj, now)) / crop.growMs;
   return f >= 1 ? 3 : Math.min(2, Math.floor(f * 3));
 }

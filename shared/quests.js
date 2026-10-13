@@ -12,7 +12,7 @@ export const MAX_QUESTS = 3;
 
 // What each villager tends to ask for.
 const WANTS = {
-  rosa: { deliver: ['turnip', 'carrot', 'berry', 'pumpkin'], build: ['stove', 'table', 'counter', 'island', 'houseplant'], do: ['cook', 'snack'], visit: ['otto', 'juniper', 'mabel'] },
+  rosa: { deliver: ['turnip', 'carrot', 'berry', 'pumpkin', 'egg', 'milk', 'corn'], build: ['stove', 'table', 'counter', 'island', 'houseplant'], do: ['cook', 'snack'], visit: ['otto', 'juniper', 'mabel'] },
   otto: { deliver: ['honeycake', 'bookgift', 'tea'], build: ['chair', 'bookshelf', 'rockingchair', 'desk', 'wardrobe'], do: ['read', 'sit'], visit: ['rosa', 'mabel'] },
   juniper: { deliver: ['berry', 'pumpkin', 'bouquet', 'tea'], build: ['houseplant', 'monstera', 'cactus', 'succulents', 'flowerbed', 'birdbath'], do: ['paint', 'stars', 'nap'], visit: ['rosa', 'otto', 'mabel'] },
   mabel: { deliver: ['tea', 'bookgift', 'honeycake'], build: ['desk', 'bookshelf', 'lowshelf', 'grandclock'], do: ['read', 'music'], visit: ['otto', 'juniper', 'rosa'] },

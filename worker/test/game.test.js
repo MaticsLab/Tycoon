@@ -1346,3 +1346,82 @@ test('farm life: drop and give, City Hall water and power, sprinklers, harvester
   assert.ok(rosa.price(sa.profile, 'turnip', false) < p0);
   assert.ok(FARMHANDS.clem.wage > 0);
 });
+
+test('seasons, greenhouses, crop quality and farm animals', async () => {
+  const { HOUR_MS } = await import('../../shared/needs.js');
+  const { seasonOf } = await import('../../shared/farm.js');
+  const { game, join, advance } = setup();
+  const a = await join({ name: 'Ana' });
+  const sa = a.session();
+  a.send({ type: 'cheat', cmd: 'testingcheats true' });
+  a.send({ type: 'cheat', cmd: 'motherlode' });
+  a.send({ type: 'claim', plotId: 0 });
+  const plot = game.plots[0];
+  const day = () => game.day();
+  game.tick();
+  assert.equal(seasonOf(day()).id, 'spring');
+
+  // Melons are a summer crop; turnips grow in spring.
+  for (const [x, y] of [[2, 12], [3, 12], [4, 12]]) a.send({ type: 'place', plotId: 0, lx: x, ly: y, item: 'soil' });
+  a.send({ type: 'place', plotId: 0, lx: 2, ly: 12, item: 'seed_melon' });
+  assert.match(a.last('error').msg, /only grows in Summer/);
+  a.send({ type: 'place', plotId: 0, lx: 2, ly: 12, item: 'seed_turnip' });
+  assert.equal(plot.obj['2,12'].t, 'seed_turnip');
+  // A greenhouse (a roof over the soil) grows anything.
+  a.send({ type: 'roof', plotId: 0, x: 4, y: 12, w: 1, h: 1, m: 'roof_glass' });
+  a.send({ type: 'place', plotId: 0, lx: 4, ly: 12, item: 'seed_melon' });
+  assert.equal(plot.obj['4,12']?.t, 'seed_melon');
+
+  // Quality: rich soil and watering make silver and gold crops, and Rosa pays more for them.
+  a.send({ type: 'place', plotId: 0, lx: 6, ly: 12, item: 'soil_rich' });
+  a.send({ type: 'place', plotId: 0, lx: 6, ly: 12, item: 'seed_turnip' });
+  const rnd = Math.random;
+  Math.random = () => 0.16;
+  try {
+    advance(61_000);
+    a.send({ type: 'harvest', plotId: 0, lx: 6, ly: 12 });
+    a.send({ type: 'harvest', plotId: 0, lx: 2, ly: 12 });
+  } finally { Math.random = rnd; }
+  assert.equal(sa.profile.inv.turnip, 2);
+  assert.deepEqual(sa.profile.qual.turnip, [0, 1], 'the rich-soil turnip is gold, the plain one normal');
+  const rosa = game.npcs.rosa;
+  game.npcs.rosa.x = sa.x; game.npcs.rosa.y = sa.y + 12;
+  const unit = rosa.price(sa.profile, 'turnip', false);
+  const c0 = sa.profile.coins;
+  a.send({ type: 'sell', npc: 'rosa', item: 'turnip', qty: 1 });
+  assert.equal(sa.profile.coins - c0, Math.round(unit * 1.6), 'sold the gold one first');
+  assert.equal(sa.profile.qual.turnip, undefined);
+
+  // Animals: a coop, a chicken, hay; fed today -> an egg tomorrow morning.
+  a.send({ type: 'place', plotId: 0, lx: 10, ly: 4, item: 'coop' });
+  const coop = plot.obj['10,4'];
+  sa.x = (plot.x + 11) * TILE; sa.y = (plot.y + 6.6) * TILE;
+  a.send({ type: 'animal', plotId: 0, lx: 10, ly: 4, act: 'buy', kind: 'chicken' });
+  a.send({ type: 'animal', plotId: 0, lx: 10, ly: 4, act: 'buy', kind: 'cow' });
+  assert.equal(coop.animals.length, 1, 'cows live in barns');
+  a.send({ type: 'animal', plotId: 0, lx: 10, ly: 4, act: 'feed' });
+  assert.match(a.last('error').msg, /hay/);
+  a.send({ type: 'cheat', cmd: 'give hay 3' });
+  a.send({ type: 'animal', plotId: 0, lx: 10, ly: 4, act: 'feed' });
+  a.send({ type: 'animal', plotId: 0, lx: 10, ly: 4, act: 'pet' });
+  assert.equal(sa.profile.inv.hay, 2);
+  assert.equal(coop.animals[0].love, 34);
+  // The coop can't be torn down with a chicken in it.
+  a.send({ type: 'remove', plotId: 0, lx: 10, ly: 4 });
+  assert.ok(plot.obj['10,4']);
+  advance(24 * HOUR_MS); game.tick();
+  assert.equal(coop.goods?.length, 1);
+  a.send({ type: 'animal', plotId: 0, lx: 10, ly: 4, act: 'collect' });
+  assert.equal(sa.profile.inv.egg, 1);
+  // Not fed: no egg, and a sad chicken.
+  advance(24 * HOUR_MS); game.tick();
+  assert.equal(coop.goods, undefined);
+  assert.ok(coop.animals[0].love < 40);
+
+  // Summer: the plain turnip patch withers, the greenhouse melon doesn't.
+  a.send({ type: 'place', plotId: 0, lx: 3, ly: 12, item: 'seed_turnip' });
+  while (seasonOf(day()).id === 'spring') { advance(24 * HOUR_MS); game.tick(); }
+  assert.equal(plot.obj['3,12'], undefined, 'withered');
+  assert.equal(plot.obj['4,12']?.t, 'seed_melon', 'safe in the greenhouse');
+  assert.match(a.inbox.filter((m) => m.type === 'toast').map((m) => m.text).join('|'), /Summer has arrived/);
+});

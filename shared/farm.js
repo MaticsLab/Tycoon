@@ -6,9 +6,64 @@
 //   network. Powered shop machines work twice as fast.
 //   Farmhands water, harvest and replant your crops for a daily wage.
 //   The tractor is driven: harvest, plant, till or water a 3-wide strip as you go.
-import { ITEMS } from './catalog.js';
-import { key, tilesOf } from './plot.js';
-import { DAY_MS } from './world.js';
+import { ITEMS, CROPS, wetBonus } from './catalog.js';
+import { key, tilesOf, roofAt } from './plot.js';
+import { DAY_MS, DAYS_PER_YEAR } from './world.js';
+
+// ---------- seasons ----------
+// Four 28-day seasons a year. Crops only grow in their seasons; when the season turns,
+// anything out of season withers.
+export const SEASON_DAYS = 28;
+export const SEASONS = [
+  { id: 'spring', name: 'Spring', icon: '🌸' },
+  { id: 'summer', name: 'Summer', icon: '☀️' },
+  { id: 'fall', name: 'Fall', icon: '🍂' },
+  { id: 'winter', name: 'Winter', icon: '❄️' },
+];
+export const seasonIndex = (day) => Math.floor((((day - 1) % DAYS_PER_YEAR) + DAYS_PER_YEAR) % DAYS_PER_YEAR / SEASON_DAYS);
+export const seasonOf = (day) => SEASONS[seasonIndex(day)];
+export const seasonDay = (day) => ((((day - 1) % SEASON_DAYS) + SEASON_DAYS) % SEASON_DAYS) + 1;
+export const CROP_SEASONS = {
+  turnip: ['spring', 'fall'], carrot: ['spring', 'summer', 'fall'], berry: ['spring', 'summer'], pumpkin: ['fall'],
+  wheat: ['spring', 'summer', 'fall'], corn: ['summer', 'fall'], melon: ['summer'], kale: ['winter'],
+};
+export const inSeason = (crop, day) => !!CROP_SEASONS[crop]?.includes(seasonOf(day).id);
+// Under a roof (a greenhouse) anything grows, whatever the season.
+export const growsAt = (plot, lx, ly, crop, day) => inSeason(crop, day) || roofAt(plot, lx, ly, 0) >= 0;
+export const seasonsLabel = (crop) => (CROP_SEASONS[crop] || []).map((id) => SEASONS.find((x) => x.id === id).icon).join('');
+
+// ---------- quality ----------
+// Crops and animal goods come in normal, silver ★ and gold ★★. Watering and rich soil
+// make better crops; happy, well-fed animals make better goods. Better sells for more.
+export const QUALITY = [
+  { name: '', icon: '', mult: 1 },
+  { name: 'Silver', icon: '★', mult: 1.25 },
+  { name: 'Gold', icon: '★★', mult: 1.6 },
+];
+// score 0..1 -> quality, with a random roll r (0..1).
+export function rollQuality(score, r) {
+  if (r < score * 0.45) return 2;
+  if (r < score) return 1;
+  return 0;
+}
+// How good a crop at harvest can be: watered for its whole growth and on rich soil is best.
+export function cropScore(o, floor, now) {
+  const g = CROPS[ITEMS[o.t]?.crop]?.growMs || 1;
+  const water = Math.max(0, Math.min(1, (wetBonus(o, now) / g) * 2));
+  return Math.min(1, 0.15 + 0.45 * water + (floor === 'soil_rich' ? 0.4 : 0));
+}
+
+// ---------- animals ----------
+// Bought at their coop or barn, fed hay (Rosa sells it) or wheat once a day. A fed
+// animal makes its product the next morning (sheep every other day); happiness (love)
+// goes up when fed and petted, down when hungry, and decides the quality.
+export const ANIMALS = {
+  chicken: { name: 'Chicken', icon: '🐔', price: 120, makes: 'egg', every: 1, home: 'coop' },
+  cow: { name: 'Cow', icon: '🐄', price: 650, makes: 'milk', every: 1, home: 'barn' },
+  sheep: { name: 'Sheep', icon: '🐑', price: 500, makes: 'wool', every: 2, home: 'barn' },
+};
+export const FEEDS = ['hay', 'wheat'];
+export const ANIMAL_NAMES = ['Clucky', 'Daisy', 'Buttercup', 'Pip', 'Nugget', 'Biscuit', 'Clover', 'Maple', 'Waffles', 'Pebble', 'Dumpling', 'Mabel Jr.', 'Turnip', 'Moonpie', 'Bramble', 'Hazel', 'Peaches', 'Fluffy', 'Wooly', 'Bessie'];
 
 export const MONTH_DAYS = 28;
 export const WET_MS = DAY_MS;            // watered soil stays wet for a day

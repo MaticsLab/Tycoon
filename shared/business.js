@@ -14,6 +14,12 @@ export const RECIPES = {
   pie:   { machine: 'bakeryoven', out: 'pie', n: 1, needs: { pumpkin: 1, berry: 1 }, hours: 4, label: 'Pumpkin Pie' },
   bread: { machine: 'bakeryoven', out: 'bread', n: 2, needs: { turnip: 3 }, hours: 2, label: 'Turnip Bread ×2' },
   soup:  { machine: 'soupot', out: 'soup', n: 2, needs: { turnip: 1, carrot: 1 }, hours: 2, label: 'Veggie Soup ×2' },
+  cornsoup: { machine: 'soupot', out: 'soup', n: 2, needs: { corn: 1, kale: 1 }, hours: 2, label: 'Corn & Kale Soup ×2' },
+  cake:  { machine: 'bakeryoven', out: 'cake', n: 1, needs: { wheat: 2, egg: 2, milk: 1 }, hours: 3, label: 'Farmhouse Cake' },
+  wheatbread: { machine: 'bakeryoven', out: 'bread', n: 3, needs: { wheat: 3 }, hours: 2, label: 'Wheat Bread ×3' },
+  melonjuice: { machine: 'juicer', out: 'juice', n: 2, needs: { melon: 1 }, hours: 1.5, label: 'Melon Juice ×2' },
+  cheese: { machine: 'cheesepress', out: 'cheese', n: 1, needs: { milk: 2 }, hours: 3, label: 'Cheese' },
+  cloth: { machine: 'loom', out: 'cloth', n: 1, needs: { wool: 2 }, hours: 4, label: 'Cloth' },
 };
 export const recipesFor = (machine) => Object.entries(RECIPES).filter(([, r]) => r.machine === machine).map(([id, r]) => ({ id, ...r }));
 

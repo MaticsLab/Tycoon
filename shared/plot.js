@@ -11,7 +11,7 @@
 //                   d = 'h' is the top edge of tile (x, y), 'v' its left edge.
 //   roofs           [{ x, y, w, h, l, m }] gable roofs over a rectangle at level l
 // Objects are stored once at their anchor (top-left) tile: obj["x,y"] = { t, r }.
-import { ITEMS } from './catalog.js';
+import { ITEMS, isSoil } from './catalog.js';
 import { TILE, MAP_W, MAP_H, SOLID_TILES, LAND, PUBLIC_AREAS, isRoad } from './world.js';
 
 export const LEVELS = 2;
@@ -241,13 +241,13 @@ export function placementError(plot, lx, ly, itemId, r = 0, level = 0, world = n
   if (item.layer === 'floor') {
     if (!inInterior(plot, lx, ly)) return 'Outside your plot';
     if (roadIn(world, plot, lx, ly)) return roadMsg;
-    if (level && itemId === 'soil') return 'Soil only works outdoors';
+    if (level && isSoil(itemId)) return 'Soil only works outdoors';
     if (level && isStairTile(plot, lx, ly)) return 'That’s the stairwell';
     const k = key(lx, ly);
     if (view.floor[k] === itemId) return 'Already there';
     const here = objAt(view, lx, ly);
     if (here && ITEMS[here.obj.t]?.crop) return 'Harvest the crop first';
-    if (view.floor[k] === 'soil' && here) return 'Clear it first';
+    if (isSoil(view.floor[k]) && here) return 'Clear it first';
     return null;
   }
   if (item.layer !== 'obj') return 'Use the wall tools for that';
@@ -266,7 +266,7 @@ export function placementError(plot, lx, ly, itemId, r = 0, level = 0, world = n
     const e = edgeBetween(ax, ay, bx, by);
     if (e && wallAt(plot, level, ...e)) return 'A wall is in the way';
   }
-  if (item.crop && (level || view.floor[key(lx, ly)] !== 'soil')) return 'Seeds need tilled soil';
+  if (item.crop && (level || !isSoil(view.floor[key(lx, ly)]))) return 'Seeds need tilled soil';
   return null;
 }
 

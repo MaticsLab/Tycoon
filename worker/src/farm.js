@@ -1,12 +1,16 @@
 // Farm life on the server: things dropped on the ground, gifts between players, City Hall
 // utilities (water, electricity) with monthly bills, sprinklers, the auto-harvester,
 // hired farmhands, the tractor, and Rosa's market prices moving with supply.
-import { ITEMS, GOODS, CROPS, cropStage, isWet, itemName } from '../../shared/catalog.js';
+import { ITEMS, GOODS, CROPS, cropStage, isWet, isSoil, itemName } from '../../shared/catalog.js';
 import { key, inInterior, roadIn, levelView, objAt, footprint, tilesOf, placementError } from '../../shared/plot.js';
 import { TILE, plotIdAtPixel } from '../../shared/world.js';
 import { HOUR_MS } from '../../shared/needs.js';
 import { NPCS } from '../../shared/npcs.js';
-import { UTILITIES, FARMHANDS, MONTH_DAYS, WET_MS, TRACTOR_MODES, connected, reachOf, waterCrop, seedFor } from '../../shared/farm.js';
+import {
+  UTILITIES, FARMHANDS, MONTH_DAYS, WET_MS, TRACTOR_MODES, connected, reachOf, waterCrop, seedFor,
+  QUALITY, rollQuality, cropScore, ANIMALS, FEEDS, ANIMAL_NAMES, SEASONS, CROP_SEASONS, seasonOf, seasonIndex, inSeason, growsAt,
+} from '../../shared/farm.js';
+import { changeInv } from './game.js';
 
 const MAX_DROPS = 200;
 const DROP_LIFE = 2 * 3600_000;   // real time: things left lying around for 2 hours are swept up
@@ -37,12 +41,30 @@ export class Farm {
     g.city.onCoins(delta);
     g.markProfile(p);
   }
-  give(p, item, n) {
+  give(p, item, n, q = 0) {
     const g = this.game, s = g.sessions.get(p.id);
-    if (s) return g.bag(s, item, n);
-    p.inv[item] = (p.inv[item] || 0) + n;
-    if (p.inv[item] <= 0) delete p.inv[item];
+    if (s) return g.bag(s, item, n, q);
+    const took = changeInv(p, item, n, q);
     g.markProfile(p);
+    return took;
+  }
+
+  // ---------- crops: seasons and quality ----------
+  // What a ripe crop gives: { crop, q } (quality from watering and the soil).
+  yieldOf(plot, k, now) {
+    const o = plot.obj[k];
+    return { crop: ITEMS[o.t].crop, q: rollQuality(cropScore(o, plot.floor[k], now), Math.random()) };
+  }
+  qualCount(list) {
+    const out = { silver: 0, gold: 0 };
+    for (const [, q] of list) { if (q === 1) out.silver++; else if (q === 2) out.gold++; }
+    return out;
+  }
+  season() { return seasonOf(this.game.day()); }
+  seasonError(crop, plot, lx, ly) {
+    if (plot ? growsAt(plot, lx, ly, crop, this.game.day()) : inSeason(crop, this.game.day())) return null;
+    const when = CROP_SEASONS[crop].map((id) => SEASONS.find((x) => x.id === id).name).join(' and ');
+    return `${itemName(crop)} only grows in ${when} (it’s ${this.season().name} now). Under a roof — a greenhouse — anything grows.`;
   }
   tell(p, text) { this.game.sessions.get(p.id)?.send({ type: 'toast', text }); }
   ownerOf(plot) { return plot.owner && Object.values(this.game.profiles).find((p) => p.id === plot.owner); }
@@ -54,13 +76,13 @@ export class Farm {
     if (!(inv[item] > 0)) return;
     if (s.ride && item === 'tractor') return s.send({ type: 'error', msg: 'Park the tractor first' });
     n = Math.min(n, inv[item]);
-    this.game.bag(s, item, -n);
+    const took = this.game.bag(s, item, -n);
     const now = this.game.now();
     // Stack onto something of yours already lying right here.
     const near = this.drops.find((d) => d.item === item && d.level === (s.level || 0) && Math.hypot(d.x - s.x, d.y - s.y) < TILE * 0.5);
-    if (near) { near.n += n; near.t = now; near.by = s.profile.id; this.game.broadcast({ type: 'drop', drop: near }); }
+    if (near) { near.n += n; near.q = (near.q || [near.n - n, 0, 0]).map((v, i) => v + took[i]); near.t = now; near.by = s.profile.id; this.game.broadcast({ type: 'drop', drop: near }); }
     else {
-      const d = { id: this.nextId++, item, n, x: Math.round(s.x), y: Math.round(s.y + 4), level: s.level || 0, by: s.profile.id, t: now };
+      const d = { id: this.nextId++, item, n, q: took, x: Math.round(s.x), y: Math.round(s.y + 4), level: s.level || 0, by: s.profile.id, t: now };
       this.drops.push(d);
       while (this.drops.length > MAX_DROPS) this.game.broadcast({ type: 'dropGone', id: this.drops.shift().id });
       this.game.broadcast({ type: 'drop', drop: d });
@@ -79,7 +101,7 @@ export class Farm {
         if (d.level !== (s.level || 0) || Math.abs(d.x - s.x) > TILE * 0.6 || Math.abs(d.y - s.y) > TILE * 0.6) continue;
         if (d.by === s.profile.id && now - d.t < 4000) continue;
         this.drops.splice(i, 1);
-        this.game.bag(s, d.item, d.n);
+        (d.q || [d.n, 0, 0]).forEach((k, q) => { if (k) this.game.bag(s, d.item, k, q); });
         s.send({ type: 'toast', text: `Picked up ${d.n} × ${itemName(d.item)}` });
         this.game.broadcast({ type: 'dropGone', id: d.id, by: s.profile.id });
         this.mark();
@@ -115,8 +137,8 @@ export class Farm {
     if (!(s.profile.inv[item] > 0)) return;
     if (s.ride && item === 'tractor') return s.send({ type: 'error', msg: 'Park the tractor first' });
     n = Math.min(n, s.profile.inv[item]);
-    g.bag(s, item, -n);
-    g.bag(o, item, n);
+    const took = g.bag(s, item, -n);
+    took.forEach((k, q) => { if (k) g.bag(o, item, k, q); });
     s.send({ type: 'toast', text: `🎁 You gave ${o.profile.name} ${n} × ${itemName(item)}` });
     o.send({ type: 'gifted', from: s.profile.name, text: `🎁 ${s.profile.name} gave you ${n} × ${itemName(item)}!` });
   }
@@ -223,6 +245,8 @@ export class Farm {
         g.markProfile(p);
       }
     }
+    this.seasonTurn(day);
+    this.animalsDay(day);
     // The market: Rosa's pick of the day pays 50% more.
     const crops = NPCS.rosa.buys;
     this.market.pick = crops[Math.floor(Math.random() * crops.length)];
@@ -265,12 +289,14 @@ export class Farm {
   }
 
   // Pick a ripe crop at `k` for `p`; replant it if they can afford the seed.
-  pick(plot, k, p, now, replant) {
+  pick(plot, k, p, now, replant, got) {
     const o = plot.obj[k];
-    const crop = ITEMS[o.t].crop;
-    this.give(p, crop, 1);
-    p.stats ||= {};
-    const seed = replant && seedFor(crop);
+    const { crop, q } = this.yieldOf(plot, k, now);
+    this.give(p, crop, 1, q);
+    got.items[crop] = (got.items[crop] || 0) + 1;
+    got.hq.push([crop, q]);
+    const [kx, ky] = k.split(',').map(Number);
+    const seed = replant && growsAt(plot, kx, ky, crop, this.game.day()) && seedFor(crop);
     if (seed && p.coins >= ITEMS[seed].price) {
       this.pay(p, -ITEMS[seed].price);
       const wet = isWet(o, now) ? { wf: now, wu: o.wu } : {};
@@ -297,7 +323,7 @@ export class Farm {
       if (!plot.owner || (!plot.util && !plot.hand)) continue;
       let changed = false;
       const owner = (plot.util?.power || plot.hand) && this.ownerOf(plot);
-      const got = {};
+      const got = { items: {}, hq: [] };
       for (const [k, o] of Object.entries(plot.obj)) {
         const d = ITEMS[o.t];
         if (!d?.needs || !d.reach) continue;
@@ -310,17 +336,13 @@ export class Farm {
         } else if (o.t === 'harvester' && owner) {
           for (const c of reachOf(plot, k)) {
             if (cropStage(plot.obj[c], now) < 3) continue;
-            const crop = this.pick(plot, c, owner, now, true);
-            got[crop] = (got[crop] || 0) + 1;
+            this.pick(plot, c, owner, now, true, got);
             changed = true;
           }
         }
       }
       if (handsDue && plot.hand && owner) changed = this.handWork(plot, owner, now, got) || changed;
-      if (Object.keys(got).length) {
-        const s = g.sessions.get(owner.id);
-        s?.send({ type: 'harvested', items: got, auto: true });
-      }
+      if (got.hq.length) g.sessions.get(owner.id)?.send({ type: 'harvested', items: got.items, ...this.qualCount(got.hq), auto: true });
       if (changed) g.plotChanged(plot);
     }
   }
@@ -335,8 +357,7 @@ export class Farm {
     for (const [k, o] of crops) {
       if (left <= 0) break;
       if (cropStage(o, now) < 3) continue;
-      const crop = this.pick(plot, k, owner, now, true);
-      got[crop] = (got[crop] || 0) + 1;
+      this.pick(plot, k, owner, now, true, got);
       left--; did = true;
     }
     for (const [k] of crops) {
@@ -347,6 +368,124 @@ export class Farm {
       left--; did = true;
     }
     return did;
+  }
+
+  // ---------- seasons ----------
+  // A new season: crops that don't grow in it wither (frost in winter).
+  seasonTurn(day) {
+    const g = this.game, idx = seasonIndex(day);
+    if (this.market.season === idx) return;
+    const first = this.market.season == null;
+    this.market.season = idx;
+    this.mark();
+    if (first) return;
+    const season = SEASONS[idx];
+    for (const plot of Object.values(g.plots)) {
+      let lost = 0;
+      for (const [k, o] of Object.entries(plot.obj)) {
+        const crop = ITEMS[o.t]?.crop;
+        const [x, y] = k.split(',').map(Number);
+        if (crop && !growsAt(plot, x, y, crop, day)) { delete plot.obj[k]; lost++; }
+      }
+      if (!lost) continue;
+      g.plotChanged(plot);
+      const owner = this.ownerOf(plot);
+      if (owner) this.tell(owner, `${season.icon} ${season.name} is here: ${lost} crop${lost > 1 ? 's' : ''} out of season withered.`);
+    }
+    g.addGossip('the village', `${season.icon} ${season.name} has arrived! ${{ spring: 'Time to plant turnips, carrots, strawberries and wheat.', summer: 'Melons and corn love the heat.', fall: 'Pumpkins and corn are in season.', winter: 'Only hardy kale grows in the frost.' }[season.id]}`);
+    g.broadcast({ type: 'toast', text: `${season.icon} ${season.name} has arrived!` });
+  }
+
+  // ---------- animals ----------
+  // Each morning: animals fed yesterday get happier and make their product; hungry ones
+  // get sad. A farmhand feeds them (from your bag) and collects for you.
+  animalsDay(day) {
+    const g = this.game;
+    for (const plot of Object.values(g.plots)) {
+      const owner = plot.owner && this.ownerOf(plot);
+      let changed = false;
+      for (const o of Object.values(plot.obj)) {
+        if (!o.animals?.length) continue;
+        changed = true;
+        if (plot.hand && owner?.hand === plot.hand) for (const a of o.animals) if (a.fed < day - 1 && this.takeFeed(owner)) a.fed = day - 1;
+        for (const a of o.animals) {
+          const A = ANIMALS[a.k];
+          if (a.fed >= day - 1) {
+            a.love = Math.min(100, (a.love || 0) + 6);
+            if (day - (a.last || 0) >= A.every) {
+              a.last = day;
+              (o.goods ||= []).push([A.makes, rollQuality(a.love / 100, Math.random())]);
+              if (o.goods.length > 16) o.goods.shift();
+            }
+          } else a.love = Math.max(0, (a.love || 0) - 12);
+        }
+        if (plot.hand && owner?.hand === plot.hand && o.goods?.length) {
+          for (const [item, q] of o.goods) this.give(owner, item, 1, q);
+          delete o.goods;
+        }
+      }
+      if (changed) g.plotChanged(plot);
+    }
+  }
+
+  takeFeed(p) {
+    for (const f of FEEDS) if (p.inv[f] > 0) { this.give(p, f, -1); return true; }
+    return false;
+  }
+
+  // Things to do at a coop or barn: { plotId, lx, ly, act: buy | feed | pet | collect | sell, kind }.
+  animal(s, { plotId, lx, ly, act, kind }) {
+    const g = this.game;
+    const plot = g.ownPlot(s, plotId);
+    if (!plot || !Number.isInteger(lx) || !Number.isInteger(ly) || s.level) return;
+    const hit = objAt(plot, lx, ly);
+    const def = hit && ITEMS[hit.obj.t];
+    if (!def?.animals) return;
+    const [ax, ay] = hit.key.split(',').map(Number);
+    const [w, h] = footprint(hit.obj.t, hit.obj.r || 0);
+    const x0 = (plot.x + ax) * TILE, y0 = (plot.y + ay) * TILE;
+    const dx = Math.max(x0 - s.x, 0, s.x - x0 - w * TILE), dy = Math.max(y0 - s.y, 0, s.y - y0 - h * TILE);
+    if (Math.hypot(dx, dy) > TILE * 2) return s.send({ type: 'error', msg: `Walk up to the ${def.name.toLowerCase()} first` });
+    const o = hit.obj, day = g.day(), list = (o.animals ||= []);
+    const say = (text) => s.send({ type: 'toast', text });
+    if (act === 'buy') {
+      const A = ANIMALS[kind];
+      if (!A || !def.animals.includes(kind)) return;
+      if (list.length >= def.cap) return s.send({ type: 'error', msg: `The ${def.name.toLowerCase()} is full (${def.cap})` });
+      if (s.profile.coins < A.price) return s.send({ type: 'error', msg: `A ${A.name.toLowerCase()} costs 🪙${A.price}` });
+      g.coins(s, -A.price);
+      const used = new Set(list.map((a) => a.n));
+      const name = ANIMAL_NAMES.find((n, i) => !used.has(n) && (i + list.length + kind.length) % 3 === 0) || ANIMAL_NAMES.find((n) => !used.has(n)) || A.name;
+      list.push({ k: kind, n: name, love: 30, fed: 0, last: day });
+      say(`${A.icon} Meet ${name}, your new ${A.name.toLowerCase()}! Feed them hay or wheat every day.`);
+    } else if (act === 'feed') {
+      const hungry = list.filter((a) => a.fed !== day);
+      if (!hungry.length) return say('Everyone’s already fed today 😊');
+      let fed = 0;
+      for (const a of hungry) { if (!this.takeFeed(s.profile)) break; a.fed = day; fed++; }
+      if (!fed) return s.send({ type: 'error', msg: 'You need hay (Rosa sells it) or wheat to feed them' });
+      say(`🌿 Fed ${fed} animal${fed > 1 ? 's' : ''}${fed < hungry.length ? ` (out of feed: ${hungry.length - fed} still hungry)` : ''}`);
+    } else if (act === 'pet') {
+      const now = list.filter((a) => a.pet !== day);
+      if (!now.length) return say('They’ve had their cuddles today ❤️');
+      for (const a of now) { a.pet = day; a.love = Math.min(100, (a.love || 0) + 4); }
+      say(`❤️ You petted ${now.map((a) => a.n).join(', ')}`);
+      g.life.onActivity(s, 'pet');
+    } else if (act === 'collect') {
+      if (!o.goods?.length) return say('Nothing to collect yet: fed animals make something each morning');
+      const items = {}, hq = [];
+      for (const [item, q] of o.goods) { g.bag(s, item, 1, q); items[item] = (items[item] || 0) + 1; hq.push([item, q]); }
+      delete o.goods;
+      s.send({ type: 'harvested', items, ...this.qualCount(hq) });
+    } else if (act === 'sell') {
+      const i = list.findLastIndex((a) => a.k === kind);
+      if (i < 0) return;
+      const [a] = list.splice(i, 1);
+      g.coins(s, Math.round(ANIMALS[a.k].price / 2));
+      say(`👋 ${a.n} went to a lovely farm down the road (+🪙${Math.round(ANIMALS[a.k].price / 2)})`);
+    } else return;
+    if (!list.length) delete o.animals;
+    g.plotChanged(plot);
   }
 
   // ---------- the tractor ----------
@@ -432,8 +571,9 @@ export class Farm {
     if (!plot || plot.owner !== s.profile.id) return;
     const now = g.now(), mode = s.ride.mode;
     if (mode === 'water' && !plot.util?.water) return s.send({ type: 'error', msg: 'The tractor fills its tank from your water: get water at City Hall' });
-    const got = {};
+    const got = {}, hq = [];
     let changed = false, spent = 0, broke = false;
+    if (mode === 'plant' && !inSeason(ITEMS[s.ride.seed].crop, g.day())) return s.send({ type: 'error', msg: this.seasonError(ITEMS[s.ride.seed].crop) });
     for (const t of tiles.slice(0, 12)) {
       if (!Array.isArray(t) || !t.every(Number.isInteger)) continue;
       const [lx, ly] = t;
@@ -442,9 +582,10 @@ export class Farm {
       const k = key(lx, ly), o = plot.obj[k];
       if (mode === 'harvest') {
         if (!o || !ITEMS[o.t]?.crop || cropStage(o, now) < 3) continue;
-        const crop = ITEMS[o.t].crop;
+        const { crop, q } = this.yieldOf(plot, k, now);
         delete plot.obj[k];
         got[crop] = (got[crop] || 0) + 1;
+        hq.push([crop, q]);
         changed = true;
       } else if (mode === 'water') {
         if (!o || !ITEMS[o.t]?.crop || cropStage(o, now) >= 3 || isWet(o, now + WET_MS * 0.3)) continue;
@@ -452,7 +593,7 @@ export class Farm {
         changed = true;
       } else if (mode === 'plant') {
         const seed = s.ride.seed;
-        if (o || plot.floor[k] !== 'soil' || placementError(plot, lx, ly, seed, 0, 0, g.world)) continue;
+        if (o || !isSoil(plot.floor[k]) || placementError(plot, lx, ly, seed, 0, 0, g.world)) continue;
         if (s.profile.coins - spent < ITEMS[seed].price) { broke = true; continue; }
         plot.obj[k] = { t: seed, p: now };
         spent += ITEMS[seed].price;
@@ -466,8 +607,8 @@ export class Farm {
       }
     }
     if (spent) g.coins(s, -spent);
-    for (const [crop, n] of Object.entries(got)) g.bag(s, crop, n);
-    if (Object.keys(got).length) s.send({ type: 'harvested', items: got, quiet: true });
+    for (const [crop, q] of hq) g.bag(s, crop, 1, q);
+    if (hq.length) s.send({ type: 'harvested', items: got, ...this.qualCount(hq), quiet: true });
     if (broke) s.send({ type: 'error', msg: 'Out of coins for seeds' });
     if (changed) g.plotChanged(plot);
   }
@@ -479,13 +620,14 @@ export class Farm {
     if (!GOODS[item] || GOODS[item].kind === 'gift') return 1;
     const sold = this.market.sold[item] || 0;
     const f = Math.max(0.55, Math.min(1.15, 1.15 - sold / 60));
-    return f * (this.market.pick === item ? 1.5 : 1);
+    const rare = CROP_SEASONS[item] && !inSeason(item, this.game.day()) ? 1.3 : 1; // out of season: scarce
+    return f * rare * (this.market.pick === item ? 1.5 : 1);
   }
   onSold(item, n) {
     this.market.sold[item] = (this.market.sold[item] || 0) + n;
     this.mark();
   }
   marketView() {
-    return { pick: this.market.pick, mult: Object.fromEntries((NPCS.rosa.buys || []).map((i) => [i, Math.round(this.sellMult(i) * 100) / 100])) };
+    return { pick: this.market.pick, season: this.season().id, mult: Object.fromEntries((NPCS.rosa.buys || []).map((i) => [i, Math.round(this.sellMult(i) * 100) / 100])) };
   }
 }
