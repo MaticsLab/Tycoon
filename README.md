@@ -44,7 +44,13 @@ You can also befriend villagers whose personalities change based on how you trea
   - **Two storeys and stairs.** Switch between *Ground floor* and *Upstairs* to build and furnish each one. Stairs (in **Walls & Stairs**) take up 1×3 tiles, can be rotated, and cut their own stairwell through the floor above. Walk onto them to go upstairs.
   - **Walls up / cutaway / down**, just like The Sims. When you walk inside a house, the walls cut away and the roof and upstairs hide automatically.
   - **Furniture** comes as small 3D models. Larger pieces span 2 or 4 tiles, and anything with a front can be rotated. Plants are pixel-art cards.
-  - The **sledgehammer** removes anything with a full refund. Tap a door or window to remove just that.
+  - The **sledgehammer** removes anything with a full refund. Tap a door or window to remove just that, or drag a box to clear a whole area at once.
+  - **Sims 4 build tools** along the strip under the catalogue:
+    - **👆 Select (H)** picks up furniture so you can move or turn it for free, with a green footprint and an arrow showing which way it faces. Click a room's floor instead to lift the **whole room** (walls, floor and furniture) in a white wireframe box, then move it and turn it with R or right-click.
+    - **💧 Copy (C)** copies whatever you click as your current tool. **🎨 Design (T)** cycles furniture through colour swatches and roofs through materials.
+    - **↶ Undo / ↷ Redo** for every build action, **🏠 Move** to shift the whole house, **🌗 Day** to preview your house at morning, afternoon, dusk and night, and **ℹ️ Lot** for lot value, bedrooms, bathrooms, rooms and the bulldozer.
+    - **⌁ Custom room** (Walls tab): click corner points, then double-click or press Enter to finish. Click the first point again to close the room and it gets a floor. The tooltip shows the cost as you go.
+  - **📚 Rooms & Library**: six ready-made **styled rooms** (bedroom, bathroom, kitchen, living room, study and garden patio) that you place and turn, with live previews of their furniture, then **Buy**. Save any room, or your whole house, to **My Library** (up to 12) and place copies anywhere.
 - **Town square** with two shops and three NPCs:
   - **Rosa's Market** buys your crops and sells gifts.
   - **Otto's Furniture** sells exclusive pieces: piano, fireplace, aquarium, grandfather clock, telescope and statue.
@@ -130,7 +136,7 @@ Players can also change the server under **Server** on the join screen.
 | Run             | hold Shift while walking                      | drag the joystick far out          |
 | Camera          | middle-drag to orbit, right-drag to pan, Q / E to turn, wheel to zoom | two-finger drag to pan, twist to rotate, pinch to zoom, ⟲ ⟳ + − buttons |
 | Talk / interact | Enter, or click an NPC                        | tap the action button or the NPC   |
-| Build mode      | B · R or right-click rotate · V walls · PgUp/PgDn floors · Ctrl/Cmd+Z undo · Alt+click eyedropper · Delete sledgehammer · WASD or right-drag to pan | two-finger drag to pan, ↶ Undo button |
+| Build mode      | B · H select/move · C copy (or Alt+click) · K sledgehammer · T design · L time of day · R or right-click rotate · V walls · PgUp/PgDn floors · Ctrl/Cmd+Z undo · Ctrl/Cmd+Y redo · Delete sells a held item · Enter or double-click finishes a custom room · Esc cancels · WASD or right-drag to pan | two-finger drag to pan, tool strip buttons |
 | Village map     | M, or click the minimap                       | tap the minimap                    |
 | Cheat console   | ⚙️ Settings → Cheats                           | ⚙️ Settings → Cheats               |
 

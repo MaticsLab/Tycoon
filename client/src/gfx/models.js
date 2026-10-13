@@ -273,26 +273,39 @@ export function materials() {
 }
 
 // Geometry for an item, centred on its footprint (so rotation spins it in place).
-function itemGeometry(t) {
-  if (geoCache.has(t)) return geoCache.get(t);
+// Design tool colourways: variant c (1..5) turns the hue of the item's fabrics and
+// paints; wood, metal, white and near-greys keep their colour.
+const KEEP = new Set([WOOD, WOOD_D, WOOD_L, METAL, WHITE]);
+function recolor(col, c) {
+  if (!c || KEEP.has(col)) return col;
+  const k = new THREE.Color(col), hsl = {};
+  k.getHSL(hsl);
+  if (hsl.s < 0.22 || (hsl.h > 0.04 && hsl.h < 0.12 && hsl.l < 0.55)) return col; // greys and wood tones
+  k.setHSL((hsl.h + c / 6) % 1, hsl.s, hsl.l);
+  return `#${k.getHexString()}`;
+}
+
+function itemGeometry(t, c = 0) {
+  const ck = c ? `${t}|${c}` : t;
+  if (geoCache.has(ck)) return geoCache.get(ck);
   const [w0, d0] = footprint(t, 0);
   const solid = [], glow = [];
   for (const [x, y, z, w, h, d, col, lit] of MODELS[t]()) {
     const g = new THREE.BoxGeometry(w, h, d);
     g.translate(x + w / 2 - w0 / 2, y + h / 2, z + d / 2 - d0 / 2);
-    (lit ? glow : solid).push(colorize(g, col));
+    (lit ? glow : solid).push(colorize(g, recolor(col, c)));
   }
   const out = { solid: solid.length ? mergeGeometries(solid) : null, glow: glow.length ? mergeGeometries(glow) : null };
   for (const g of [out.solid, out.glow]) if (g) g.userData.shared = true; // cached: never dispose
-  geoCache.set(t, out);
+  geoCache.set(ck, out);
   return out;
 }
 
 // A ready-to-place furniture object. (x, z) = world position of the footprint's
-// north-west corner, y = floor height; r = rotation 0..3.
-export function makeItem(t, r, x, y, z) {
+// north-west corner, y = floor height; r = rotation 0..3; c = colourway 0..5.
+export function makeItem(t, r, x, y, z, c = 0) {
   const { solidMat, glowMat } = materials();
-  const g = itemGeometry(t);
+  const g = itemGeometry(t, c);
   const grp = new THREE.Group();
   if (g.solid) { const m = new THREE.Mesh(g.solid, solidMat); m.castShadow = true; m.receiveShadow = true; grp.add(m); }
   if (g.glow) grp.add(new THREE.Mesh(g.glow, glowMat));

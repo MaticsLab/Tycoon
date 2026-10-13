@@ -6,7 +6,7 @@ import {
   canStand, inInterior, key, placementError, objAt, footprint, canRotate, levelView,
   LEVELS, wallError, lineEdges, rectEdges, roofError, roofAt, edgeKey,
   indexPlots, landError, contentFits, mergedRect, splitRects, hasContent, LAND_PRICE,
-  stepLevel, heightAt, roadEditError, roadIn, plotEntrance,
+  stepLevel, heightAt, roadEditError, roadIn, plotEntrance, occChanged,
 } from '@shared/plot.js';
 import { ITEMS, GOODS, CATEGORIES, cropStage, itemName } from '@shared/catalog.js';
 import { NPCS } from '@shared/npcs.js';
@@ -14,6 +14,9 @@ import { itemIcon } from './sprites.js';
 import { View, LEVEL_H } from './gfx/view.js';
 import { Ghost, Outline } from './gfx/ghost.js';
 import { Minimap } from './minimap.js';
+import { roomTiles, extract, rotateTimes, fragmentValue, placeError as fragError } from '@shared/blueprint.js';
+import { STYLED_ROOMS } from '@shared/rooms.js';
+import { drawFloor, drawObject } from './sprites.js';
 import { openCreator, closeCreator } from './creator.js';
 import { renderCity } from './cityui.js';
 import { drawLook } from './people.js';
@@ -124,6 +127,7 @@ function onMessage(m) {
       S.inv = m.you.inv || {};
       S.myPlot = m.you.plotId;
       S.username = m.you.username;
+      S.library = m.you.library || [];
       S.guest = m.you.guest;
       store.set('guest', S.guest ? '1' : '0');
       store.set('name', m.you.name);
@@ -257,6 +261,13 @@ function onMessage(m) {
       toast(`🌾 Harvested ${parts.join(' ')} — sell them at Rosa’s Market`);
       break;
     }
+    case 'toast':
+      toast(m.text);
+      break;
+    case 'library':
+      S.library = m.library;
+      if (S.mode === 'build' && S.cat === 'library') renderItems();
+      break;
     case 'error':
       toast(m.msg);
       if (S.talk?.waiting) { S.talk.waiting = false; renderLog(); }
@@ -750,13 +761,13 @@ const toolOf = (id) => ({ kind: LAYER_KIND[ITEMS[id].layer], id });
 function renderTabs() {
   const tabs = $('tabs');
   tabs.innerHTML = '';
-  const all = [{ id: 'land', name: '🗺️ Land' }, ...CATEGORIES, { id: 'special', name: '🎒 Bag' }, { id: 'remove', name: '🔨 Sledgehammer' }];
+  const all = [{ id: 'land', name: '🗺️ Land' }, ...CATEGORIES, { id: 'library', name: '📚 Rooms & Library' }, { id: 'special', name: '🎒 Bag' }];
   for (const c of all) {
     const b = document.createElement('button');
     b.textContent = c.name;
-    b.className = (c.id === 'remove' ? S.tool.kind === 'remove' : S.cat === c.id && S.tool.kind !== 'remove') ? 'sel' : '';
+    b.className = S.cat === c.id && !STRIP_TOOLS.includes(S.tool.kind) ? 'sel' : '';
     b.onclick = () => {
-      if (c.id === 'remove') S.tool = { kind: 'remove' };
+      if (c.id === 'library') { S.cat = 'library'; S.tool = { kind: 'none' }; }
       else if (c.id === 'land') {
         S.cat = 'land'; S.tool = { kind: 'resize' };
         const p = myDef();
@@ -778,10 +789,11 @@ function renderItems() {
   box.innerHTML = '';
   updateRotateBtn();
   toolInfo();
-  if (S.tool.kind === 'remove') {
-    box.insertAdjacentHTML('beforeend', '<div style="padding:14px 8px;font-size:14px">Tap furniture, a floor tile or a wall to remove it. Tap a door or window to take just that out. Everything is refunded (shop furniture goes back to your bag; crops are lost).</div>');
+  if (STRIP_TOOLS.includes(S.tool.kind)) {
+    box.insertAdjacentHTML('beforeend', `<div style="padding:12px 8px;font-size:14px;max-width:640px">${STRIP_HELP[S.tool.kind]}</div>`);
     return;
   }
+  if (S.cat === 'library') { renderLibrary(box); return; }
   if (S.cat === 'land') {
     for (const [k, icon, label] of [['resize', '↔️', 'Resize'], ['merge', '🔗', 'Merge'], ['split', '✂️', 'Split'], ['pave', '🛣️', 'Pave road'], ['dig', '⛏️', 'Dig up road']]) {
       const b = document.createElement('button');
@@ -796,11 +808,11 @@ function renderItems() {
   if (S.cat === 'build') {
     const seg = document.createElement('div');
     seg.className = 'seg2';
-    for (const [k, label] of [['line', '▬ Wall'], ['room', '▢ Room']]) {
+    for (const [k, label] of [['line', '▬ Wall'], ['room', '▢ Room'], ['chain', '⌁ Custom']]) {
       const b = document.createElement('button');
       b.textContent = label;
       b.className = S.wallTool === k ? 'sel' : '';
-      b.onclick = () => { S.wallTool = k; renderItems(); };
+      b.onclick = () => { S.wallTool = k; S.chain = null; renderItems(); };
       seg.appendChild(b);
     }
     box.appendChild(seg);
@@ -854,6 +866,8 @@ function updateRotateBtn() {
   $('btn-rotate').textContent = ok ? `↻ Rotate (${['front', 'left', 'back', 'right'][S.rot]})` : '↻ Rotate';
 }
 function rotateItem() {
+  if (S.held && S.held.kind !== 'obj') { S.held.rot = (S.held.rot + 1) % 4; refreshPreview(); return; }
+  if (S.held?.kind === 'obj') { if (canRotate(S.held.t)) { S.rot = (S.rot + 1) % 4; refreshPreview(); } return; }
   if (S.tool.kind !== 'obj' || !canRotate(S.tool.id)) return;
   S.rot = (S.rot + 1) % 4;
   updateRotateBtn();
@@ -881,7 +895,9 @@ $('btn-walls').onclick = cycleWalls;
 function toolInfo(extra) {
   const t = S.tool, d = ITEMS[t.id];
   const msgs = {
-    wall: S.wallTool === 'room' ? 'Drag from corner to corner to build a room (walls + wood floor).' : 'Drag along the grid lines to build a wall.',
+    wall: S.wallTool === 'room' ? 'Drag from corner to corner to build a room (walls + wood floor).' : S.wallTool === 'chain' ? 'Custom room: click corner after corner; close the shape for a room with a floor, or double-click / Enter to stop.' : 'Drag along the grid lines to build a wall.',
+    blueprint: 'Move it into place, R or right-click to turn, click to buy. Shop furniture isn’t included.',
+    saveRoom: 'Click a room’s floor to save it to your library.',
     feature: 'Tap a wall to set the door or window into it.',
     floor: 'Tap or drag a rectangle to lay floor.',
     roof: 'Drag a rectangle over your rooms to add a roof. Roofs show with walls up.',
@@ -900,6 +916,7 @@ function toolInfo(extra) {
 
 function setMode(mode) {
   if (mode === 'build' && S.myPlot == null) { toast('Claim a plot first!'); return; }
+  if (mode !== 'build') { S.held = null; S.chain = null; S.previewHour = null; }
   if (mode === 'build') closeTalk();
   S.mode = mode;
   document.body.classList.toggle('building', mode === 'build');
@@ -987,6 +1004,86 @@ function previewInner() {
   if (S.mode !== 'build' || !hover) return;
   const plot = S.plots[S.myPlot], def = myDef(), t = S.tool;
   const d = ITEMS[t.id];
+  // Something picked up (furniture, a room, the house or a blueprint) follows the cursor.
+  if (S.held?.kind === 'obj') {
+    const H = S.held, q = pickLocal(hover.cx, hover.cy);
+    if (!q) return;
+    const [w, h] = footprint(H.t, S.rot);
+    const lx = Math.round(q.fx - w / 2), ly = Math.round(q.fz - h / 2);
+    const v = levelView(plot, S.level);
+    const saved = v.obj[key(...H.from)];
+    delete v.obj[key(...H.from)]; occChanged(plot);
+    const bad = placementError(plot, lx, ly, H.t, S.rot, S.level, world);
+    v.obj[key(...H.from)] = saved; occChanged(plot);
+    ghost.marker(def, H.from[0], H.from[1], S.level, 0.05);
+    ghost.item(H.t, S.rot, def, lx, ly, S.level, !bad, H.c);
+    tip(`Move ${ITEMS[H.t].name} · free${canRotate(H.t) ? ' · R / right-click ↻' : ''} · Esc cancels`, bad);
+    return;
+  }
+  if (S.held) {
+    const spot = heldSpot(hover);
+    if (!spot) return;
+    let bad;
+    if (S.held.kind === 'blueprint') {
+      bad = fragError(plot, spot.frag, spot.ox, spot.oy, world, { skipShop: true }) || coinsErr(S.freeBuild ? 0 : fragmentValue(spot.frag));
+      tip(`${S.tool.name} · 🪙${S.freeBuild ? 0 : fragmentValue(spot.frag)} · R / right-click ↻ · click to buy`, bad);
+    } else {
+      bad = heldMoveError(spot);
+      tip(`Move ${S.held.kind === 'house' ? 'house' : 'room'} · free · R / right-click ↻ · Esc cancels`, bad);
+    }
+    ghost.fragment(spot.frag, def, spot.ox, spot.oy, !bad);
+    return;
+  }
+  if (t.kind === 'select' || t.kind === 'saveRoom' || t.kind === 'design' || t.kind === 'eyedrop') {
+    const q = pickLocal(hover.cx, hover.cy);
+    if (!q) return;
+    const [lx, ly] = tileOf(q);
+    const v = levelView(plot, S.level);
+    const hit = objAt(v, lx, ly);
+    if (hit && t.kind !== 'saveRoom') {
+      const [ax, ay] = hit.key.split(',').map(Number);
+      const [w, h] = footprint(hit.obj.t, hit.obj.r || 0);
+      ghost.box(def.x + ax, def.y + ay, w, h, S.level * LEVEL_H, 1.2);
+      const name = ITEMS[hit.obj.t].name;
+      tip(t.kind === 'design' ? `🎨 ${name} · colour ${(hit.obj.c || 0) + 1}/6 · click for the next (free)` : t.kind === 'eyedrop' ? `💧 Copy ${name}` : `👆 ${name} · click to pick up`);
+      return;
+    }
+    const tiles = roomTiles(plot, S.level, lx, ly);
+    if (tiles && t.kind !== 'eyedrop') {
+      const xs = [...tiles].map((k) => +k.split(',')[0]), ys = [...tiles].map((k) => +k.split(',')[1]);
+      const x0 = Math.min(...xs), y0 = Math.min(...ys);
+      ghost.box(def.x + x0, def.y + y0, Math.max(...xs) - x0 + 1, Math.max(...ys) - y0 + 1, S.level * LEVEL_H);
+      if (t.kind === 'design') { tip(roofAt(plot, lx, ly, S.level) >= 0 ? '🎨 Click to change this roof’s colour' : '🎨 Point at furniture or a roof'); return; }
+      tip(t.kind === 'saveRoom' ? `📚 Save this room (${tiles.size} tiles)` : `👆 Room · ${tiles.size} tiles · click to pick it up`);
+      return;
+    }
+    if (t.kind === 'eyedrop' && v.floor[key(lx, ly)]) { tip(`💧 Copy ${ITEMS[v.floor[key(lx, ly)]].name}`); return; }
+    tip(t.kind === 'saveRoom' ? 'Point at a room’s floor' : t.kind === 'design' ? '🎨 Point at furniture or a roof' : t.kind === 'eyedrop' ? '💧 Point at something to copy' : '👆 Point at furniture or a room');
+    return;
+  }
+  if (t.kind === 'wall' && S.wallTool === 'chain') {
+    const q = pickLocal(hover.cx, hover.cy);
+    if (!q) return;
+    const p = chainSnap(q);
+    const edges = S.chain ? chainEdges(S.chain, p) : [];
+    ghost.tiles([[p[0] - 0.2, p[1] - 0.2]], def, S.level, true, 0.5);
+    if (S.chain) ghost.tiles(S.chain.map(([x, y]) => [x - 0.2, y - 0.2]), def, S.level, true, 0.5);
+    const fresh = edges.filter((e) => !plot.walls?.[edgeKey(S.level, ...e)]);
+    const cost = S.freeBuild ? 0 : fresh.length * d.price;
+    const bad = edges.map((e) => wallError(plot, S.level, ...e, world)).find(Boolean) || coinsErr(cost);
+    ghost.walls(edges, def, S.level, !bad, false, t.id);
+    const closes = S.chain && S.chain.length > 2 && p[0] === S.chain[0][0] && p[1] === S.chain[0][1];
+    tip(`⌁ Custom room · ${fresh.length} walls · −🪙${cost}${S.chain ? (closes ? ' · click to close the room' : ' · double-click or Enter to finish') : ' · click to start'}`, bad);
+    return;
+  }
+  if (t.kind === 'remove' && drag?.start && (drag.start[0] !== drag.cur[0] || drag.start[1] !== drag.cur[1])) {
+    const r = clampRect(rectOf(drag.start, drag.cur));
+    const tiles = [];
+    for (let j = 0; j < r.h; j++) for (let i = 0; i < r.w; i++) tiles.push([r.x + i, r.y + j]);
+    ghost.tiles(tiles, def, S.level, false, 0.3);
+    tip(`🔨 Clear ${r.w}×${r.h} · release to demolish`);
+    return;
+  }
   if (t.kind === 'wall') {
     if (!drag) {
       const q = pickLocal(hover.cx, hover.cy);
@@ -1068,20 +1165,33 @@ function previewInner() {
 }
 
 // ---- Undo (Ctrl/Cmd+Z): each build action records the messages that reverse it ----
-const undoStack = [];
-function pushUndo(label, ops) {
+// Each entry keeps the messages that undo it and the ones that redo it.
+const undoStack = [], redoStack = [];
+let actionSent = null; // messages commit() sent for the current action (become its redo)
+function pushUndo(label, ops, redo = actionSent) {
   if (!ops?.length) return;
-  undoStack.push({ label, ops, plotId: S.myPlot });
+  undoStack.push({ label, ops, redo: redo ? [...redo] : null, plotId: S.myPlot });
   if (undoStack.length > 40) undoStack.shift();
-  $('btn-undo').disabled = false;
+  redoStack.length = 0;
+  syncUndoBtns();
 }
+function syncUndoBtns() { $('btn-undo').disabled = !undoStack.length; $('btn-redo').disabled = !redoStack.length; }
 function undo() {
   const u = undoStack.pop();
-  $('btn-undo').disabled = !undoStack.length;
-  if (!u) return toast('Nothing to undo');
-  if (u.plotId !== S.myPlot) return toast('That was on another plot');
+  if (!u) { syncUndoBtns(); return toast('Nothing to undo'); }
+  if (u.plotId !== S.myPlot) { syncUndoBtns(); return toast('That was on another plot'); }
   for (const m of u.ops) send(m);
+  if (u.redo?.length) redoStack.push(u);
+  syncUndoBtns();
   toast(`↶ Undid ${u.label}`);
+}
+function redo() {
+  const u = redoStack.pop();
+  if (!u) { syncUndoBtns(); return toast('Nothing to redo'); }
+  for (const m of u.redo) send(m);
+  undoStack.push(u);
+  syncUndoBtns();
+  toast(`↷ Redid ${u.label}`);
 }
 // Floor tiles a rectangle would newly lay (and that undo can safely take up again).
 function newFloorUndo(plot, r, item, base) {
@@ -1117,6 +1227,344 @@ function removeUndo(plot, target, base) {
   const f = v.floor[key(target.lx, target.ly)];
   return f ? [{ type: 'floorRect', ...base, x: target.lx, y: target.ly, w: 1, h: 1, item: f }] : [];
 }
+
+// ---- Sims build tools: select (move furniture / rooms), design, move house, ----
+// ---- sledgehammer area, custom room, styled rooms and the library.          ----
+const STRIP_TOOLS = ['select', 'eyedrop', 'remove', 'design', 'movehouse'];
+const STRIP_HELP = {
+  select: '👆 <b>Select</b>: click furniture to pick it up, then click to put it down (R or right-click turns it; Delete sells it). Click a room\'s floor to pick up the <b>whole room</b> with its walls and furniture, then move and turn it. Moving is free.',
+  eyedrop: '💧 <b>Eyedropper</b>: click any furniture, floor or wall to copy it as your current tool (also Alt+click with any tool).',
+  remove: '🔨 <b>Sledgehammer</b>: click something to remove it, or <b>drag a box</b> to clear everything inside. Everything is refunded (shop furniture goes back to your bag; crops are lost).',
+  design: '🎨 <b>Design</b>: click furniture to cycle through its 6 colourways, or click under a roof to change its colour. Free.',
+  movehouse: '🏠 <b>Move house</b>: your whole house follows the cursor; R or right-click turns it; click to set it down. Free.',
+};
+function setStripTool(kind) {
+  S.held = null; S.chain = null;
+  S.tool = S.tool.kind === kind && kind !== 'remove' ? { kind: 'none' } : { kind };
+  if (S.tool.kind === 'movehouse') {
+    const frag = extract(S.plots[S.myPlot]);
+    if (!frag) { S.tool = { kind: 'none' }; toast('Build something first'); }
+    else S.held = { kind: 'house', frag, rot: 0, grab: [frag.w / 2, frag.h / 2], ox: frag.ox, oy: frag.oy };
+  }
+  syncStrip(); renderTabs(); renderItems(); refreshPreview();
+}
+function syncStrip() {
+  for (const b of document.querySelectorAll('#buildtools [data-tool]')) b.classList.toggle('sel', S.tool.kind === b.dataset.tool);
+  $('btn-time').classList.toggle('sel', S.previewHour != null);
+}
+for (const b of document.querySelectorAll('#buildtools [data-tool]')) b.onclick = () => setStripTool(b.dataset.tool);
+
+// Select: pick up furniture, or a whole room.
+function pickUp(h) {
+  const plot = S.plots[S.myPlot];
+  const q = pickLocal(h.cx, h.cy);
+  if (!q) return;
+  const [lx, ly] = tileOf(q);
+  const v = levelView(plot, S.level);
+  const hit = objAt(v, lx, ly);
+  if (hit) {
+    if (ITEMS[hit.obj.t].stairs) return toast('Stairs can’t be moved: sledgehammer them and build new ones');
+    if (ITEMS[hit.obj.t].crop) return toast('Crops can’t be moved');
+    const [ax, ay] = hit.key.split(',').map(Number);
+    S.held = { kind: 'obj', from: [ax, ay], t: hit.obj.t, r: hit.obj.r || 0, c: hit.obj.c || 0 };
+    S.rot = S.held.r;
+    toast(`👆 ${ITEMS[hit.obj.t].name}: click to put it down`);
+  } else {
+    const tiles = roomTiles(plot, S.level, lx, ly);
+    if (!tiles) return toast('Click furniture or a room’s floor');
+    const frag = extract(plot, { level: S.level, tiles });
+    S.held = { kind: 'room', at: [lx, ly], frag, rot: 0, grab: [lx - frag.ox + 0.5, ly - frag.oy + 0.5], ox: frag.ox, oy: frag.oy };
+    toast('👆 Room picked up: click to set it down · R turns it');
+  }
+  refreshPreview();
+}
+
+// Where a held room/house would go for the pointer at h (top-left, plot-local).
+function heldSpot(h) {
+  const q = pickLocal(h.cx, h.cy, 0);
+  if (!q) return null;
+  const H = S.held, f = rotateTimes(H.frag, H.rot);
+  const [gx, gy] = H.rot % 2 ? [H.grab[1], H.grab[0]] : H.grab;
+  return { frag: f, ox: Math.round(q.fx - gx), oy: Math.round(q.fz - gy) };
+}
+
+// Would a held room/house fit at this spot (ignoring where it is now)?
+function heldMoveError(spot) {
+  const plot = S.plots[S.myPlot];
+  const copy = JSON.parse(JSON.stringify({ ...plot }));
+  copy.l1 ||= { floor: {}, obj: {} };
+  const H = S.held;
+  const parts = H.frag;
+  // lift the original out of the copy
+  parts.levels.forEach((v, l) => {
+    const view = l ? copy.l1 : copy;
+    for (const k of Object.keys(v.floor)) { const [x, y] = k.split(',').map(Number); delete view.floor[key(x + H.ox, y + H.oy)]; }
+    for (const k of Object.keys(v.obj)) { const [x, y] = k.split(',').map(Number); delete view.obj[key(x + H.ox, y + H.oy)]; }
+  });
+  for (const k of Object.keys(parts.walls)) { const [l, d, x, y] = k.split(':'); delete copy.walls[`${l}:${d}:${+x + H.ox}:${+y + H.oy}`]; }
+  if (H.kind === 'house') copy.roofs = [];
+  return fragError(copy, spot.frag, spot.ox, spot.oy, world);
+}
+
+function dropHeld(h, base, send) {
+  const H = S.held;
+  if (H.kind === 'obj') {
+    const q = pickLocal(h.cx, h.cy);
+    if (!q) return;
+    const [w, hh] = footprint(H.t, S.rot);
+    const lx = Math.round(q.fx - w / 2), ly = Math.round(q.fz - hh / 2);
+    send({ type: 'moveObj', ...base, from: H.from, to: [lx, ly], r: S.rot });
+    pushUndo(ITEMS[H.t].name, [{ type: 'moveObj', ...base, from: [lx, ly], to: H.from, r: H.r }]);
+    S.held = null;
+    return;
+  }
+  const spot = heldSpot(h);
+  if (!spot) return;
+  // The server turns rooms about their centre, then shifts by (dx, dy).
+  const cx = H.ox + Math.round((H.frag.w - spot.frag.w) / 2), cy = H.oy + Math.round((H.frag.h - spot.frag.h) / 2);
+  const dx = spot.ox - cx, dy = spot.oy - cy;
+  const msg = H.kind === 'house' ? { type: 'moveRegion', ...base, all: true, dx, dy, rot: H.rot } : { type: 'moveRegion', ...base, room: H.at, dx, dy, rot: H.rot };
+  send(msg);
+  if (!H.rot) pushUndo(H.kind === 'house' ? 'moving the house' : 'moving the room', [{ ...msg, room: H.at && [H.at[0] + dx, H.at[1] + dy], dx: -dx, dy: -dy }]);
+  S.held = null;
+  if (S.tool.kind === 'movehouse') { S.tool = { kind: 'none' }; syncStrip(); renderItems(); }
+}
+
+function designAt(h, base, send) {
+  const plot = S.plots[S.myPlot];
+  const q = pickLocal(h.cx, h.cy);
+  if (!q) return;
+  const [lx, ly] = tileOf(q);
+  const hit = objAt(levelView(plot, S.level), lx, ly);
+  if (hit && !ITEMS[hit.obj.t].crop) {
+    const [ax, ay] = hit.key.split(',').map(Number);
+    send({ type: 'design', ...base, lx: ax, ly: ay });
+    pushUndo(`recolouring ${ITEMS[hit.obj.t].name}`, [{ type: 'design', ...base, lx: ax, ly: ay, c: hit.obj.c || 0 }]);
+  } else if (roofAt(plot, lx, ly, S.level) >= 0) send({ type: 'design', ...base, lx, ly, roof: true });
+  else toast('Click furniture or a roofed tile');
+}
+
+function moveHouseAt(h, base, send) { if (S.held) dropHeld(h, base, send); }
+
+// Sledgehammer a whole box: furniture, floors and walls inside it.
+function sledgeArea(plot, base, send) {
+  const r = clampRect(rectOf(drag.start, drag.cur));
+  const v = levelView(plot, S.level);
+  const ops = [], undoOps = [];
+  const seen = new Set();
+  for (let j = 0; j < r.h; j++) for (let i = 0; i < r.w; i++) {
+    const x = r.x + i, y = r.y + j;
+    const hit = objAt(v, x, y);
+    if (hit && !seen.has(hit.key)) { seen.add(hit.key); undoOps.push(...removeUndo(plot, { lx: x, ly: y }, base)); ops.push({ type: 'remove', ...base, lx: x, ly: y }); }
+  }
+  for (let j = 0; j < r.h; j++) for (let i = 0; i < r.w; i++) {
+    const x = r.x + i, y = r.y + j;
+    if (v.floor[key(x, y)]) { undoOps.push({ type: 'floorRect', ...base, x, y, w: 1, h: 1, item: v.floor[key(x, y)] }); ops.push({ type: 'remove', ...base, lx: x, ly: y }); }
+  }
+  for (const [d, x, y] of rectEdges(r.x, r.y, r.w, r.h).concat(innerEdges(r))) {
+    const w = plot.walls?.[edgeKey(S.level, d, x, y)];
+    if (w) { undoOps.unshift(...removeUndo(plot, { edge: [d, x, y] }, base)); ops.push({ type: 'remove', ...base, edge: [d, x, y] }); }
+  }
+  if (!ops.length) return toast('Nothing there');
+  for (const m of ops) send(m);
+  pushUndo(`clearing ${r.w}×${r.h}`, undoOps.reverse());
+}
+function innerEdges(r) {
+  const out = [];
+  for (let y = r.y + 1; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) out.push(['h', x, y]);
+  for (let x = r.x + 1; x < r.x + r.w; x++) for (let y = r.y; y < r.y + r.h; y++) out.push(['v', x, y]);
+  return out;
+}
+
+// ---- Custom room tool: click corners, double-click (or Enter) to finish ----
+function chainEdges(points, extra) {
+  const pts = extra ? [...points, extra] : points;
+  const out = [];
+  for (let i = 1; i < pts.length; i++) out.push(...lineEdges(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]));
+  return out;
+}
+// The next corner snaps straight across or straight down from the last one.
+function chainSnap(q) {
+  const c = cornerOf(q);
+  const last = S.chain?.[S.chain.length - 1];
+  if (!last) return c;
+  return Math.abs(c[0] - last[0]) >= Math.abs(c[1] - last[1]) ? [c[0], last[1]] : [last[0], c[1]];
+}
+function chainClick(h) {
+  const q = pickLocal(h.cx, h.cy);
+  if (!q) return;
+  const p = chainSnap(q);
+  S.chain ||= [];
+  const first = S.chain[0], last = S.chain[S.chain.length - 1];
+  if (last && p[0] === last[0] && p[1] === last[1]) return;
+  S.chain.push(p);
+  if (first && S.chain.length > 3 && p[0] === first[0] && p[1] === first[1]) finishChain(true);
+  refreshPreview();
+}
+function finishChain(closed = false) {
+  const pts = S.chain;
+  S.chain = null;
+  if (!pts || pts.length < 2) return refreshPreview();
+  const plot = S.plots[S.myPlot], base = { plotId: S.myPlot, level: S.level };
+  actionSent = [];
+  const edges = chainEdges(pts).filter((e) => !plot.walls?.[edgeKey(S.level, ...e)]);
+  const msgs = [{ type: 'walls', ...base, m: S.tool.id, segs: chainEdges(pts) }];
+  const undoOps = edges.map((e) => ({ type: 'remove', ...base, edge: e }));
+  // A closed shape gets a wood floor inside, like the room tool.
+  if (closed) {
+    const inside = polygonTiles(pts);
+    const v = levelView(plot, S.level);
+    for (const [x, y] of inside) {
+      if (v.floor[key(x, y)] || placementError(plot, x, y, 'floor_wood', 0, S.level, world)) continue;
+      msgs.push({ type: 'floorRect', ...base, x, y, w: 1, h: 1, item: 'floor_wood' });
+      undoOps.push({ type: 'remove', ...base, lx: x, ly: y });
+    }
+  }
+  for (const m of msgs) { actionSent.push(m); send(m); }
+  pushUndo(closed ? 'custom room' : `${edges.length} walls`, undoOps);
+  refreshPreview();
+}
+// Tiles whose centres lie inside the closed corner polygon.
+function polygonTiles(pts) {
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+  const out = [];
+  for (let y = Math.min(...ys); y < Math.max(...ys); y++) for (let x = Math.min(...xs); x < Math.max(...xs); x++) {
+    const px = x + 0.5, py = y + 0.5;
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const [xi, yi] = pts[i], [xj, yj] = pts[j];
+      if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    if (inside) out.push([x, y]);
+  }
+  return out;
+}
+
+// ---- Styled rooms & My Library ----
+// Top-down thumbnail of a blueprint.
+function blueprintThumb(frag) {
+  const cv = document.createElement('canvas');
+  const s = 16;
+  cv.width = Math.max(frag.w, 1) * s + 8; cv.height = Math.max(frag.h, 1) * s + 8;
+  const c = cv.getContext('2d');
+  c.translate(4, 4);
+  const v = frag.levels[0];
+  for (const [k, f] of Object.entries(v.floor)) { const [x, y] = k.split(',').map(Number); drawFloor(c, f, x * s, y * s, x, y); }
+  for (const [k, o] of Object.entries(v.obj)) { if (!ITEMS[o.t]) continue; const [x, y] = k.split(',').map(Number); drawObject(c, o, x * s, y * s, 0); }
+  c.fillStyle = '#4a2e18';
+  for (const k of Object.keys(frag.walls)) {
+    const [l, d, x, y] = k.split(':');
+    if (l !== '0') continue;
+    if (d === 'h') c.fillRect(+x * s, +y * s - 1.5, s, 3); else c.fillRect(+x * s - 1.5, +y * s, 3, s);
+  }
+  return cv;
+}
+function renderLibrary(box) {
+  const sec = (t) => box.insertAdjacentHTML('beforeend', `<div class="libsec">${t}</div>`);
+  const card = (name, frag, price, onPick, onDel) => {
+    const b = document.createElement('button');
+    b.className = 'libcard' + (S.tool.kind === 'blueprint' && S.tool.name === name ? ' sel' : '');
+    b.appendChild(blueprintThumb(frag));
+    b.insertAdjacentHTML('beforeend', `<span>${esc(name)}</span><span class="price">🪙${price} · ${frag.w}×${frag.h}</span>`);
+    b.onclick = onPick;
+    if (onDel) {
+      const x = document.createElement('span');
+      x.className = 'del'; x.textContent = '✕'; x.title = 'Delete from library';
+      x.onclick = (e) => { e.stopPropagation(); if (confirm(`Delete “${name}” from your library?`)) send({ type: 'deleteBlueprint', idx: onDel }); };
+      b.appendChild(x);
+    }
+    box.appendChild(b);
+  };
+  sec('Styled rooms · ready to buy');
+  for (const [id, r] of Object.entries(STYLED_ROOMS)) card(`${r.icon} ${r.name}`, r.frag, r.price, () => pickBlueprint('styled', id, r.frag, `${r.icon} ${r.name}`));
+  sec(`My library (${S.library.length}/12)`);
+  S.library.forEach((b, i) => card(b.name, b.frag, b.value, () => pickBlueprint('library', i, b.frag, b.name), i === 0 ? 0.5 : i));
+  for (const [label, fn] of [['＋ Save my house', () => saveHouse()], ['＋ Save a room…', () => { S.tool = { kind: 'saveRoom' }; renderItems(); toast('Click a room’s floor to save it'); }]]) {
+    const b = document.createElement('button');
+    b.className = 'libcard';
+    b.innerHTML = `<span style="font-size:24px;line-height:60px">📚</span><span>${label}</span>`;
+    b.onclick = fn;
+    box.appendChild(b);
+  }
+}
+function pickBlueprint(src, id, frag, name) {
+  S.tool = { kind: 'blueprint', src, id: src === 'library' ? Math.floor(id) : id, name };
+  S.held = { kind: 'blueprint', frag, rot: 0, grab: [frag.w / 2, frag.h / 2] };
+  renderItems(); refreshPreview();
+}
+function placeBlueprintAt(h, send) {
+  const spot = heldSpot(h);
+  if (!spot) return;
+  const t = S.tool;
+  send({ type: 'placeBlueprint', plotId: S.myPlot, src: t.src, id: t.id, x: spot.ox, y: spot.oy, rot: S.held.rot });
+}
+function saveHouse() {
+  const name = prompt('Name this house blueprint', S.me.farm ? `${S.me.farm} house` : 'My house');
+  if (name != null) send({ type: 'saveBlueprint', plotId: S.myPlot, name });
+}
+function saveRoomAt(h) {
+  const q = pickLocal(h.cx, h.cy);
+  if (!q) return;
+  const [lx, ly] = tileOf(q);
+  if (!roomTiles(S.plots[S.myPlot], S.level, lx, ly)) return toast('Click a room’s floor');
+  const name = prompt('Name this room', 'My room');
+  if (name != null) send({ type: 'saveBlueprint', plotId: S.myPlot, level: S.level, room: [lx, ly], name });
+  S.cat = 'library'; S.tool = { kind: 'none' }; renderItems();
+}
+
+// ---- Lot info (and the bulldozer) ----
+function showLot() {
+  const plot = S.plots[S.myPlot];
+  if (!plot) return;
+  const body = openModal('lot', `ℹ️ ${plot.farm ? `${plot.farm} Farm` : `${S.me.name}'s lot`}`);
+  const all = [...Object.values(plot.obj), ...Object.values(plot.l1?.obj || {})];
+  const count = (...ts) => all.filter((o) => ts.includes(o.t)).length;
+  const frag = extract(plot);
+  const rooms = new Set();
+  let nRooms = 0;
+  for (let l = 0; l < 2; l++) for (const k of Object.keys(levelView(plot, l).floor)) {
+    if (rooms.has(`${l}|${k}`)) continue;
+    const [x, y] = k.split(',').map(Number);
+    const t = roomTiles(plot, l, x, y);
+    for (const tk of t) rooms.add(`${l}|${tk}`);
+    if (t.size > 1) nRooms++;
+  }
+  const landValue = plot.w * plot.h * landPrice();
+  const buildValue = frag ? fragmentValue(frag) : 0;
+  body.insertAdjacentHTML('beforeend', `<div class="lotgrid">
+    <span>Lot</span><span>Plot ${plot.id + 1} · ${plot.w}×${plot.h} tiles (${plot.w * plot.h})</span>
+    <span>Lot value</span><span>🪙${(landValue + buildValue).toLocaleString()} (land 🪙${landValue.toLocaleString()} + build 🪙${buildValue.toLocaleString()})</span>
+    <span>Bedrooms</span><span>${count('bed')}</span>
+    <span>Bathrooms</span><span>${Math.max(count('toilet'), count('bathtub'))}</span>
+    <span>Rooms</span><span>${nRooms}${Object.keys(plot.l1?.floor || {}).length ? ' · two storeys' : ''}</span>
+    <span>Furniture</span><span>${all.filter((o) => !ITEMS[o.t]?.crop).length} pieces · ${count(...Object.keys(ITEMS).filter((k) => ITEMS[k].crop))} crops</span>
+  </div>`);
+  const row = document.createElement('div');
+  row.className = 'row';
+  for (const [label, fn] of [
+    ['📚 Save house to library', () => { closeModal(); saveHouse(); }],
+    ['🚜 Bulldoze terrain', () => { if (confirm('Clear all tilled soil, stone paths and crops? Your house stays.')) { send({ type: 'bulldoze', plotId: plot.id, terrain: true }); closeModal(); } }],
+    ['💥 Bulldoze lot', () => { if (confirm('Bulldoze EVERYTHING on your lot? You get refunded, but this can’t be undone.')) { send({ type: 'bulldoze', plotId: plot.id }); undoStack.length = 0; redoStack.length = 0; syncUndoBtns(); closeModal(); } }],
+  ]) {
+    const b = document.createElement('button');
+    b.className = 'chip'; b.textContent = label; b.onclick = fn;
+    row.appendChild(b);
+  }
+  body.appendChild(row);
+  body.insertAdjacentHTML('beforeend', '<p class="muted small">Change your farm name from 👤 Me → Change look.</p>');
+}
+$('btn-lot').onclick = () => (modalKind === 'lot' ? closeModal() : showLot());
+
+// ---- Time of day preview (build mode only) ----
+const PREVIEW_HOURS = [9, 14, 18.6, 23];
+function cycleTime() {
+  const i = S.previewHour == null ? 0 : PREVIEW_HOURS.indexOf(S.previewHour) + 1;
+  S.previewHour = i >= PREVIEW_HOURS.length ? null : PREVIEW_HOURS[i];
+  toast(S.previewHour == null ? '🕒 Back to the real time' : `🌗 Previewing ${['morning', 'afternoon', 'evening', 'night'][i]}`);
+  syncStrip();
+}
+$('btn-time').onclick = cycleTime;
+$('btn-redo').onclick = redo;
 
 // Eyedropper (Alt+click): pick up whatever is under the cursor as your tool.
 function eyedrop(h) {
@@ -1236,17 +1684,28 @@ function removeTarget(h) {
 }
 
 function commit(h) {
+  actionSent = [];
+  const out = (m) => { actionSent.push(m); send(m); };
   const plot = S.plots[S.myPlot], t = S.tool, d = ITEMS[t.id];
   const base = { plotId: S.myPlot, level: S.level };
+  if (t.kind === 'blueprint') return placeBlueprintAt(h, out);
+  if (S.held) return dropHeld(h, base, out);
+  if (t.kind === 'select') return pickUp(h);
+  if (t.kind === 'eyedrop') return eyedrop(h);
+  if (t.kind === 'design') return designAt(h, base, out);
+  if (t.kind === 'movehouse') return moveHouseAt(h, base, out);
+  if (t.kind === 'saveRoom') return saveRoomAt(h);
+  if (t.kind === 'wall' && S.wallTool === 'chain') return;
+  if (t.kind === 'remove' && drag?.start && (drag.start[0] !== drag.cur[0] || drag.start[1] !== drag.cur[1])) return sledgeArea(plot, base, out);
   if (t.kind === 'wall') {
     const plan = wallPlan();
     if (!plan || !plan.edges.length) return;
     const fresh = plan.edges.filter((e) => !plot.walls?.[edgeKey(S.level, ...e)] && !wallError(plot, S.level, ...e, world));
     const undo = fresh.map((e) => ({ type: 'remove', ...base, edge: e }));
-    send({ type: 'walls', ...base, m: t.id, segs: plan.edges });
+    out({ type: 'walls', ...base, m: t.id, segs: plan.edges });
     if (plan.room) {
       undo.push(...newFloorUndo(plot, plan.room, 'floor_wood', base));
-      send({ type: 'floorRect', ...base, x: plan.room.x, y: plan.room.y, w: plan.room.w, h: plan.room.h, item: 'floor_wood' });
+      out({ type: 'floorRect', ...base, x: plan.room.x, y: plan.room.y, w: plan.room.w, h: plan.room.h, item: 'floor_wood' });
     }
     pushUndo(plan.room ? 'room' : `${fresh.length} wall${fresh.length === 1 ? '' : 's'}`, undo);
   } else if (t.kind === 'floor' || t.kind === 'roof') {
@@ -1256,10 +1715,10 @@ function commit(h) {
     if (r.w < 1 || r.h < 1) return;
     if (t.kind === 'floor') {
       pushUndo(d.name, newFloorUndo(plot, r, t.id, base));
-      send({ type: 'floorRect', ...base, x: r.x, y: r.y, w: r.w, h: r.h, item: t.id });
+      out({ type: 'floorRect', ...base, x: r.x, y: r.y, w: r.w, h: r.h, item: t.id });
     } else {
       if (!roofError(plot, r.x, r.y, r.w, r.h, S.level, world)) pushUndo(d.name, [{ type: 'remove', ...base, lx: r.x, ly: r.y, roof: true }]);
-      send({ type: 'roof', ...base, x: r.x, y: r.y, w: r.w, h: r.h, m: t.id });
+      out({ type: 'roof', ...base, x: r.x, y: r.y, w: r.w, h: r.h, m: t.id });
     }
   } else if (t.kind === 'feature') {
     const q = pickLocal(h.cx, h.cy, 1.0);
@@ -1268,7 +1727,7 @@ function commit(h) {
     if (!plot.walls?.[edgeKey(S.level, ...edge)]) return toast('Doors and windows go into a wall');
     const had = plot.walls[edgeKey(S.level, ...edge)].f;
     pushUndo(d.name, had ? [{ type: 'feature', ...base, d: edge[0], x: edge[1], y: edge[2], f: had }] : [{ type: 'remove', ...base, edge, featureOnly: true }]);
-    send({ type: 'feature', ...base, d: edge[0], x: edge[1], y: edge[2], f: t.id });
+    out({ type: 'feature', ...base, d: edge[0], x: edge[1], y: edge[2], f: t.id });
   } else if (t.kind === 'obj') {
     const q = pickLocal(h.cx, h.cy);
     if (!q) return;
@@ -1279,21 +1738,21 @@ function commit(h) {
     if (err) { if (err !== 'Already there') toast(err); return; }
     if (!S.freeBuild && (d.shop ? !S.inv[t.id] : d.price > S.coins)) return toast(d.shop ? `None left — buy more from ${NPCS[d.shop].name}` : 'Not enough coins — sell some crops!');
     pushUndo(d.name, [{ type: 'remove', ...base, lx, ly }]);
-    send({ type: 'place', ...base, lx, ly, item: t.id, r });
+    out({ type: 'place', ...base, lx, ly, item: t.id, r });
   } else if (t.kind === 'remove' || t.kind === 'roofRemove') {
     const target = removeTarget(h);
     if (!target) return;
     pushUndo(`removing ${removeLabel(plot, target)}`, removeUndo(plot, target, base));
-    if (target.edge) send({ type: 'remove', ...base, edge: target.edge, featureOnly: target.featureOnly });
-    else send({ type: 'remove', ...base, lx: target.lx, ly: target.ly, roof: !!target.roof });
+    if (target.edge) out({ type: 'remove', ...base, edge: target.edge, featureOnly: target.featureOnly });
+    else out({ type: 'remove', ...base, lx: target.lx, ly: target.ly, roof: !!target.roof });
   } else if (t.kind === 'pave' || t.kind === 'dig') {
     const plan = roadPlan(h);
     if (!plan) return;
     if (plan.err) return toast(plan.err);
-    send({ type: 'road', plotId: S.myPlot, tiles: plan.tiles, on: plan.on });
+    out({ type: 'road', plotId: S.myPlot, tiles: plan.tiles, on: plan.on });
   } else if (t.kind === 'resize' || t.kind === 'merge' || t.kind === 'split') {
     const plan = landPlan(h);
-    if (plan?.msg && plan.ok) send(plan.msg);
+    if (plan?.msg && plan.ok) out(plan.msg);
     else if (plan?.info && drag) toast(plan.info.split(' · ').pop());
   }
 }
@@ -1333,7 +1792,7 @@ function showSettings() {
       <span>Zoom</span><span>mouse wheel · pinch</span>
       <span>Talk</span><span>Enter, or click a villager</span>
       <span>Village map</span><span>M, or tap the minimap</span>
-      <span>Build mode</span><span>B · R or right-click rotate · V walls · PgUp/PgDn floors · Ctrl/Cmd+Z undo · Alt+click eyedropper · Delete sledgehammer</span>
+      <span>Build mode</span><span>B · H select/move · C copy (or Alt+click) · K sledgehammer · T design · L time of day · R or right-click rotate · V walls · PgUp/PgDn floors · Ctrl/Cmd+Z undo · Ctrl/Cmd+Y redo · Delete sells what you're holding · Enter or double-click finishes a custom room · Esc cancels</span>
     </div>`);
   consoleLog.scrollTop = consoleLog.scrollHeight;
   if (matchMedia('(pointer: fine)').matches) consoleInput.focus();
@@ -1380,6 +1839,7 @@ resize();
 const keys = new Set();
 addEventListener('keydown', (e) => {
   if (!S.me || document.activeElement?.tagName === 'INPUT') return;
+  if (e.key === 'Enter' && S.mode === 'build' && S.chain) { e.preventDefault(); finishChain(false); return; }
   if (e.key === 'Enter') {
     e.preventDefault();
     if (S.talk) $('npc-input').focus();
@@ -1388,6 +1848,7 @@ addEventListener('keydown', (e) => {
     return;
   }
   const k = e.key.toLowerCase();
+  if (k === 'escape' && (S.held || S.chain)) { S.held = null; S.chain = null; if (S.tool.kind === 'movehouse' || S.tool.kind === 'blueprint') S.tool = { kind: 'none' }; syncStrip(); renderItems(); refreshPreview(); return; }
   if (k === 'escape') { if (drag) { drag = null; refreshPreview(); } else { setMode('walk'); closeTalk(); closeModal(); toggleMap(false); } }
   if (k === 'b') $('btn-build').click();
   if (k === 'q') turnCamera(-1);
@@ -1395,8 +1856,20 @@ addEventListener('keydown', (e) => {
   if (k === 'i') $('btn-bag').click();
   if (k === 'm') toggleMap();
   if (S.mode === 'build') {
+    if (k === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey) { e.preventDefault(); redo(); return; }
     if (k === 'z' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); undo(); return; }
-    if (k === 'delete' || k === 'backspace' || k === 'x') { S.tool = S.tool.kind === 'remove' ? { kind: 'none' } : { kind: 'remove' }; renderTabs(); renderItems(); refreshPreview(); }
+    if (k === 'y' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); redo(); return; }
+    if ((k === 'delete' || k === 'backspace') && S.held?.kind === 'obj') {
+      const H = S.held; S.held = null;
+      send({ type: 'remove', plotId: S.myPlot, level: S.level, lx: H.from[0], ly: H.from[1] });
+      refreshPreview(); keys.add(k); return;
+    }
+    if (k === 'delete' || k === 'backspace' || k === 'x' || k === 'k') setStripTool('remove');
+    if (k === 'h') setStripTool('select');
+    if (k === 'c' && !e.ctrlKey && !e.metaKey) setStripTool('eyedrop');
+    if (k === 't') setStripTool('design');
+    if (k === 'l') cycleTime();
+    if (k === 'enter' && S.chain) finishChain(false);
     if (k === 'r') rotateItem();
     if (k === 'v') cycleWalls();
     if (e.key === 'PageUp') setLevel(1);
@@ -1445,7 +1918,9 @@ cv.addEventListener('pointerdown', (e) => {
   if (S.mode === 'build' && e.altKey) { eyedrop(hover); pointers.delete(e.pointerId); return; }
   if (S.mode === 'build') {
     const q = pickLocal(e.clientX, e.clientY);
-    if (q && ['wall', 'floor', 'roof', 'pave', 'dig'].includes(S.tool.kind)) drag = { start: S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q), cur: S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q) };
+    if (q && S.tool.kind === 'remove' && !S.held) drag = { start: tileOf(q), cur: tileOf(q) };
+    else if (q && S.tool.kind === 'wall' && S.wallTool === 'chain') drag = null;
+    else if (q && ['wall', 'floor', 'roof', 'pave', 'dig'].includes(S.tool.kind)) drag = { start: S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q), cur: S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q) };
     else if (['resize', 'merge', 'split'].includes(S.tool.kind)) {
       const plot = myDef(), w = pickWorld(e.clientX, e.clientY);
       const dist = w ? { west: Math.abs(w.x - plot.x), east: Math.abs(w.x - plot.x - plot.w), north: Math.abs(w.z - plot.y), south: Math.abs(w.z - plot.y - plot.h) } : null;
@@ -1487,6 +1962,7 @@ cv.addEventListener('pointermove', (e) => {
     if (drag && drag.start) {
       const q = pickLocal(e.clientX, e.clientY);
       if (q) drag.cur = S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q);
+      if (q && S.tool.kind === 'remove') drag.cur = tileOf(q);
     }
     refreshPreview();
     return;
@@ -1502,14 +1978,17 @@ const endPointer = (e) => {
     // A quick right-click (no drag) rotates the item you're placing.
     const g = gesture;
     if (g.button === 2 && S.mode === 'build' && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) < 6 && performance.now() - g.t < 450) {
-      if (S.tool.kind === 'obj' && canRotate(S.tool.id)) rotateItem(); else if (S.tool.kind === 'obj') toast('That item can’t be rotated');
+      if (S.held || (S.tool.kind === 'obj' && canRotate(S.tool.id))) rotateItem(); else if (S.tool.kind === 'obj') toast('That item can’t be rotated');
     }
     if (!pointers.size) gesture = null;
     return;
   }
   if (!had) return;
   if (S.mode === 'build') {
-    if (e.type === 'pointerup') commit({ cx: e.clientX, cy: e.clientY });
+    if (e.type === 'pointerup') {
+      if (S.tool.kind === 'wall' && S.wallTool === 'chain' && !S.held) chainClick({ cx: e.clientX, cy: e.clientY });
+      else commit({ cx: e.clientX, cy: e.clientY });
+    }
     drag = null;
     if (e.pointerType !== 'mouse') hover = null;
     refreshPreview();
@@ -1521,6 +2000,7 @@ const endPointer = (e) => {
   stick.id = null; stick.active = false;
 };
 cv.addEventListener('pointerup', endPointer);
+cv.addEventListener('dblclick', () => { if (S.mode === 'build' && S.chain) finishChain(false); });
 cv.addEventListener('pointercancel', endPointer);
 cv.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && S.mode === 'build' && !drag) { hover = null; refreshPreview(); } });
 
@@ -1879,7 +2359,8 @@ function render(now) {
   view.pruneActors();
   updateOutline();
   updateMap(now);
-  view.render(now, darkness(worldClock(sNow, S.epoch).hours), S.mode !== 'build');
+  const hour = S.mode === 'build' && S.previewHour != null ? S.previewHour : worldClock(sNow, S.epoch).hours;
+  view.render(now, darkness(hour), S.mode !== 'build');
   drawOverlay(now);
 }
 

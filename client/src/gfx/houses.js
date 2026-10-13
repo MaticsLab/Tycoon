@@ -171,7 +171,7 @@ export function buildPlot(plot, opts) {
       const rot = o.r || 0;
       const [w, h] = footprint(o.t, rot);
       if (hasModel(o.t)) {
-        group.add(makeItem(o.t, rot, ox + lx, y, oz + ly));
+        group.add(makeItem(o.t, rot, ox + lx, y, oz + ly, o.c || 0));
       } else if (cards && d.crop) {
         cards.add(cropSprite(d.crop, cropStage(o, opts.now)), 8, 13, ox + lx + 0.5, y, oz + ly + 0.6);
       } else if (cards && BILLBOARD.has(o.t)) {

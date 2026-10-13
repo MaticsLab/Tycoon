@@ -1,8 +1,10 @@
 import { generateWorld, applyRoads, worldClock, publicAreaAt, TILE, PLAYER_SPEED, RUN_MULT, WORLD_VERSION, STARTER_PLOTS, MAP_W, CIVIC } from '../../shared/world.js';
 import { City } from './city.js';
+import { roomTiles, extract, rotateTimes, removeAt, placeError as fragError, applyAt, fragmentValue, cleanFragment } from '../../shared/blueprint.js';
+import { STYLED_ROOMS } from '../../shared/rooms.js';
 import { ITEMS, GOODS, CROPS, START_COINS, cropStage, itemName } from '../../shared/catalog.js';
 import {
-  key, inInterior, tilesOf, objAt, occChanged, placementError, canStand, levelView,
+  key, inInterior, tilesOf, objAt, occChanged, placementError, canStand, levelView, canRotate,
   edgeKey, parseEdge, wallError, wallTouchesFeet, roofError, roofAt, indexPlots, roadIn, roadEditError, plotEntrance,
   landError, contentFits, shiftContent, mergedRect, splitRects, hasContent, LAND_PRICE, stepLevel,
 } from '../../shared/plot.js';
@@ -154,6 +156,13 @@ export class Game {
       case 'mergePlot': return this.mergePlot(s, msg);
       case 'splitPlot': return this.splitPlot(s, msg);
       case 'road': return this.road(s, msg);
+      case 'moveObj': return this.moveObj(s, msg);
+      case 'design': return this.design(s, msg);
+      case 'bulldoze': return this.bulldoze(s, msg);
+      case 'moveRegion': return this.moveRegion(s, msg);
+      case 'saveBlueprint': return this.saveBlueprint(s, msg);
+      case 'deleteBlueprint': return this.deleteBlueprint(s, msg);
+      case 'placeBlueprint': return this.placeBlueprint(s, msg);
       case 'cityRun': return this.cityAction(s, () => this.city.run(s, msg.office, msg.platform, this.day()));
       case 'cityVote': return this.cityAction(s, () => this.city.vote(s, msg.office, msg.candidate, this.day()));
       case 'cityPropose': return this.cityAction(s, () => this.city.propose(s, msg, this.day()));
@@ -268,7 +277,7 @@ export class Game {
 
     s.send({
       type: 'welcome', worldVersion: WORLD_VERSION, serverTime: this.now(), epoch: this.epoch,
-      you: { id: profile.id, name: profile.name, color: profile.color, look: profile.look, farm: profile.farm || '', fav: profile.fav || '', coins: profile.coins, plotId: profile.plotId, x: s.x, y: s.y, level: s.level, inv: profile.inv, username: s.identity.username || null, guest: !!s.identity.isAnonymous },
+      you: { id: profile.id, name: profile.name, color: profile.color, look: profile.look, library: profile.library || [], farm: profile.farm || '', fav: profile.fav || '', coins: profile.coins, plotId: profile.plotId, x: s.x, y: s.y, level: s.level, inv: profile.inv, username: s.identity.username || null, guest: !!s.identity.isAnonymous },
       players: [...this.sessions.values()].filter((o) => o !== s).map((o) => this.publicPlayer(o)),
       npcs: Object.values(this.npcs).map((n) => ({ id: n.id, x: n.x, y: n.y, dir: n.dir })),
       plots: Object.values(this.plots),
@@ -543,6 +552,159 @@ export class Game {
       delete view.floor[k];
     }
     this.plotChanged(plot);
+  }
+
+  // ----- Sims-style build tools -----
+  // Select tool: pick up a piece of furniture and put it down elsewhere (free).
+  moveObj(s, { plotId, level = 0, from, to, r }) {
+    const plot = this.ownPlot(s, plotId);
+    if (!plot || !Array.isArray(from) || !Array.isArray(to)) return;
+    level = this.lvl(level);
+    const view = levelView(plot, level);
+    const hit = objAt(view, from[0], from[1]);
+    if (!hit) return;
+    const o = hit.obj, def = ITEMS[o.t];
+    if (def.stairs) return s.send({ type: 'error', msg: 'Stairs can’t be moved: sledgehammer them and build new ones' });
+    if (def.crop) return s.send({ type: 'error', msg: 'Crops can’t be moved' });
+    const rot = canRotate(o.t) && [0, 1, 2, 3].includes(r) ? r : o.r || 0;
+    delete view.obj[hit.key];
+    occChanged(plot);
+    const [tx, ty] = to;
+    const err = !Number.isInteger(tx) || !Number.isInteger(ty) ? 'Bad spot' : placementError(plot, tx, ty, o.t, rot, level, this.world)
+      || (def.solid && !level && this.someoneOn(plot, tilesOf(o.t, rot, tx, ty)) ? 'Someone is standing there' : null);
+    if (err) { view.obj[hit.key] = o; occChanged(plot); return s.send({ type: 'error', msg: err }); }
+    const n = { ...o };
+    if (rot) n.r = rot; else delete n.r;
+    view.obj[key(tx, ty)] = n;
+    this.plotChanged(plot);
+  }
+
+  // Design tool: recolour furniture (6 colourways) or switch a roof's material. Free.
+  design(s, { plotId, level = 0, lx, ly, roof, c }) {
+    const plot = this.ownPlot(s, plotId);
+    if (!plot || !Number.isInteger(lx) || !Number.isInteger(ly)) return;
+    level = this.lvl(level);
+    if (roof) {
+      const i = roofAt(plot, lx, ly, level);
+      if (i < 0) return;
+      const mats = Object.keys(ITEMS).filter((k) => ITEMS[k].layer === 'roof');
+      plot.roofs[i].m = mats[(mats.indexOf(plot.roofs[i].m) + 1) % mats.length];
+      return this.plotChanged(plot);
+    }
+    const hit = objAt(levelView(plot, level), lx, ly);
+    if (!hit || ITEMS[hit.obj.t].crop) return;
+    const next = Number.isInteger(c) && c >= 0 && c < 6 ? c : ((hit.obj.c || 0) + 1) % 6;
+    if (next) hit.obj.c = next; else delete hit.obj.c;
+    this.plotChanged(plot);
+  }
+
+  // Bulldoze the lot (everything, refunded) or just the "terrain": soil, paths and crops.
+  bulldoze(s, { plotId, terrain }) {
+    const plot = this.ownPlot(s, plotId);
+    if (!plot) return;
+    const refundOn = !s.cheats.build;
+    let coins = 0;
+    const bag = {};
+    const outdoor = (f) => f === 'soil' || f === 'floor_stone';
+    for (let l = 0; l < 2; l++) {
+      const view = levelView(plot, l);
+      for (const [k, o] of Object.entries(view.obj)) {
+        const def = ITEMS[o.t];
+        if (terrain && !def.crop) continue;
+        if (def.stairs && terrain) continue;
+        delete view.obj[k];
+        if (def.shop) bag[o.t] = (bag[o.t] || 0) + 1; else if (!def.crop) coins += def.price;
+      }
+      for (const [k, f] of Object.entries(view.floor)) {
+        if (terrain && !(l === 0 && outdoor(f))) continue;
+        if (terrain && objAt(view, ...k.split(',').map(Number))) continue;
+        delete view.floor[k];
+        coins += ITEMS[f]?.price || 0;
+      }
+    }
+    if (!terrain) {
+      for (const w of Object.values(plot.walls)) coins += (ITEMS[w.m]?.price || 0) + (ITEMS[w.f]?.price || 0);
+      for (const rf of plot.roofs) coins += (ITEMS[rf.m]?.price || 0) * rf.w * rf.h;
+      plot.walls = {}; plot.roofs = [];
+    }
+    occChanged(plot);
+    if (refundOn) { if (coins) this.coins(s, coins); for (const [t, n] of Object.entries(bag)) this.bag(s, t, n); }
+    s.send({ type: 'toast', text: terrain ? '🚜 Terrain cleared' : `🚜 Lot bulldozed${refundOn ? ` · +🪙${coins}` : ''}` });
+    this.landChanged([plot]);
+  }
+
+  // Move (and turn) a room, or the whole house, as one piece. Free.
+  // room: [lx, ly] of a floor tile in it (on `level`), or all: true for everything.
+  moveRegion(s, { plotId, level = 0, room, all, dx = 0, dy = 0, rot = 0 }) {
+    const plot = this.ownPlot(s, plotId);
+    if (!plot || ![dx, dy, rot].every(Number.isInteger)) return;
+    level = this.lvl(level);
+    let region = null;
+    if (!all) {
+      if (!Array.isArray(room)) return;
+      const tiles = roomTiles(plot, level, room[0], room[1]);
+      if (!tiles) return s.send({ type: 'error', msg: 'Point at a room’s floor' });
+      region = { level, tiles };
+    }
+    const frag = extract(plot, region);
+    if (!frag) return s.send({ type: 'error', msg: all ? 'Nothing to move yet' : 'That room is empty' });
+    if (region && Object.values(frag.levels[level].obj).some((o) => ITEMS[o.t]?.stairs)) return s.send({ type: 'error', msg: 'Rooms with stairs move with the whole house' });
+    if (region && level === 0 && Object.keys(levelView(plot, 1).floor).some((k) => region.tiles.has(k))) return s.send({ type: 'error', msg: 'That room has an upstairs: move the whole house instead' });
+    const turned = rotateTimes(frag, rot);
+    // Turn about the room's centre, then shift.
+    const ox = frag.ox + Math.round((frag.w - turned.w) / 2) + dx, oy = frag.oy + Math.round((frag.h - turned.h) / 2) + dy;
+    removeAt(plot, frag, frag.ox, frag.oy);
+    const err = fragError(plot, turned, ox, oy, this.world);
+    if (err) { applyAt(plot, frag, frag.ox, frag.oy); return s.send({ type: 'error', msg: err }); }
+    applyAt(plot, turned, ox, oy);
+    this.landChanged([plot]);
+  }
+
+  // Save to My Library: keep a room or the whole house as a blueprint (up to 12).
+  saveBlueprint(s, { plotId, level = 0, room, name }) {
+    const plot = this.ownPlot(s, plotId);
+    if (!plot) return;
+    level = this.lvl(level);
+    let region = null;
+    if (Array.isArray(room)) {
+      const tiles = roomTiles(plot, level, room[0], room[1]);
+      if (!tiles) return s.send({ type: 'error', msg: 'Point at a room’s floor' });
+      region = { level, tiles };
+    }
+    const frag = extract(plot, region);
+    if (!frag) return s.send({ type: 'error', msg: 'Nothing to save yet' });
+    const lib = (s.profile.library ||= []);
+    if (lib.length >= 12) return s.send({ type: 'error', msg: 'Your library is full (12): delete one first' });
+    let f = cleanFragment(frag);
+    if (region && level) f = { ...f, levels: [f.levels[1], { floor: {}, obj: {} }], walls: Object.fromEntries(Object.entries(f.walls).map(([k, w]) => [k.replace(/^1:/, '0:'), w])) };
+    lib.push({ name: clean(name, 24) || (region ? 'My room' : 'My house'), frag: f, value: fragmentValue(f), saved: this.now() });
+    this.markProfile(s.profile);
+    s.send({ type: 'library', library: lib });
+    s.send({ type: 'toast', text: '📚 Saved to your library' });
+  }
+
+  deleteBlueprint(s, { idx }) {
+    const lib = s.profile.library || [];
+    if (!Number.isInteger(idx) || !lib[idx]) return;
+    lib.splice(idx, 1);
+    this.markProfile(s.profile);
+    s.send({ type: 'library', library: lib });
+  }
+
+  // Buy a styled room or a library blueprint onto your plot at (x, y), turned `rot` times.
+  placeBlueprint(s, { plotId, src, id, x, y, rot = 0 }) {
+    const plot = this.ownPlot(s, plotId);
+    if (!plot || ![x, y, rot].every(Number.isInteger)) return;
+    const bp = src === 'styled' ? STYLED_ROOMS[id]?.frag : (s.profile.library || [])[id]?.frag;
+    if (!bp) return;
+    const frag = rotateTimes(bp, rot);
+    const err = fragError(plot, frag, x, y, this.world, { skipShop: true });
+    if (err) return s.send({ type: 'error', msg: err });
+    const cost = s.cheats.build ? 0 : fragmentValue(frag);
+    if (cost > s.profile.coins) return s.send({ type: 'error', msg: `Not enough coins (needs 🪙${cost})` });
+    applyAt(plot, frag, x, y, { skipShop: true, now: this.now() });
+    if (cost) this.coins(s, -cost);
+    this.landChanged([plot]);
   }
 
   // ----- land: resize, merge, split -----

@@ -83,6 +83,11 @@ export class Minimap {
     const g = cv.getContext('2d');
     g.imageSmoothingEnabled = false;
     g.drawImage(layer, 0, 0);
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    for (const p of people.filter((q) => q.kind !== 'me')) dot(g, p, s, detailed);
+    const me = people.find((q) => q.kind === 'me');
+    if (me) dot(g, me, s, detailed);
+    // Place names go on top of everything so villagers never hide them.
     if (detailed) {
       g.textAlign = 'center'; g.textBaseline = 'middle';
       for (const a of PUBLIC_AREAS) {
@@ -93,9 +98,6 @@ export class Minimap {
       }
       for (const l of labels) label(g, l.text, l.x * s, l.y * s, s * 1.5, l.mine ? '#ffe36e' : '#f4efe2');
     }
-    for (const p of people.filter((q) => q.kind !== 'me')) dot(g, p, s, detailed);
-    const me = people.find((q) => q.kind === 'me');
-    if (me) dot(g, me, s, detailed);
   }
 }
 

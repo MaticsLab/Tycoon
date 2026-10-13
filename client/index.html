@@ -123,12 +123,24 @@
     </div>
 
     <div id="tray" hidden>
+      <div id="buildtools">
+        <button data-tool="select" title="Select: pick up and move furniture or a whole room (H)">👆<small>Select</small></button>
+        <button data-tool="eyedrop" title="Eyedropper: copy what you click (C, or Alt+click)">💧<small>Copy</small></button>
+        <button data-tool="remove" title="Sledgehammer: click, or drag a box to clear an area (K / Delete)">🔨<small>Sledge</small></button>
+        <button data-tool="design" title="Design: recolour furniture or switch a roof's colour, free (T)">🎨<small>Design</small></button>
+        <span class="sep"></span>
+        <button id="btn-undo" title="Undo (Ctrl/Cmd+Z)" disabled>↶<small>Undo</small></button>
+        <button id="btn-redo" title="Redo (Ctrl/Cmd+Y)" disabled>↷<small>Redo</small></button>
+        <span class="sep"></span>
+        <button data-tool="movehouse" title="Move your whole house around the plot">🏠<small>Move</small></button>
+        <button id="btn-time" title="Preview time of day (L)">🌗<small>Day</small></button>
+        <button id="btn-lot" title="Lot info, library and bulldozer">ℹ️<small>Lot</small></button>
+      </div>
       <div id="tabs"></div>
       <div id="traybtns">
         <button id="btn-level" title="Switch floor (PgUp/PgDn)">Ground floor</button>
         <button id="btn-walls" title="Walls up / cutaway / down (V)">Walls: cutaway</button>
         <button id="btn-rotate" title="Rotate (R or right-click)">↻ Rotate</button>
-        <button id="btn-undo" title="Undo (Ctrl/Cmd+Z)" disabled>↶ Undo</button>
         <button id="btn-done" class="primary">Done</button>
       </div>
       <div id="toolinfo"></div>

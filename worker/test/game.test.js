@@ -730,3 +730,77 @@ test('City Hall: founding election, council proposals, AI caretakers and the may
   const saved = game.takeDirty();
   assert.equal(saved.city.officials.mayor.name, 'Ana');
 });
+
+test('Sims build tools: styled rooms, move/rotate rooms, move furniture, design, library, bulldoze', async () => {
+  const { STYLED_ROOMS } = await import('../../shared/rooms.js');
+  const { rotateTimes, extract } = await import('../../shared/blueprint.js');
+  const { game, join } = setup();
+  const a = await join({ name: 'Ana' });
+  a.send({ type: 'cheat', cmd: 'testingcheats true' });
+  a.send({ type: 'cheat', cmd: 'motherlode' });
+  a.send({ type: 'claim', plotId: 0 });
+  const plot = game.plots[0];
+  stand(game, a, 1, 2, 2);
+  // Every styled room is a valid build: place each on an empty plot copy and check its furniture.
+  for (const [id, r] of Object.entries(STYLED_ROOMS)) {
+    const p = { ...plot, floor: {}, obj: {}, l1: { floor: {}, obj: {} }, walls: {}, roofs: [] };
+    const { placeError, applyAt } = await import('../../shared/blueprint.js');
+    assert.equal(placeError(p, r.frag, 1, 1, game.world), null, id);
+    applyAt(p, r.frag, 1, 1);
+    for (const [k, o] of Object.entries(p.obj)) {
+      const [x, y] = k.split(',').map(Number);
+      delete p.obj[k];
+      const { occChanged, placementError } = await import('../../shared/plot.js');
+      occChanged(p);
+      assert.equal(placementError(p, x, y, o.t, o.r || 0, 0, game.world), null, `${id}: ${o.t}`);
+      p.obj[k] = o; occChanged(p);
+    }
+    // Four quarter turns bring it back.
+    assert.deepEqual(rotateTimes(r.frag, 4), { w: r.frag.w, h: r.frag.h, levels: r.frag.levels, walls: r.frag.walls, roofs: r.frag.roofs }, id);
+  }
+  // Buy the bedroom.
+  const c0 = a.last('coins').coins;
+  a.send({ type: 'placeBlueprint', plotId: 0, src: 'styled', id: 'bedroom', x: 2, y: 2 });
+  assert.equal(c0 - a.last('coins').coins, STYLED_ROOMS.bedroom.price);
+  assert.equal(plot.obj['3,2'].t, 'bed');
+  a.send({ type: 'placeBlueprint', plotId: 0, src: 'styled', id: 'bedroom', x: 3, y: 3 });
+  assert.match(a.last('error').msg, /Clear|wall/);
+  // Move the whole room 6 east, then turn it a quarter.
+  a.send({ type: 'moveRegion', plotId: 0, room: [3, 3], dx: 6, dy: 0 });
+  assert.equal(plot.obj['3,2'], undefined);
+  assert.equal(plot.obj['9,2'].t, 'bed');
+  assert.ok(plot.walls['0:h:10:6'].f === 'door', 'door moved with it');
+  a.send({ type: 'moveRegion', plotId: 0, room: [9, 3], rot: 1 });
+  const bed = Object.values(plot.obj).find((o) => o.t === 'bed');
+  assert.equal(bed.r, 1, 'turned furniture turns too');
+  assert.equal(Object.keys(plot.walls).length, 18, 'same walls, now 4 wide and 5 deep');
+  // Select tool: move the lamp, keep its colour; design tool recolours for free.
+  const lampKey = Object.keys(plot.obj).find((k) => plot.obj[k].t === 'lamp');
+  const [lx, ly] = lampKey.split(',').map(Number);
+  const c1 = a.last('coins').coins;
+  a.send({ type: 'design', plotId: 0, lx, ly });
+  assert.equal(plot.obj[lampKey].c, 1);
+  a.send({ type: 'moveObj', plotId: 0, from: [lx, ly], to: [1, 12] });
+  assert.equal(plot.obj['1,12'].t, 'lamp');
+  assert.equal(plot.obj['1,12'].c, 1);
+  assert.equal(a.last('coins').coins, c1, 'moving and designing are free');
+  // Library: save the room, place a copy, delete it.
+  a.send({ type: 'saveBlueprint', plotId: 0, room: [9, 3], name: 'Guest room' });
+  assert.equal(a.last('library').library[0].name, 'Guest room');
+  a.send({ type: 'placeBlueprint', plotId: 0, src: 'library', id: 0, x: 15, y: 1 });
+  assert.equal(Object.values(plot.obj).filter((o) => o.t === 'bed').length, 2);
+  a.send({ type: 'deleteBlueprint', idx: 0 });
+  assert.equal(a.last('library').library.length, 0);
+  // Move the whole house; then bulldoze terrain, then the lot.
+  const before = extract(plot);
+  a.send({ type: 'moveRegion', plotId: 0, all: true, dx: -1, dy: 1 });
+  assert.equal(extract(plot).ox, before.ox - 1);
+  a.send({ type: 'place', plotId: 0, lx: 1, ly: 14, item: 'soil' });
+  a.send({ type: 'bulldoze', plotId: 0, terrain: true });
+  assert.equal(plot.floor['1,14'], undefined);
+  assert.ok(Object.keys(plot.walls).length > 0, 'terrain bulldoze keeps the house');
+  const c2 = a.last('coins').coins;
+  a.send({ type: 'bulldoze', plotId: 0 });
+  assert.equal(Object.keys(plot.walls).length + Object.keys(plot.obj).length + Object.keys(plot.floor).length, 0);
+  assert.ok(a.last('coins').coins > c2, 'refunded');
+});
