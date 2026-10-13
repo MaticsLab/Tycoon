@@ -452,7 +452,7 @@ const sysMsg = (text) => addLog(esc(text), 'sys');
 
 function updateHud() {
   $('coins').textContent = `🪙 ${S.coins}`;
-  $('btn-build').disabled = S.homePlot == null && S.biz?.plotId == null;
+  syncBuildBtn();
   $('online').textContent = `👥 ${S.players.size + 1}`;
   refreshTrayAffordability();
 }
@@ -478,6 +478,7 @@ function updateContext() {
   if (!S.me) return;
   $('clock').textContent = fmtClock();
   $('online').textContent = `👥 ${S.players.size + 1}`;
+  syncBuildBtn();
   const here = plotIdAtPixel(world, S.me.x, S.me.y);
   const plot = here >= 0 ? S.plots[here] : null;
   $('where').textContent = plot ? (plot.owner ? (plot.farm ? `${plot.farm} Farm` : `${plot.ownerName}'s home`) : `Plot ${here + 1} · For sale`) : 'Village';
@@ -533,8 +534,18 @@ $('action').onclick = () => {
 };
 
 $('btn-build').onclick = () => setMode(S.mode === 'build' ? 'walk' : 'build');
+// Your own plot under your feet (home or shop), or null.
+function ownPlotHere() {
+  if (!S.me) return null;
+  const id = plotIdAtPixel(world, S.me.x, S.me.y);
+  return id >= 0 && S.plots[id]?.owner === S.me.id ? id : null;
+}
+// Build only shows while you're on land you can build on (and while building, to leave).
+function syncBuildBtn() {
+  const show = S.mode === 'build' || ownPlotHere() != null;
+  if ($('btn-build').hidden === show) $('btn-build').hidden = !show;
+}
 $('btn-done').onclick = () => setMode('walk');
-$('btn-home').onclick = () => { setMode('walk'); closeTalk(); send({ type: 'home' }); };
 $('btn-chat').onclick = () => openChat();
 $('btn-bag').onclick = () => (modalKind === 'bag' ? closeModal() : showBag());
 $('btn-me').onclick = () => (modalKind === 'me' ? closeModal() : showMe());
@@ -1073,18 +1084,18 @@ function toolInfo(extra) {
 
 function setMode(mode) {
   if (mode === 'build') {
-    // Build whichever of your plots you're standing on (home or shop), else home.
-    const here = plotIdAtPixel(world, S.me.x, S.me.y);
-    const shop = S.biz?.plotId;
-    S.myPlot = here >= 0 && here === shop ? shop : S.homePlot ?? shop ?? null;
+    // Build the plot you're standing on (your home or your shop).
+    const here = ownPlotHere();
+    if (here == null) { toast(S.homePlot == null && S.biz?.plotId == null ? 'Claim a plot first!' : 'Walk onto your plot to build'); return; }
+    S.myPlot = here;
   } else S.myPlot = S.homePlot;
-  if (mode === 'build' && S.myPlot == null) { toast('Claim a plot first!'); return; }
   if (mode !== 'build') { S.held = null; S.chain = null; S.previewHour = null; }
   if (mode === 'build') closeTalk();
   S.mode = mode;
   document.body.classList.toggle('building', mode === 'build');
   $('tray').hidden = mode !== 'build';
   $('btn-build').classList.toggle('on', mode === 'build');
+  syncBuildBtn();
   $('action').style.display = mode === 'build' ? 'none' : '';
   $('chatlog').style.display = mode === 'build' ? 'none' : '';
   drag = null;
