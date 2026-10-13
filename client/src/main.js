@@ -542,12 +542,14 @@ function nearestNpc(range = TILE * 2.6) {
 }
 
 let lastAction = '';
+let lastViewKey = '';
 function updateContext() {
   if (!S.me) return;
   $('clock').textContent = fmtClock();
   view.setSeason(S.seasonOverride || seasonOf(worldClock(serverNow(), S.epoch).day).id);
   syncBuildBtn();
   const here = plotIdAtPixel(world, S.me.x, S.me.y);
+
   const plot = here >= 0 ? S.plots[here] : null;
   let action = '';
   const npc = nearestNpc();
@@ -2688,6 +2690,7 @@ function update(dt) {
   me.act = S.ride ? 'drive' : ui.fish.state ? 'fish' : S.act || 0;
   autoHarvest();
   tractorWork();
+  checkViewKey();
   // Steering: the stick / keys, or a tap-to-walk path.
   let wdir = null;
   if (Math.hypot(v.x, v.y) > 0.1) { S.walk = null; const g = view.ground(); wdir = [g.rx * v.x - g.fx * v.y, g.rz * v.x - g.fz * v.y]; }
@@ -3948,4 +3951,14 @@ function drawChips(now) {
     octx.fillStyle = f.c;
     octx.fillRect(p.x - 2, p.y - 2, 4, 3);
   }
+}
+
+// Walking in or out of a building (or up the stairs) changes how it's cut away: rebuild
+// it this frame, not at the next routine refresh.
+function checkViewKey() {
+  if (!S.me) return;
+  const here = plotIdAtPixel(world, S.me.x, S.me.y);
+  const o = here >= 0 ? plotOpts(here) : null;
+  const vk = o ? `${here}|${o.cut}|${o.maxLevel}|${o.roofs}` : '';
+  if (vk !== lastViewKey) { lastViewKey = vk; plotsDirty = true; syncPlots(true); }
 }

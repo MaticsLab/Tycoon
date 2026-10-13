@@ -106,7 +106,7 @@ export function advanceNeeds(needs, hours, act = null) {
   if (a?.gain?.health) n.health += a.gain.health * hours;
   for (const k of NEED_IDS) n[k] = Math.max(0, Math.min(100, n[k]));
   const low = NEEDS.filter((need) => before[need.id] >= 15 && n[need.id] < 15).map((need) => need.id);
-  return { needs: n, low, faint: n.health <= 0 };
+  return { needs: n, low, faint: n.health <= 0, weak: before.health >= 25 && n.health < 25 };
 }
 
 // Overall mood (-1..1) from the needs, for the plumbob colour.

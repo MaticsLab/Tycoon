@@ -526,7 +526,7 @@ export class Game {
     this.broadcast({ type: 'plot', plot });
     // Removed stairs or floors can leave someone with nothing to stand on.
     for (const o of this.sessions.values()) {
-      if (o.level && !canStand(this.world, this.plots, o.x, o.y, o.level)) this.home(o);
+      if (o.level && !canStand(this.world, this.plots, o.x, o.y, o.level)) this.unstick(o);
     }
   }
 
@@ -962,10 +962,13 @@ export class Game {
     for (const id of removed) { this.mark(`plot:${id}`); this.broadcast({ type: 'plotRemoved', id }); }
     for (const p of changed) this.plotChanged(p);
     this.mark('meta');
-    // Anyone now stuck (inside a wall line, say) gets moved out to the road.
+    // Anyone on that land now stuck (inside a new wall line, say) steps to the nearest
+    // free spot. Nobody anywhere else is touched.
+    const near = (o, p) => o.x >= (p.x - 1) * TILE && o.x <= (p.x + p.w + 1) * TILE && o.y >= (p.y - 1) * TILE && o.y <= (p.y + p.h + 1) * TILE;
     for (const o of this.sessions.values()) {
       if (o.act && ACTIVITIES[o.act.id]?.seat) continue; // they're in a bed or a shower
-      if (!canStand(this.world, this.plots, o.x, o.y, o.level || 0)) this.home(o);
+      if (!changed.some((p) => p && near(o, p))) continue;
+      if (!canStand(this.world, this.plots, o.x, o.y, o.level || 0)) this.unstick(o);
     }
   }
 
@@ -1182,6 +1185,23 @@ export class Game {
     this.plotChanged(plot);
   }
 
+  // Step to the nearest spot you can stand on (same floor first, then the ground);
+  // only if there's none nearby, go home.
+  unstick(s) {
+    const lv = s.level || 0;
+    for (let r = 1; r <= 6; r++) for (const level of lv ? [lv, 0] : [0]) {
+      for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const x = (Math.floor(s.x / TILE) + dx + 0.5) * TILE, y = (Math.floor(s.y / TILE) + dy + 0.6) * TILE;
+        if (!canStand(this.world, this.plots, x, y, level)) continue;
+        s.x = x; s.y = y; s.level = level; s.lastMove = this.now();
+        s.send({ type: 'pos', x, y, level });
+        return;
+      }
+    }
+    this.home(s);
+  }
+
   home(s) {
     const id = s.profile.plotId;
     const p = id != null ? this.plots[id] : null;
@@ -1386,7 +1406,7 @@ export class Game {
     const pr = s.profile;
     // (capped, so a stalled server or a skipped clock never drains needs in one go)
     const before = pr.needs.hunger;
-    const { needs, low, faint } = advanceNeeds(pr.needs, Math.min(5000, now - s.needsAt) / HOUR_MS, s.act?.id);
+    const { needs, low, faint, weak } = advanceNeeds(pr.needs, Math.min(5000, now - s.needsAt) / HOUR_MS, s.act?.id);
     s.needsAt = now;
     // Eating fills you up only as far as the food on your plate goes.
     if (ACTIVITIES[s.act?.id]?.carry && s.carry) {
@@ -1410,6 +1430,7 @@ export class Game {
       } else if (!a.carry && activityDone(s.act.id, needs, hours)) this.stopActivity(s, true, true);
     }
     for (const id of low) s.send({ type: 'toast', text: `${NEEDS.find((n) => n.id === id).icon} ${NEEDS.find((n) => n.id === id).low}` });
+    if (weak) s.send({ type: 'toast', text: '❤️ You’re feeling faint! Eat, rest and look after yourself soon, or you’ll pass out.' });
     if (faint) return this.faint(s);
     if (now - s.needsSent >= 2000) this.sendNeeds(s);
     if (now - (s.needsSaved || 0) >= 20_000) { s.needsSaved = now; this.markProfile(pr); }
@@ -1421,15 +1442,15 @@ export class Game {
     s.send({ type: 'needs', needs: Object.fromEntries(Object.entries(n).map(([k, v]) => [k, Math.round(v * 10) / 10])), act: s.act?.id || null, carry: s.carry ? { food: s.carry.food, left: Math.round(s.carry.left) } : null });
   }
 
-  // Health hit zero: you pass out and wake up at home, patched up by the village doctor.
+  // Health hit zero: you pass out where you are (no more being whisked home mid-errand)
+  // and the village doctor patches you up.
   faint(s) {
-    if (s.act) this.stopActivity(s, false);
+    if (s.act) this.stopActivity(s, true);
     const n = s.profile.needs;
     Object.assign(n, { health: 45, energy: Math.max(n.energy, 50), hunger: Math.max(n.hunger, 40), bladder: Math.max(n.bladder, 60), hygiene: Math.max(n.hygiene, 30), fun: Math.max(n.fun, 30) });
     const fee = Math.min(25, s.profile.coins);
     if (fee) this.coins(s, -fee);
-    this.home(s);
-    s.send({ type: 'toast', text: `😵 You fainted! The village doctor patched you up${fee ? ` (🪙${fee})` : ''}. Look after your needs!` });
+    s.send({ type: 'toast', text: `😵 You fainted! The village doctor patched you up right here${fee ? ` (🪙${fee})` : ''}. Look after your needs!` });
     this.sendNeeds(s);
   }
 

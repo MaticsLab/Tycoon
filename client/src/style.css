@@ -269,10 +269,10 @@ body.building #topbar { left: calc(186px + var(--sal)); }
 #btn-undo:disabled { opacity: .45; }
 
 /* Minimap (top-left, under the top bar) and the full village map */
-#minimap { position: fixed; left: calc(8px + var(--sal)); top: var(--mm-top, 56px); width: 210px; aspect-ratio: 168 / 88; image-rendering: pixelated;
+#minimap { position: fixed; left: calc(8px + var(--sal)); top: var(--mm-top, 56px); width: 150px; aspect-ratio: 1 / 1; border-radius: 12px; image-rendering: pixelated;
   border: 3px solid var(--wood); border-radius: 10px; box-shadow: 0 3px 0 rgba(0,0,0,.3); background: #2c6029; cursor: pointer; z-index: 3; }
 body.building #minimap { display: none; }
-@media (max-width: 620px) { #minimap { width: 150px; } }
+@media (max-width: 620px) { #minimap { width: 112px; } }
 #bigmap { position: fixed; inset: 0; z-index: 30; background: rgba(20, 14, 8, .6); display: flex; align-items: center; justify-content: center; padding: calc(10px + var(--sat)) 10px calc(10px + var(--sab)); }
 #bigmap[hidden] { display: none; }
 .bigmap-card { background: var(--cream); border: 4px solid var(--wood); border-radius: 14px; padding: 10px 12px; width: min(1040px, 100%); max-height: 100%; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 6px 0 #3e2a17; }
@@ -301,7 +301,7 @@ body.building #minimap { display: none; }
 .lotgrid span:nth-child(odd) { font-weight: bold; }
 
 /* ---- Needs panel (Sims-style) ---- */
-#needs { position: fixed; left: calc(8px + var(--sal)); top: calc(var(--mm-top, 56px) + 118px); width: 210px; background: rgba(255, 248, 232, .93); border: 3px solid var(--wood); border-radius: 12px; box-shadow: 0 3px 0 rgba(0,0,0,.25); padding: 4px 8px 6px; z-index: 2; }
+#needs { position: fixed; left: calc(8px + var(--sal)); top: calc(var(--mm-top, 56px) + 160px); width: 210px; background: rgba(255, 248, 232, .93); border: 3px solid var(--wood); border-radius: 12px; box-shadow: 0 3px 0 rgba(0,0,0,.25); padding: 4px 8px 6px; z-index: 2; }
 body.building #needs { display: none; }
 #needs-head { all: unset; cursor: pointer; display: flex; align-items: center; gap: 7px; width: 100%; font-size: 13px; color: var(--ink); }
 #needs-head small { margin-left: auto; transition: transform .2s; }
@@ -321,7 +321,7 @@ body.building #needs { display: none; }
 #needs:not(.open) .need { grid-template-columns: 1fr; justify-items: center; gap: 2px; }
 #needs:not(.open) .need small { display: none; }
 #needs:not(.open) .need i { width: 100%; height: 5px; }
-@media (max-width: 620px) { #needs { width: 150px; top: calc(var(--mm-top, 56px) + 87px); padding: 3px 6px 5px; } .need { grid-template-columns: 18px 1fr; } .need small { display: none; } }
+@media (max-width: 620px) { #needs { width: 150px; top: calc(var(--mm-top, 56px) + 122px); padding: 3px 6px 5px; } .need { grid-template-columns: 18px 1fr; } .need small { display: none; } }
 #action.busy { background: #5a8fd6; border-color: #2f5f9a; box-shadow: 0 4px 0 #2f5f9a; animation: none; }
 
 /* ---- Use menu (tap a fridge, TV, bed...) ---- */

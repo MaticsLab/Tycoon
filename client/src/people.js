@@ -228,15 +228,16 @@ function face(c, L, F, dir) {
     return;
   }
   r(c, -3, F, 6, 1, K[2]); r(c, -4, F + 1, 8, 7, K[2]); r(c, -3, F + 8, 6, 1, K[2]);
-  r(c, -4, F + 1, 1, 6, K[3]); r(c, 3, F + 1, 1, 7, K[1]); r(c, -2, F + 8, 4, 1, K[1]);
-  r(c, -2, F + 9, 4, 1, K[1]);                                 // neck
+  r(c, -4, F + 1, 1, 6, K[3]); r(c, 3, F + 1, 1, 7, K[1]);
+  r(c, -2, F + 9, 4, 1, K[2]); px(c, 1, F + 9, K[1]);           // neck (no dark jaw line: it read as a beard)
   if (dir === 1) return;
   // Eyes: a coloured iris with a white glint on the outside, darker underneath.
   px(c, -3, F + 4, EYE_W); px(c, -2, F + 4, E[1]); px(c, -2, F + 5, E[0]);
   px(c, 1, F + 4, E[1]); px(c, 2, F + 4, EYE_W); px(c, 1, F + 5, E[0]);
   if (L.body === 1) { px(c, -4, F + 4, LASH); px(c, 3, F + 4, LASH); }
-  px(c, 0, F + 6, K[1]);                                       // nose shadow
-  px(c, -1, F + 7, '#a8503e'); px(c, 0, F + 7, L.body === 1 ? '#d0706a' : '#b8665a');
+  // A small, soft smile (no nose pixel: it read as a spot above the lip).
+  const lip = L.body === 1 ? '#d4807a' : '#c98f80';
+  px(c, -1, F + 7, lip); px(c, 0, F + 7, lip);
 }
 
 // Ears sit on top of short hair, so they read as ears rather than gaps in the hair.

@@ -594,11 +594,13 @@ test('stairs: climb to the upper floor, walk around up there, come back down', a
   s.x = (p.x + 11.6) * TILE; s.y = (p.y + 6.5) * TILE;
   assert.ok(!walk((p.x + 10.5) * TILE, (p.y + 6.5) * TILE));
 
-  // Removing the stairs while someone is upstairs sends them home safely.
+  // Removing the floor under someone upstairs steps them to the nearest solid floor
+  // (not all the way home).
   s.x = X; s.y = (p.y + 3.5) * TILE; s.level = 1;
   a.send({ type: 'floorRect', plotId: 0, x: 10, y: 3, w: 1, h: 1, item: 'floor_wood', level: 1 });
   a.send({ type: 'remove', plotId: 0, lx: 10, ly: 3, level: 1 });
-  assert.equal(s.level, 0);
+  assert.ok(canStand(game.world, game.plots, s.x, s.y, s.level), 'on solid floor');
+  assert.ok(Math.hypot(s.x - X, s.y - (p.y + 3.5) * TILE) < TILE * 7, 'close by, not sent home');
   // Stairs only go on the ground floor.
   a.send({ type: 'place', plotId: 0, lx: 9, ly: 2, item: 'stairs', level: 1 });
   assert.match(a.last('error').msg, /ground floor/);
@@ -986,10 +988,12 @@ test('needs: run down over time; fridge, toilet, shower, bed and TV fill them; e
   a.send({ type: 'eat', item: 'turnip' });
   assert.equal(s.profile.needs.hunger, 62);
   assert.equal(s.profile.inv.turnip, undefined);
-  // Health falls while needs are empty; at zero you faint and wake up at home.
+  // Health falls while needs are empty; at zero you faint (and come round where you are).
   Object.assign(s.profile.needs, { hunger: 0, bladder: 0, health: 1 });
+  const where = [s.x, s.y];
   run(20);
   assert.match(a.last('toast').text, /fainted/);
+  assert.deepEqual([s.x, s.y], where, 'not moved home');
   assert.ok(s.profile.needs.health >= 40);
 });
 

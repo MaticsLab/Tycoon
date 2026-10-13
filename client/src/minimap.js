@@ -65,16 +65,33 @@ export class Minimap {
 
   // Rebuild the cached ground layers when roads or plots change.
   update(world, plots, myPlot) {
-    const sig = `${world.roadsVersion}|${myPlot}|${Object.values(plots).map((p) => `${p.id}.${p.rev ?? 0}.${p.x}.${p.y}.${p.w}.${p.h}.${p.owner}`).join(',')}`;
+    const sig = `${world.roadsVersion}|${world.natureVersion || 0}|${myPlot}|${Object.values(plots).map((p) => `${p.id}.${p.rev ?? 0}.${p.x}.${p.y}.${p.w}.${p.h}.${p.owner}`).join(',')}`;
     if (sig === this.sig) return;
     this.sig = sig;
-    this.layers = { small: paintStatic(world, plots, myPlot, 2), big: paintStatic(world, plots, myPlot, 6) };
+    this.layers = { small: paintStatic(world, plots, myPlot, 4), big: paintStatic(world, plots, myPlot, 6) };
   }
 
   // people: [{ x, y (world px), dir, kind: 'me'|'player'|'npc'|'pet', name }]
   draw(people, labels) {
-    this.render(this.small, this.layers.small, people, 2, false, labels);
+    this.follow(this.small, this.layers.small, people, 4);
     if (!this.big.closest('[hidden]')) this.render(this.big, this.layers.big, people, 6, true, labels);
+  }
+
+  // The corner map: a square window that follows you around (you stay in the middle).
+  follow(cv, layer, people, s) {
+    if (!layer) return;
+    const N = 128; // canvas pixels: 32 tiles across
+    if (cv.width !== N) { cv.width = N; cv.height = N; }
+    const g = cv.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    const me = people.find((q) => q.kind === 'me');
+    const ox = Math.round((me ? (me.x / TILE) * s : layer.width / 2) - N / 2), oy = Math.round((me ? (me.y / TILE) * s : layer.height / 2) - N / 2);
+    g.fillStyle = '#244a22'; g.fillRect(0, 0, N, N); // the forest beyond the edge
+    g.drawImage(layer, -ox, -oy);
+    g.save(); g.translate(-ox, -oy);
+    for (const p of people.filter((q) => q.kind !== 'me')) dot(g, p, s * 0.6, false, s);
+    if (me) dot(g, me, s * 0.6, false, s);
+    g.restore();
   }
 
   render(cv, layer, people, s, detailed, labels) {
@@ -111,8 +128,8 @@ function label(g, text, x, y, size, col) {
 }
 
 const DOT = { me: '#ffe36e', player: '#ffffff', npc: '#7dff8a', pet: '#ffb26b' };
-function dot(g, p, s, detailed) {
-  const x = (p.x / TILE) * s, y = (p.y / TILE) * s;
+function dot(g, p, s, detailed, scale = s) {
+  const x = (p.x / TILE) * scale, y = (p.y / TILE) * scale;
   const r = p.kind === 'pet' ? s * 0.7 : p.kind === 'me' ? s * 1.6 : s * 1.2;
   if (p.kind === 'me') {
     // An arrow pointing the way you face.
