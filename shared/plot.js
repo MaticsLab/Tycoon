@@ -88,6 +88,25 @@ export function parseEdge(k) {
   return { l: +l, d, x: +x, y: +y };
 }
 
+// Two-segment features (double doors): a run of edges along one wall with the same
+// feature pairs up from its start: (0,1), (2,3)... Returns { part: 0|1, partner: edge
+// key or null } for the edge at (level, d, x, y).
+export const featureWidth = (f) => ITEMS[f]?.width || 1;
+export function featurePair(plot, level, d, x, y) {
+  const w = plot.walls?.[edgeKey(level, d, x, y)];
+  if (!w?.f || featureWidth(w.f) < 2) return { part: 0, partner: null };
+  const step = (n) => (d === 'h' ? edgeKey(level, d, x + n, y) : edgeKey(level, d, x, y + n));
+  let back = 0;
+  while (plot.walls?.[step(-(back + 1))]?.f === w.f) back++;
+  const part = back % 2;
+  const partner = step(part ? -1 : 1);
+  return { part, partner: plot.walls?.[partner]?.f === w.f ? partner : null };
+}
+// Which side of a wall a point is on: 0 = north/west face (wall.m), 1 = south/east (wall.o).
+export const wallSideAt = (d, ex, ey, fx, fz) => (d === 'h' ? (fz < ey ? 0 : 1) : (fx < ex ? 0 : 1));
+// The material of one face of a wall (o falls back to m).
+export const faceMat = (w, side) => (side ? w.o || w.m : w.m);
+
 // Walls go on any edge of the plot's tiles, including its outline.
 export function edgeValid(plot, d, x, y) {
   if (!Number.isInteger(x) || !Number.isInteger(y)) return false;

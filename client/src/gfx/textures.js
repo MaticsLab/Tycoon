@@ -84,8 +84,107 @@ const WALL_PAINT = {
     }
   },
   wall_blue(c) { siding(c, '#7fa7c9'); r(c, 0, WH - 3, 16, 3, '#f2efe6'); },
+  // Wide white boards with deep shadow lines.
+  wall_shiplap(c) {
+    r(c, 0, 0, 16, WH, '#f2efe6');
+    for (let y = 0; y < WH; y += 5) { r(c, 0, y, 16, 1, '#c9c3b4'); r(c, 0, y + 1, 16, 1, '#fbf9f3'); if (tileHash(y, 9) > 0.5) px(c, Math.floor(tileHash(9, y) * 16), y + 3, '#e2ddd1'); }
+  },
+  // Sun-warmed plaster with a speckle and a darker plinth.
+  wall_stucco(c) {
+    const p = ['#c9a37a', '#dbb88f', '#e8c9a0', '#f3dbb8'];
+    r(c, 0, 0, 16, WH, p[2]);
+    for (let y = 0; y < WH; y++) for (let x = 0; x < 16; x++) { const h = tileHash(x * 7 + 3, y * 5 + 1); if (h < 0.1) px(c, x, y, p[1]); else if (h > 0.93) px(c, x, y, p[3]); else if (h > 0.9) px(c, x, y, p[0]); }
+    r(c, 0, WH - 4, 16, 4, '#a98563'); r(c, 0, WH - 4, 16, 1, '#c29d78');
+  },
+  // Overlapping cedar shingles, staggered rows with ragged ends.
+  wall_shingle(c) {
+    const p = ['#6e3f1f', '#8a522b', '#a8683a', '#c28150', '#d79a68'];
+    r(c, 0, 0, 16, WH, p[0]);
+    for (let row = 0; row * 4 < WH; row++) {
+      for (let x = row % 2 ? -2 : 0; x < 16; x += 4) {
+        const col = p[1 + Math.floor(tileHash(x + 30, row) * 3)];
+        const h = 4 + (tileHash(x, row + 7) > 0.6 ? 1 : 0);
+        r(c, x, row * 4, 3, h, col); px(c, x, row * 4, p[4]); px(c, x + 2, row * 4 + h - 1, p[0]);
+      }
+    }
+  },
+  // Vertical boards with battens over the joins (painted forest green).
+  wall_board(c) {
+    const [s0, sh, b, l] = ramp('#4f7a5a');
+    r(c, 0, 0, 16, WH, b);
+    for (const x of [0, 8]) { r(c, x, 0, 2, WH, l); r(c, x + 2, 0, 1, WH, sh); }
+    for (let i = 0; i < 5; i++) px(c, Math.floor(tileHash(i, 11) * 16), Math.floor(tileHash(11, i) * WH), s0);
+  },
+  // Bricks under a coat of chalky white paint (some brick peeking through).
+  wall_paintbrick(c) {
+    r(c, 0, 0, 16, WH, '#cfc8bb');
+    for (let row = 0; row * 4 < WH; row++) {
+      for (let bx = row % 2 ? -4 : 0; bx < 16; bx += 8) {
+        const worn = tileHash(bx + 3, row * 3) > 0.86;
+        const col = worn ? '#c47f66' : tileHash(bx, row) > 0.5 ? '#eeeae1' : '#e5e0d5';
+        r(c, bx, row * 4, 7, 3, col); r(c, bx, row * 4, 7, 1, worn ? '#d89a82' : '#f8f6f0');
+      }
+    }
+  },
+  // Dark slate stone, chunky blocks.
+  wall_darkstone(c) {
+    const p = ['#3c424b', '#4d545f', '#5d6470', '#707886', '#8a92a0'];
+    r(c, 0, 0, 16, WH, p[0]);
+    let y = 0;
+    while (y < WH) {
+      const rh = 4 + Math.floor(tileHash(y, 3) * 3);
+      let x = -Math.floor(tileHash(y, 5) * 6);
+      while (x < 16) { const w = 6 + Math.floor(tileHash(x + 40, y) * 5); const col = p[1 + Math.floor(tileHash(x, y + 9) * 3)]; r(c, x, y, w - 1, rh - 1, col); r(c, x, y, w - 1, 1, p[4]); x += w; }
+      y += rh;
+    }
+  },
+  // Painted shopfront panelling: raised panels, a moulded cornice and a kick plate.
+  wall_shopfront(c) {
+    const [s0, sh, b, l] = ramp('#2f4f6a');
+    r(c, 0, 0, 16, WH, b);
+    r(c, 0, 0, 16, 3, l); r(c, 0, 3, 16, 1, s0);                     // cornice
+    for (const [y, h] of [[6, 14], [23, 12]]) { r(c, 2, y, 12, h, sh); r(c, 3, y + 1, 10, h - 2, b); r(c, 3, y + 1, 10, 1, l); r(c, 2, y + h - 1, 12, 1, s0); }
+    r(c, 0, WH - 4, 16, 4, s0); r(c, 0, WH - 4, 16, 1, sh);            // kick plate
+    for (const x of [0, 15]) r(c, x, 4, 1, WH - 8, l);
+  },
+  // Glossy white subway tile with grey grout (kitchens and bathrooms).
+  wall_subway(c) {
+    r(c, 0, 0, 16, WH, '#c5cbd0');
+    for (let row = 0; row * 3 < WH; row++) for (let bx = row % 2 ? -4 : 0; bx < 16; bx += 8) { r(c, bx, row * 3, 7, 2, '#f4f6f7'); r(c, bx, row * 3, 7, 1, '#ffffff'); }
+  },
+  // Pink floral wallpaper over a white skirting board.
+  wall_paper(c) {
+    r(c, 0, 0, 16, WH, '#e8c3c9');
+    for (let y = 2; y < WH - 4; y += 6) for (let x = (y / 6) % 2 ? 4 : 0; x < 16; x += 8) {
+      px(c, x + 1, y, '#c4566c'); px(c, x, y + 1, '#c4566c'); px(c, x + 2, y + 1, '#c4566c'); px(c, x + 1, y + 2, '#c4566c'); px(c, x + 1, y + 1, '#f5d36b'); px(c, x + 2, y + 3, '#6f9a5a');
+    }
+    r(c, 0, WH - 3, 16, 3, '#f2efe6'); r(c, 0, WH - 3, 16, 1, '#ffffff');
+  },
+  // Sage paint above, white panelled wainscot below a chair rail.
+  wall_wainscot(c) {
+    r(c, 0, 0, 16, WH, '#c9dcc4');
+    for (let y = 0; y < 20; y++) for (let x = 0; x < 16; x++) if (tileHash(x * 3, y * 11) < 0.05) px(c, x, y, '#b7cbb1');
+    r(c, 0, 20, 16, 2, '#ffffff'); r(c, 0, 22, 16, 1, '#c8c2b5');     // chair rail
+    r(c, 0, 23, 16, WH - 23, '#f2efe6');
+    for (const x of [1, 9]) { r(c, x, 25, 6, WH - 30, '#e2ddd1'); r(c, x + 1, 26, 4, WH - 32, '#f8f6f0'); }
+    r(c, 0, WH - 3, 16, 3, '#ddd7cb');
+  },
   wall_sage(c) { siding(c, '#9cb88a'); r(c, 0, WH - 3, 16, 3, '#f2efe6'); },
 };
+
+// Doors: 16 × 32 texels, painted `col`. style 'panel' = four raised panels;
+// 'french' = a low panel with the top left clear (the glass is a separate pane).
+export function doorTex(col, style = 'panel') {
+  return paintTex(`door|${col}|${style}`, 16, 32, (c) => {
+    const [s0, sh, b, l] = ramp(col);
+    r(c, 0, 0, 16, 32, b);
+    r(c, 0, 0, 16, 1, l); r(c, 0, 0, 1, 32, l); r(c, 15, 0, 1, 32, s0); r(c, 0, 31, 16, 1, s0);
+    const panel = (x, y, w, h) => { r(c, x, y, w, h, sh); r(c, x + 1, y + 1, w - 2, h - 2, b); r(c, x + 1, y + 1, w - 2, 1, l); r(c, x + 1, y + h - 2, w - 2, 1, sh); };
+    if (style === 'panel') { panel(2, 2, 5, 12); panel(9, 2, 5, 12); panel(2, 17, 5, 12); panel(9, 17, 5, 12); }
+    else { panel(2, 20, 12, 9); r(c, 2, 2, 12, 15, s0); r(c, 3, 3, 10, 13, sh); }
+    if (col === '#9b6436') for (let i = 0; i < 8; i++) px(c, 1 + Math.floor(tileHash(i, 21) * 14), Math.floor(tileHash(21, i) * 31), s0); // wood grain
+  }, false);
+}
 
 export function wallTex(m) {
   return paintTex(`wall|${m}`, 16, WH, (c) => (WALL_PAINT[m] || WALL_PAINT.wall_white)(c));

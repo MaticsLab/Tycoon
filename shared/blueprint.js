@@ -106,7 +106,10 @@ export function rotate(frag) {
   });
   for (const [k, w] of Object.entries(frag.walls)) {
     const e = parseEdge(k);
-    out.walls[e.d === 'h' ? edgeKey(e.l, 'v', H - e.y, e.x) : edgeKey(e.l, 'h', H - e.y - 1, e.x)] = w;
+    // A wall's two faces: turning a north/south wall clockwise puts its north face on
+    // the east, so the paints swap; west/east walls keep theirs (west becomes north).
+    const nw = e.d === 'h' && w.o ? { ...w, m: w.o, o: w.m } : w;
+    out.walls[e.d === 'h' ? edgeKey(e.l, 'v', H - e.y, e.x) : edgeKey(e.l, 'h', H - e.y - 1, e.x)] = nw;
   }
   out.roofs = frag.roofs.map((rf) => ({ ...rf, x: H - rf.y - rf.h, y: rf.x, w: rf.h, h: rf.w }));
   return out;
@@ -122,7 +125,7 @@ export function fragmentValue(frag) {
     for (const f of Object.values(lv.floor)) v += ITEMS[f]?.price || 0;
     for (const o of Object.values(lv.obj)) if (!ITEMS[o.t]?.shop) v += ITEMS[o.t]?.price || 0;
   }
-  for (const w of Object.values(frag.walls)) v += (ITEMS[w.m]?.price || 0) + (ITEMS[w.f]?.price || 0);
+  for (const w of Object.values(frag.walls)) v += (ITEMS[w.m]?.price || 0) + (ITEMS[w.f]?.price || 0) / (ITEMS[w.f]?.width || 1) + (w.o ? Math.ceil((ITEMS[w.o]?.price || 0) / 2) : 0);
   for (const rf of frag.roofs) v += (ITEMS[rf.m]?.price || 0) * rf.w * rf.h;
   return v;
 }

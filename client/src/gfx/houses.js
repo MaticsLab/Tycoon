@@ -2,8 +2,8 @@
 // floors on two levels, wall segments on tile edges with real door/window openings,
 // Sims cutaway, gable roofs, furniture models and pixel-art cards for plants/crops.
 import { ITEMS, cropStage } from '@shared/catalog.js';
-import { parseEdge, levelView, footprint, LEVELS, LEVEL_H } from '@shared/plot.js';
-import { wallTex, floorTex, roofTex, woodTex, signTex, WALL_H } from './textures.js';
+import { parseEdge, levelView, footprint, LEVELS, LEVEL_H, featurePair, edgeKey } from '@shared/plot.js';
+import { wallTex, floorTex, roofTex, woodTex, signTex, doorTex, WALL_H } from './textures.js';
 import { Batch, boxAt, gableRoof } from './geom.js';
 import { itemInto, hasModel, BILLBOARD, materials } from './models.js';
 import { Geo, box, toMesh, node, lambert as mkLambert } from './bjs.js';
@@ -26,6 +26,14 @@ const trimMat = () => mat('trim', () => lambert({ color: '#4a2e18' }));
 const doorMat = () => mat('door', () => lambert({ map: woodTex() }));
 export const glassMat = () => mat('glass', () => lambert({ color: '#8fd0f0', emissive: '#000000', transparent: true, opacity: 0.55 }));
 const knobMat = () => mat('knob', () => lambert({ color: '#f5c542' }));
+// Door and window paint (Design tool cycles it): natural wood, blue, red, green, black, cream.
+export const DOOR_COLS = ['#9b6436', '#2f5d8a', '#b03a2e', '#3e7a3a', '#2e3238', '#efe9dc'];
+const TRIM_COLS = ['#4a2e18', '#284f78', '#8f2c22', '#2f5f2d', '#23272c', '#e8e2d2'];
+const frameMat = (fc = 0) => mat(`frame|${fc}`, () => lambert({ color: TRIM_COLS[fc] || TRIM_COLS[0] }));
+const panelDoorMat = (fc = 0, style = 'panel') => mat(`doorp|${fc}|${style}`, () => lambert({ map: doorTex(DOOR_COLS[fc] || DOOR_COLS[0], style) }));
+const alumMat = () => mat('alum', () => lambert({ color: '#3a4048' }));
+// Storefront pieces join up into one glass wall when they sit side by side.
+const SHOPFRONT = new Set(['window_shop', 'door_shop', 'door_shopdouble']);
 const ceilMat = () => mat('ceil', () => lambert({ color: '#e8e2d4' }));
 const roofMat = (m) => mat(`roof|${m}`, () => lambert({ map: roofTex(m) }));
 const floorMat = (t) => mat(`floor|${t}`, () => lambert({ map: floorTex(t) }));
@@ -36,6 +44,36 @@ function wallPiece(batch, m, e, ox, oz, base, a, b, y0, y1, thick = THICK) {
   const x = ox + e.x, z = oz + e.y;
   if (e.d === 'h') batch.add(m, boxAt(x + a, base + y0, z - thick / 2, b - a, y1 - y0, thick));
   else batch.add(m, boxAt(x - thick / 2, base + y0, z + a, thick, y1 - y0, b - a));
+}
+// A door leaf: like wallPiece, but its texture is stretched over the whole leaf (so
+// a painted door picture fits each door) instead of tiling in world space.
+function leafPiece(batch, m, e, ox, oz, base, a, b, y0, y1, thick) {
+  if (b - a <= 0.001 || y1 - y0 <= 0.001) return;
+  const x = ox + e.x, z = oz + e.y;
+  const geo = e.d === 'h' ? boxAt(x + a, base + y0, z - thick / 2, b - a, y1 - y0, thick) : boxAt(x - thick / 2, base + y0, z + a, thick, y1 - y0, b - a);
+  const p = geo.pos, n = geo.nrm, uv = geo.uv;
+  for (let i = 0; i < geo.count; i++) {
+    if (Math.abs(n[i * 3 + 1]) > 0.5) continue;
+    const along = (e.d === 'h' ? p[i * 3] - x : p[i * 3 + 2] - z);
+    uv[i * 2] = (along - a) / (b - a);
+    uv[i * 2 + 1] = (p[i * 3 + 1] - base - y0) / (y1 - y0);
+  }
+  batch.add(m, geo);
+}
+
+// The same with a different material on each face: m0 on the north/west side, m1 on
+// the south/east side (each half the wall's thickness).
+function wallPiece2(batch, m0, m1, e, ox, oz, base, a, b, y0, y1) {
+  if (m0 === m1) return wallPiece(batch, m0, e, ox, oz, base, a, b, y0, y1);
+  if (b - a <= 0.001 || y1 - y0 <= 0.001) return;
+  const x = ox + e.x, z = oz + e.y, t = THICK / 2;
+  if (e.d === 'h') {
+    batch.add(m0, boxAt(x + a, base + y0, z - t, b - a, y1 - y0, t));
+    batch.add(m1, boxAt(x + a, base + y0, z, b - a, y1 - y0, t));
+  } else {
+    batch.add(m0, boxAt(x - t, base + y0, z + a, t, y1 - y0, b - a));
+    batch.add(m1, boxAt(x, base + y0, z + a, t, y1 - y0, b - a));
+  }
 }
 
 // Which walls get lowered in cutaway: a wall drops when the room behind it (on the
@@ -102,34 +140,84 @@ export function buildPlot(plot, opts) {
     const base = e.l * LEVEL_H;
     const low = lowered(plot, e, e.l, opts.cut);
     const H = low ? LOW_H : WALL_H;
-    const m = wallMat(w.m);
-    const f = w.f;
+    const m0 = wallMat(w.m), m1 = wallMat(w.o || w.m);
+    const piece = (a, b, y0, y1) => wallPiece2(batch, m0, m1, e, ox, oz, base, a, b, y0, y1);
+    const f = w.f, fc = w.fc || 0;
+    // Neighbouring segments along the same wall line (for joined shopfronts).
+    const along = (n) => plot.walls[e.d === 'h' ? edgeKey(e.l, e.d, e.x + n, e.y) : edgeKey(e.l, e.d, e.x, e.y + n)];
+    const joinPrev = SHOPFRONT.has(f) && SHOPFRONT.has(along(-1)?.f), joinNext = SHOPFRONT.has(f) && SHOPFRONT.has(along(1)?.f);
     if (!f || low) {
-      wallPiece(batch, m, e, ox, oz, base, 0, 1, 0, H);
+      piece(0, 1, 0, H);
     } else if (f === 'window' || f === 'window_tall') {
       const [s, t] = f === 'window' ? [0.9, 1.85] : [0.45, 2.1];
-      wallPiece(batch, m, e, ox, oz, base, 0, 0.2, 0, H);
-      wallPiece(batch, m, e, ox, oz, base, 0.8, 1, 0, H);
-      wallPiece(batch, m, e, ox, oz, base, 0.2, 0.8, 0, s);
-      wallPiece(batch, m, e, ox, oz, base, 0.2, 0.8, t, H);
-      wallPiece(batch, trimMat(), e, ox, oz, base, 0.16, 0.84, s - 0.05, s, THICK + 0.1); // sill
+      piece(0, 0.2, 0, H); piece(0.8, 1, 0, H); piece(0.2, 0.8, 0, s); piece(0.2, 0.8, t, H);
+      const fr = frameMat(fc);
+      wallPiece(batch, fr, e, ox, oz, base, 0.16, 0.84, s - 0.05, s, THICK + 0.1); // sill
+      wallPiece(batch, fr, e, ox, oz, base, 0.17, 0.83, t, t + 0.04, THICK + 0.05); // head
+      wallPiece(batch, fr, e, ox, oz, base, 0.17, 0.2, s, t, THICK + 0.05); wallPiece(batch, fr, e, ox, oz, base, 0.8, 0.83, s, t, THICK + 0.05);
       wallPiece(batch, glassMat(), e, ox, oz, base, 0.2, 0.8, s, t, 0.03);
-      wallPiece(batch, trimMat(), e, ox, oz, base, 0.48, 0.52, s, t, 0.05);
-      wallPiece(batch, trimMat(), e, ox, oz, base, 0.2, 0.8, (s + t) / 2 - 0.02, (s + t) / 2 + 0.02, 0.05);
+      wallPiece(batch, fr, e, ox, oz, base, 0.48, 0.52, s, t, 0.05);
+      wallPiece(batch, fr, e, ox, oz, base, 0.2, 0.8, (s + t) / 2 - 0.02, (s + t) / 2 + 0.02, 0.05);
+    } else if (f === 'window_shop') {
+      // Floor-to-ceiling storefront glass on a low kick panel; joins its neighbours.
+      const a = joinPrev ? 0 : 0.08, b = joinNext ? 1 : 0.92;
+      if (!joinPrev) piece(0, a, 0, H);
+      if (!joinNext) piece(b, 1, 0, H);
+      piece(a, b, 0, 0.3); piece(a, b, 2.3, H);
+      const fr = fc ? frameMat(fc) : alumMat();
+      wallPiece(batch, fr, e, ox, oz, base, a, b, 0.3, 0.35, THICK + 0.06);
+      wallPiece(batch, fr, e, ox, oz, base, a, b, 2.25, 2.3, THICK + 0.06);
+      wallPiece(batch, fr, e, ox, oz, base, joinPrev ? 0 : a, (joinPrev ? 0 : a) + 0.035, 0.3, 2.3, THICK + 0.04);
+      wallPiece(batch, glassMat(), e, ox, oz, base, a, b, 0.35, 2.25, 0.03);
+      wallPiece(batch, fr, e, ox, oz, base, a, b, 1.95, 1.98, 0.05); // transom bar
+    } else if (f === 'door_shop' || f === 'door_shopdouble') {
+      // Glass shop doors in a slim metal frame, with a transom light above.
+      const pair = f === 'door_shopdouble' ? featurePair(plot, e.l, e.d, e.x, e.y) : null;
+      const a = pair ? (pair.part ? 0 : (joinPrev ? 0 : 0.08)) : (joinPrev ? 0 : 0.1);
+      const b = pair ? (pair.part ? (joinNext ? 1 : 0.92) : 1) : (joinNext ? 1 : 0.9);
+      if (a > 0) piece(0, a, 0, H);
+      if (b < 1) piece(b, 1, 0, H);
+      piece(a, b, 2.3, H);
+      const fr = fc ? frameMat(fc) : alumMat();
+      wallPiece(batch, fr, e, ox, oz, base, a, b, 2.25, 2.3, THICK + 0.06);
+      wallPiece(batch, glassMat(), e, ox, oz, base, a, b, 2.03, 2.25, 0.03);
+      wallPiece(batch, fr, e, ox, oz, base, a, b, 1.98, 2.03, 0.06);
+      const la = a + 0.02, lb = b - 0.02;
+      wallPiece(batch, fr, e, ox, oz, base, la, lb, 0, 0.12, 0.06);           // bottom rail
+      wallPiece(batch, fr, e, ox, oz, base, la, la + 0.05, 0, 1.98, 0.06);    // stiles
+      wallPiece(batch, fr, e, ox, oz, base, lb - 0.05, lb, 0, 1.98, 0.06);
+      wallPiece(batch, glassMat(), e, ox, oz, base, la + 0.05, lb - 0.05, 0.12, 1.98, 0.03);
+      const bar = pair ? (pair.part ? [la + 0.07, la + 0.3] : [lb - 0.3, lb - 0.07]) : [la + 0.1, lb - 0.1];
+      wallPiece(batch, knobMat(), e, ox, oz, base, bar[0], bar[1], 1.0, 1.04, 0.14);   // push bar
+    } else if (f === 'door_double') {
+      // French double doors: panelled leaves with glass, meeting in the middle of the pair.
+      const pair = featurePair(plot, e.l, e.d, e.x, e.y);
+      const a = pair.part ? 0 : 0.1, b = pair.part ? 0.9 : 1;
+      piece(pair.part ? b : 0, pair.part ? 1 : a, 0, H);
+      piece(a, b, 2.2, H);
+      const fr = frameMat(fc);
+      wallPiece(batch, fr, e, ox, oz, base, a, b, 2.15, 2.21, THICK + 0.04);
+      if (pair.part) wallPiece(batch, fr, e, ox, oz, base, b - 0.02, b + 0.02, 0, 2.2, THICK + 0.04);
+      else wallPiece(batch, fr, e, ox, oz, base, a - 0.02, a + 0.02, 0, 2.2, THICK + 0.04);
+      const dm = panelDoorMat(fc, 'french');
+      leafPiece(batch, dm, e, ox, oz, base, a + 0.01, b - 0.01, 0, 2.15, 0.06);
+      wallPiece(batch, glassMat(), e, ox, oz, base, a + 0.1, b - 0.1, 0.95, 1.95, 0.08);
+      const kx = pair.part ? a + 0.06 : b - 0.1;
+      wallPiece(batch, knobMat(), e, ox, oz, base, kx, kx + 0.04, 1.0, 1.1, 0.12);
     } else {
       // Doors and archways: piers either side and a lintel over a 2.05-high opening.
-      wallPiece(batch, m, e, ox, oz, base, 0, 0.14, 0, H);
-      wallPiece(batch, m, e, ox, oz, base, 0.86, 1, 0, H);
-      wallPiece(batch, m, e, ox, oz, base, 0.14, 0.86, 2.05, H);
-      wallPiece(batch, trimMat(), e, ox, oz, base, 0.12, 0.88, 2.0, 2.06, THICK + 0.04);
+      piece(0, 0.14, 0, H); piece(0.86, 1, 0, H); piece(0.14, 0.86, 2.05, H);
+      const fr = frameMat(fc);
+      wallPiece(batch, fr, e, ox, oz, base, 0.12, 0.88, 2.0, 2.06, THICK + 0.04);
+      wallPiece(batch, fr, e, ox, oz, base, 0.11, 0.15, 0, 2.06, THICK + 0.04);
+      wallPiece(batch, fr, e, ox, oz, base, 0.85, 0.89, 0, 2.06, THICK + 0.04);
       if (f === 'door') {
-        wallPiece(batch, doorMat(), e, ox, oz, base, 0.14, 0.86, 0, 2.0, 0.05);
-        wallPiece(batch, knobMat(), e, ox, oz, base, 0.74, 0.79, 0.95, 1.02, 0.1);
+        leafPiece(batch, panelDoorMat(fc, 'panel'), e, ox, oz, base, 0.15, 0.85, 0, 2.0, 0.06);
+        wallPiece(batch, knobMat(), e, ox, oz, base, 0.74, 0.79, 0.95, 1.02, 0.12);
       } else if (f === 'door_glass') {
-        wallPiece(batch, doorMat(), e, ox, oz, base, 0.14, 0.86, 0, 0.7, 0.05);
-        wallPiece(batch, doorMat(), e, ox, oz, base, 0.14, 0.86, 1.9, 2.0, 0.05);
-        wallPiece(batch, glassMat(), e, ox, oz, base, 0.16, 0.84, 0.7, 1.9, 0.03);
-        wallPiece(batch, doorMat(), e, ox, oz, base, 0.48, 0.52, 0, 2.0, 0.06);
+        leafPiece(batch, panelDoorMat(fc, 'french'), e, ox, oz, base, 0.15, 0.85, 0, 2.0, 0.06);
+        wallPiece(batch, glassMat(), e, ox, oz, base, 0.24, 0.76, 0.95, 1.9, 0.08);
+        wallPiece(batch, knobMat(), e, ox, oz, base, 0.74, 0.79, 0.95, 1.02, 0.12);
       }
     }
     // Dark trim along the top so walls read clearly from above.

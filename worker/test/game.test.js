@@ -1132,3 +1132,53 @@ test('businesses: licence, shop plot, shelves, the till, machines, clerks and cu
   assert.equal(sa.profile.biz.staff, null);
   assert.equal(shop.biz.staff, null);
 });
+
+test('walls: paint each side, fill a room or the outside; double doors, shopfronts and door colours', async () => {
+  const { rotateTimes, extract } = await import('../../shared/blueprint.js');
+  const { featurePair } = await import('../../shared/plot.js');
+  const { game, join } = setup();
+  const a = await join({ name: 'Ana' });
+  a.send({ type: 'cheat', cmd: 'testingcheats true' });
+  a.send({ type: 'cheat', cmd: 'motherlode' });
+  a.send({ type: 'claim', plotId: 0 });
+  const plot = game.plots[0];
+  stand(game, a, 0, 1, 14);
+  // A 4×3 room (walls + floor) at (2,2).
+  a.send({ type: 'placeBlueprint', plotId: 0, src: 'styled', id: 'bathroom', x: 2, y: 2 });
+  const wk = Object.keys(plot.walls).find((k) => k.startsWith('0:h:') && k.endsWith(':2'));   // a north wall
+  const [, , wx, wy] = wk.split(':');
+  const m0 = plot.walls[wk].m;
+  // Paint only the outside (north side 0) of one wall.
+  a.send({ type: 'wallPaint', plotId: 0, d: 'h', x: +wx, y: +wy, side: 0, m: 'wall_shopfront' });
+  assert.equal(plot.walls[wk].m, 'wall_shopfront');
+  assert.equal(plot.walls[wk].o, m0, 'inside keeps its paint');
+  // Shift: the whole room's inside faces get wallpaper; the outside of that wall stays.
+  a.send({ type: 'wallPaint', plotId: 0, d: 'h', x: +wx, y: +wy, side: 1, m: 'wall_paper', fill: 'room' });
+  assert.equal(plot.walls[wk].o, 'wall_paper');
+  assert.equal(plot.walls[wk].m, 'wall_shopfront');
+  const inside = Object.values(plot.walls).filter((w) => w.o === 'wall_paper' || w.m === 'wall_paper').length;
+  assert.ok(inside >= 8, `room painted (${inside} faces)`);
+  // Outside fill: every outward face.
+  a.send({ type: 'wallPaint', plotId: 0, d: 'h', x: +wx, y: +wy, side: 0, m: 'wall_stucco', fill: 'outside' });
+  assert.ok(Object.values(plot.walls).every((w) => [w.m, w.o].includes('wall_stucco')), 'every wall got stucco outside');
+  assert.ok(Object.values(plot.walls).every((w) => [w.m, w.o].includes('wall_paper')), 'and kept wallpaper inside');
+  // Turning the room keeps paints on the right sides (four turns = unchanged).
+  const frag = extract(plot);
+  assert.deepEqual(rotateTimes(frag, 4).walls, frag.walls);
+  // Double doors: two segments; they come out together.
+  a.send({ type: 'feature', plotId: 0, d: 'h', x: +wx, y: +wy, f: 'door_shopdouble' });
+  const k2 = `0:h:${+wx + 1}:${wy}`;
+  if (plot.walls[k2]) {
+    assert.equal(plot.walls[wk].f, 'door_shopdouble');
+    assert.equal(plot.walls[k2].f, 'door_shopdouble');
+    assert.equal(featurePair(plot, 0, 'h', +wx + 1, +wy).part, 1);
+    // Door colour (both halves).
+    a.send({ type: 'design', plotId: 0, edge: ['h', +wx, +wy] });
+    assert.equal(plot.walls[wk].fc, 1); assert.equal(plot.walls[k2].fc, 1);
+    a.send({ type: 'remove', plotId: 0, edge: ['h', +wx + 1, +wy], featureOnly: true });
+    assert.equal(plot.walls[wk].f, undefined); assert.equal(plot.walls[k2].f, undefined);
+  }
+  // Storefront window on a single segment.
+  a.send({ type: 'feature', plotId: 0, d: 'h', x: +wx, y: +wy, f: 'window_shop' });
+  assert.equal(plot.walls[wk].f, 'window_shop');
+});

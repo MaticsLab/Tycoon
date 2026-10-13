@@ -1,10 +1,10 @@
 import { generateWorld, applyRoads, worldClock, publicAreaAt, plotIdAtPixel, TILE, PLAYER_SPEED, RUN_MULT, WORLD_VERSION, STARTER_PLOTS, MAP_W, CIVIC } from '../../shared/world.js';
 import { City } from './city.js';
-import { roomRegion, extract, stockFragment, rotateTimes, removeAt, placeError as fragError, applyAt, fragmentValue, cleanFragment } from '../../shared/blueprint.js';
+import { roomRegion, roomTiles as roomTilesOf, extract, stockFragment, rotateTimes, removeAt, placeError as fragError, applyAt, fragmentValue, cleanFragment } from '../../shared/blueprint.js';
 import { STYLED_ROOMS } from '../../shared/rooms.js';
 import { ITEMS, GOODS, CROPS, START_COINS, cropStage, itemName } from '../../shared/catalog.js';
 import {
-  key, inInterior, tilesOf, footprint, objAt, occChanged, placementError, canStand, levelView, canRotate,
+  key, inInterior, tilesOf, footprint, objAt, featurePair, featureWidth, occChanged, placementError, canStand, levelView, canRotate,
   edgeKey, parseEdge, wallError, wallTouchesFeet, roofError, roofAt, indexPlots, roadIn, roadEditError, plotEntrance,
   landError, contentFits, shiftContent, mergedRect, splitRects, hasContent, LAND_PRICE, stepLevel,
 } from '../../shared/plot.js';
@@ -161,6 +161,7 @@ export class Game {
       case 'floorRect': return this.floorRect(s, msg);
       case 'walls': return this.walls(s, msg);
       case 'feature': return this.feature(s, msg);
+      case 'wallPaint': return this.wallPaint(s, msg);
       case 'roof': return this.roof(s, msg);
       case 'resizePlot': return this.resizePlot(s, msg);
       case 'mergePlot': return this.mergePlot(s, msg);
@@ -518,10 +519,67 @@ export class Game {
     const k = edgeKey(level, d, x, y);
     const wall = plot.walls?.[k];
     if (!wall) return s.send({ type: 'error', msg: 'Doors and windows go into a wall' });
-    if (wall.f === f) return;
-    const cost = s.cheats.build ? 0 : def.price - (wall.f ? ITEMS[wall.f].price : 0);
+    if (wall.f === f && featureWidth(f) < 2) return;
+    // Double doors take this segment and the next one along the wall.
+    const keys = [k];
+    if (featureWidth(f) === 2) {
+      const k2 = d === 'h' ? edgeKey(level, d, x + 1, y) : edgeKey(level, d, x, y + 1);
+      if (!plot.walls[k2]) return s.send({ type: 'error', msg: `${def.name} need two wall segments side by side` });
+      keys.push(k2);
+    }
+    // Whatever was there goes (both halves of an old double door).
+    let refund = 0;
+    for (const kk of keys) {
+      const w = plot.walls[kk];
+      if (!w.f) continue;
+      const e = parseEdge(kk), pair = featurePair(plot, level, e.d, e.x, e.y);
+      refund += ITEMS[w.f].price / (featureWidth(w.f));
+      if (pair.partner && !keys.includes(pair.partner)) { refund += ITEMS[w.f].price / 2; delete plot.walls[pair.partner].f; }
+    }
+    const cost = s.cheats.build ? 0 : Math.round(def.price - refund);
     if (cost > s.profile.coins) return s.send({ type: 'error', msg: 'Not enough coins' });
-    wall.f = f;
+    for (const kk of keys) { plot.walls[kk].f = f; delete plot.walls[kk].fc; }
+    this.coins(s, -cost);
+    this.plotChanged(plot);
+  }
+
+  // Wall paint: one face of a wall (side 0 = north/west, 1 = south/east), or with
+  // fill 'room' every inside face of that room, or 'outside' every outward face.
+  wallPaint(s, { plotId, d, x, y, side, m, fill, level = 0 }) {
+    const plot = this.ownPlot(s, plotId);
+    const def = ITEMS[m];
+    if (!plot || def?.layer !== 'wall' || ![0, 1].includes(side)) return;
+    level = this.lvl(level);
+    const k0 = edgeKey(level, d, x, y);
+    if (!plot.walls[k0]) return;
+    const faces = [[k0, side]];
+    const view = levelView(plot, level);
+    const tileOn = (e, sd) => (e.d === 'h' ? [e.x, e.y - 1 + sd] : [e.x - 1 + sd, e.y]);
+    if (fill === 'room' || fill === 'outside') {
+      const e0 = parseEdge(k0);
+      const [tx, ty] = tileOn(e0, side);
+      const room = fill === 'room' && roomTilesOf(plot, level, tx, ty);
+      // Outside: only this building (walls joined to the clicked one at their ends).
+      const building = fill === 'outside' && connectedWalls(plot, level, k0);
+      for (const [k, w] of Object.entries(plot.walls)) {
+        const e = parseEdge(k);
+        if (e.l !== level || k === k0 || (building && !building.has(k))) continue;
+        for (const sd of [0, 1]) {
+          const [ax, ay] = tileOn(e, sd);
+          if (room ? room.has(key(ax, ay)) : fill === 'outside' && !view.floor[key(ax, ay)]) faces.push([k, sd]);
+        }
+      }
+    }
+    const todo = faces.filter(([k, sd]) => (sd ? plot.walls[k].o || plot.walls[k].m : plot.walls[k].m) !== m);
+    const cost = s.cheats.build ? 0 : Math.ceil(def.price / 2) * todo.length;
+    if (!todo.length) return;
+    if (cost > s.profile.coins) return s.send({ type: 'error', msg: `Not enough coins (needs 🪙${cost})` });
+    for (const [k, sd] of todo) {
+      const w = plot.walls[k];
+      if (sd) w.o = m;
+      else { if (!w.o) w.o = w.m; w.m = m; }
+      if (w.o === w.m) delete w.o;
+    }
     this.coins(s, -cost);
     this.plotChanged(plot);
   }
@@ -564,7 +622,10 @@ export class Game {
       const wall = plot.walls?.[k];
       if (!wall) return;
       let refund = wall.f ? ITEMS[wall.f].price : 0;
-      if (featureOnly && wall.f) delete wall.f;
+      // A double door comes out as a pair.
+      const pair = wall.f ? featurePair(plot, level, edge[0], edge[1], edge[2]) : null;
+      if (pair?.partner) delete plot.walls[pair.partner].f;
+      if (featureOnly && wall.f) { delete wall.f; delete wall.fc; }
       else { refund += ITEMS[wall.m].price; delete plot.walls[k]; }
       if (refundOn) this.coins(s, refund);
       return this.plotChanged(plot);
@@ -620,10 +681,20 @@ export class Game {
   }
 
   // Design tool: recolour furniture (6 colourways) or switch a roof's material. Free.
-  design(s, { plotId, level = 0, lx, ly, roof, c }) {
+  design(s, { plotId, level = 0, lx, ly, roof, c, edge }) {
     const plot = this.ownPlot(s, plotId);
-    if (!plot || !Number.isInteger(lx) || !Number.isInteger(ly)) return;
+    if (!plot) return;
     level = this.lvl(level);
+    if (Array.isArray(edge)) {
+      // Doors and windows: cycle their paint colour (both halves of a double door).
+      const w = plot.walls?.[edgeKey(level, edge[0], edge[1], edge[2])];
+      if (!w?.f) return;
+      const next = Number.isInteger(c) && c >= 0 && c < 6 ? c : ((w.fc || 0) + 1) % 6;
+      const pair = featurePair(plot, level, edge[0], edge[1], edge[2]);
+      for (const ww of [w, pair.partner && plot.walls[pair.partner]]) if (ww) { if (next) ww.fc = next; else delete ww.fc; }
+      return this.plotChanged(plot);
+    }
+    if (!Number.isInteger(lx) || !Number.isInteger(ly)) return;
     if (roof) {
       const i = roofAt(plot, lx, ly, level);
       if (i < 0) return;
@@ -1313,6 +1384,23 @@ export class Game {
       s.send({ type: 'state', t: now, p, n: full || npcMoved ? npcRows : [] });
     }
   }
+}
+
+// Walls joined end to end with the wall `k0` (one building's worth), on one level.
+function connectedWalls(plot, level, k0) {
+  const ends = (e) => (e.d === 'h' ? [[e.x, e.y], [e.x + 1, e.y]] : [[e.x, e.y], [e.x, e.y + 1]]);
+  const byCorner = new Map();
+  for (const k of Object.keys(plot.walls)) {
+    const e = parseEdge(k);
+    if (e.l !== level) continue;
+    for (const [x, y] of ends(e)) { const c = `${x},${y}`; if (!byCorner.has(c)) byCorner.set(c, []); byCorner.get(c).push(k); }
+  }
+  const seen = new Set([k0]), stack = [k0];
+  while (stack.length) {
+    const k = stack.pop();
+    for (const [x, y] of ends(parseEdge(k))) for (const n of byCorner.get(`${x},${y}`) || []) if (!seen.has(n)) { seen.add(n); stack.push(n); }
+  }
+  return seen;
 }
 
 function blankPlot(id, r) {

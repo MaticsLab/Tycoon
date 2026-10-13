@@ -32,6 +32,16 @@ export const ITEMS = {
   wall_stone:    { name: 'Fieldstone',   cat: 'build', layer: 'wall', price: 18, color: '#a9a294' },
   wall_blue:     { name: 'Blue Siding',  cat: 'build', layer: 'wall', price: 14, color: '#7fa7c9' },
   wall_sage:     { name: 'Sage Siding',  cat: 'build', layer: 'wall', price: 14, color: '#9cb88a' },
+  wall_shiplap:  { name: 'White Shiplap', cat: 'build', layer: 'wall', price: 14, color: '#f2efe6' },
+  wall_stucco:   { name: 'Warm Stucco',   cat: 'build', layer: 'wall', price: 15, color: '#e8c9a0' },
+  wall_shingle:  { name: 'Cedar Shingles', cat: 'build', layer: 'wall', price: 18, color: '#a8683a' },
+  wall_board:    { name: 'Board & Batten', cat: 'build', layer: 'wall', price: 16, color: '#4f7a5a' },
+  wall_paintbrick: { name: 'Painted Brick', cat: 'build', layer: 'wall', price: 18, color: '#e9e4da' },
+  wall_darkstone: { name: 'Slate Stone',  cat: 'build', layer: 'wall', price: 20, color: '#5d6470' },
+  wall_shopfront: { name: 'Shopfront Panel', cat: 'build', layer: 'wall', price: 22, color: '#2f4f6a' },
+  wall_subway:   { name: 'Subway Tile',   cat: 'build', layer: 'wall', price: 16, color: '#f4f6f7' },
+  wall_paper:    { name: 'Floral Wallpaper', cat: 'build', layer: 'wall', price: 14, color: '#e8c3c9' },
+  wall_wainscot: { name: 'Wainscoting',   cat: 'build', layer: 'wall', price: 17, color: '#c9dcc4' },
 
   stairs:        { name: 'Staircase',    cat: 'build', layer: 'obj', price: 120, size: [1, 3], rot: 'face', stairs: true },
 
@@ -40,6 +50,12 @@ export const ITEMS = {
   arch:          { name: 'Open Archway', cat: 'opening', layer: 'feature', price: 15, passable: true },
   window:        { name: 'Window',       cat: 'opening', layer: 'feature', price: 20 },
   window_tall:   { name: 'Tall Window',  cat: 'opening', layer: 'feature', price: 30 },
+  // Shopfronts: storefront windows join into one glass wall when side by side; double
+  // doors are two segments wide (width: 2).
+  window_shop:   { name: 'Storefront Window', cat: 'opening', layer: 'feature', price: 40 },
+  door_shop:     { name: 'Glass Shop Door', cat: 'opening', layer: 'feature', price: 55, passable: true },
+  door_double:   { name: 'Double Door',    cat: 'opening', layer: 'feature', price: 70, passable: true, width: 2 },
+  door_shopdouble: { name: 'Shopfront Double Doors', cat: 'opening', layer: 'feature', price: 110, passable: true, width: 2 },
 
   roof_red:      { name: 'Red Shingles',  cat: 'roof', layer: 'roof', price: 3, color: '#b2412f' },
   roof_blue:     { name: 'Slate Blue',    cat: 'roof', layer: 'roof', price: 3, color: '#3f5f86' },

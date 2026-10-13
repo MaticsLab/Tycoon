@@ -3,7 +3,7 @@ import {
   TILE, MAP_W, MAP_H, PLAYER_SPEED, RUN_MULT, WORLD_VERSION, DAY_MS,
 } from '@shared/world.js';
 import {
-  canStand, inInterior, key, placementError, objAt, footprint, canRotate, levelView,
+  canStand, inInterior, key, placementError, objAt, footprint, canRotate, levelView, wallSideAt,
   LEVELS, wallError, lineEdges, rectEdges, roofError, roofAt, edgeKey,
   indexPlots, landError, contentFits, mergedRect, splitRects, hasContent, LAND_PRICE,
   stepLevel, heightAt, roadEditError, roadIn, plotEntrance, occChanged,
@@ -711,7 +711,17 @@ function swatchIcon(id) {
   else if (d.layer === 'roof') { g.fillStyle = d.color; g.beginPath(); g.moveTo(4, 36); g.lineTo(22, 8); g.lineTo(40, 36); g.fill(); g.strokeStyle = '#3a2716'; g.lineWidth = 2; g.stroke(); }
   else {
     g.fillStyle = '#ece4d2'; g.fillRect(4, 4, 36, 36); g.strokeStyle = '#3a2716'; g.lineWidth = 2; g.strokeRect(4, 4, 36, 36);
-    if (id.startsWith('window')) { g.fillStyle = '#8fd0f0'; g.fillRect(12, id === 'window' ? 10 : 6, 20, id === 'window' ? 16 : 28); g.fillStyle = '#4a2e18'; g.fillRect(21, 8, 2, 30); }
+    if (id === 'window_shop') { g.fillStyle = '#3a4048'; g.fillRect(6, 6, 32, 32); g.fillStyle = '#8fd0f0'; g.fillRect(8, 8, 28, 24); g.fillStyle = '#c7ecfa'; g.fillRect(10, 10, 6, 14); g.fillStyle = '#3a4048'; g.fillRect(8, 14, 28, 2); }
+    else if (id === 'door_shop' || id === 'door_shopdouble') {
+      const two = id === 'door_shopdouble';
+      g.fillStyle = '#3a4048'; g.fillRect(two ? 6 : 12, 6, two ? 32 : 20, 34);
+      g.fillStyle = '#8fd0f0'; if (two) { g.fillRect(9, 12, 12, 25); g.fillRect(23, 12, 12, 25); } else g.fillRect(15, 12, 14, 25);
+      g.fillStyle = '#f5c542'; g.fillRect(two ? 17 : 16, 24, two ? 10 : 12, 2);
+    } else if (id === 'door_double') {
+      g.fillStyle = '#9b6436'; g.fillRect(6, 8, 15, 32); g.fillRect(23, 8, 15, 32);
+      g.fillStyle = '#8fd0f0'; g.fillRect(9, 11, 9, 13); g.fillRect(26, 11, 9, 13);
+      g.fillStyle = '#4a2e18'; g.fillRect(21, 8, 2, 32); g.fillStyle = '#f5c542'; g.fillRect(18, 26, 2, 3); g.fillRect(24, 26, 2, 3);
+    } else if (id.startsWith('window')) { g.fillStyle = '#8fd0f0'; g.fillRect(12, id === 'window' ? 10 : 6, 20, id === 'window' ? 16 : 28); g.fillStyle = '#4a2e18'; g.fillRect(21, 8, 2, 30); }
     else if (id === 'arch') { g.fillStyle = '#5a3a1e'; g.fillRect(12, 10, 20, 30); }
     else { g.fillStyle = '#9b6436'; g.fillRect(12, 8, 20, 32); if (id === 'door_glass') { g.fillStyle = '#8fd0f0'; g.fillRect(15, 12, 14, 16); } g.fillStyle = '#f5c542'; g.fillRect(27, 24, 3, 3); }
   }
@@ -955,7 +965,7 @@ function renderItems() {
   if (S.cat === 'build') {
     const seg = document.createElement('div');
     seg.className = 'seg2';
-    for (const [k, label] of [['line', '▬ Wall'], ['room', '▢ Room'], ['chain', '⌁ Custom']]) {
+    for (const [k, label] of [['line', '▬ Wall'], ['room', '▢ Room'], ['chain', '⌁ Custom'], ['paint', '🖌 Paint']]) {
       const b = document.createElement('button');
       b.textContent = label;
       b.className = S.wallTool === k ? 'sel' : '';
@@ -1042,7 +1052,7 @@ $('btn-walls').onclick = cycleWalls;
 function toolInfo(extra) {
   const t = S.tool, d = ITEMS[t.id];
   const msgs = {
-    wall: S.wallTool === 'room' ? 'Drag from corner to corner to build a room (walls + wood floor).' : S.wallTool === 'chain' ? 'Custom room: click corner after corner; close the shape for a room with a floor, or double-click / Enter to stop.' : 'Drag along the grid lines to build a wall.',
+    wall: S.wallTool === 'paint' ? 'Paint: click one side of a wall to paint just that side (inside and outside can differ). Shift+click paints the whole room, or the whole outside of that building.' : S.wallTool === 'room' ? 'Drag from corner to corner to build a room (walls + wood floor).' : S.wallTool === 'chain' ? 'Custom room: click corner after corner; close the shape for a room with a floor, or double-click / Enter to stop.' : 'Drag along the grid lines to build a wall.',
     blueprint: 'Move it into place, R or right-click to turn, click to buy. Shop furniture isn’t included.',
     saveRoom: 'Click a room’s floor to save it to your library.',
     feature: 'Tap a wall to set the door or window into it.',
@@ -1202,6 +1212,16 @@ function previewInner() {
     ghost.fragment(spot.frag, def, spot.ox, spot.oy, !bad);
     return;
   }
+  if (t.kind === 'design') {
+    const qw = pickLocal(hover.cx, hover.cy, 1.0);
+    const ew = qw && edgeOf(qw);
+    const w = ew && plot.walls?.[edgeKey(S.level, ...ew.edge)];
+    if (w?.f && ew.dist < 0.3) {
+      ghost.walls([ew.edge], def, S.level, true, true);
+      tip(`🎨 ${ITEMS[w.f].name} · colour ${(w.fc || 0) + 1}/6 · click for the next (free)`);
+      return;
+    }
+  }
   if (t.kind === 'select' || t.kind === 'saveRoom' || t.kind === 'design' || t.kind === 'eyedrop') {
     const q = pickLocal(hover.cx, hover.cy);
     if (!q) return;
@@ -1223,12 +1243,20 @@ function previewInner() {
       // From the ground floor, a room takes its upstairs along: the box shows both storeys.
       const up = !S.level && plot.l1 && [...tiles].some((k) => plot.l1.floor[k]);
       ghost.box(def.x + x0, def.y + y0, Math.max(...xs) - x0 + 1, Math.max(...ys) - y0 + 1, S.level * LEVEL_H, up ? 5.3 : 2.6);
-      if (t.kind === 'design') { tip(roofAt(plot, lx, ly, S.level) >= 0 ? '🎨 Click to change this roof’s colour' : '🎨 Point at furniture or a roof'); return; }
+      if (t.kind === 'design') { tip(roofAt(plot, lx, ly, S.level) >= 0 ? '🎨 Click to change this roof’s colour' : '🎨 Point at furniture, a door, a window or a roof'); return; }
       tip(t.kind === 'saveRoom' ? `📚 Save this room (${tiles.size} tiles)` : `👆 Room · ${tiles.size} tiles · click to pick it up`);
       return;
     }
     if (t.kind === 'eyedrop' && v.floor[key(lx, ly)]) { tip(`💧 Copy ${ITEMS[v.floor[key(lx, ly)]].name}`); return; }
     tip(t.kind === 'saveRoom' ? 'Point at a room’s floor' : t.kind === 'design' ? '🎨 Point at furniture or a roof' : t.kind === 'eyedrop' ? '💧 Point at something to copy' : '👆 Point at furniture or a room');
+    return;
+  }
+  if (t.kind === 'wall' && S.wallTool === 'paint') {
+    const pt = paintTarget(hover);
+    if (!pt) { tip('🖌 Point at a wall'); return; }
+    ghost.walls([pt.edge], def, S.level, true, false, t.id);
+    const where = pt.fill === 'room' ? 'the whole room' : pt.fill === 'outside' ? 'the outside of this building' : `this side (${pt.indoor ? 'inside' : 'outside'})`;
+    tip(`🖌 ${d.name} · ${where} · 🪙${Math.ceil(d.price / 2)} a side${pt.fill ? '' : ' · Shift: whole room / outside'}`);
     return;
   }
   if (t.kind === 'wall' && S.wallTool === 'chain') {
@@ -1298,8 +1326,10 @@ function previewInner() {
     if (!q) return;
     const { edge } = edgeOf(q);
     const wall = plot.walls?.[edgeKey(S.level, ...edge)];
-    const bad = !wall ? 'Point at a wall' : coinsErr(S.freeBuild ? 0 : d.price);
-    ghost.walls([edge], def, S.level, !bad, false, wall?.m);
+    // Double doors take this segment and the next one along the wall.
+    const edges = d.width === 2 ? [edge, edge[0] === 'h' ? ['h', edge[1] + 1, edge[2]] : ['v', edge[1], edge[2] + 1]] : [edge];
+    const bad = !wall ? 'Point at a wall' : edges.some((e) => !plot.walls?.[edgeKey(S.level, ...e)]) ? 'Needs two wall segments side by side' : coinsErr(S.freeBuild ? 0 : d.price);
+    ghost.walls(edges, def, S.level, !bad, false, wall?.m);
     tip(`${d.name} · 🪙${d.price}${wall?.f ? ` · replaces ${ITEMS[wall.f].name}` : ''}`, bad);
   } else if (t.kind === 'obj') {
     const q = pickLocal(hover.cx, hover.cy);
@@ -1500,8 +1530,34 @@ function dropHeld(h, base, send) {
   if (S.tool.kind === 'movehouse') { S.tool = { kind: 'none' }; syncStrip(); renderItems(); }
 }
 
+// The wall face under the pointer, for painting: which edge, which side (0 = north/west,
+// 1 = south/east), whether that side is indoors, and Shift's fill (room or outside).
+function paintTarget(h) {
+  const plot = S.plots[S.myPlot];
+  const q = pickLocal(h.cx, h.cy, 1.0);
+  if (!q) return null;
+  const { edge, dist } = edgeOf(q);
+  if (dist > 0.45 || !plot.walls?.[edgeKey(S.level, ...edge)]) return null;
+  const [d, x, y] = edge;
+  const side = wallSideAt(d, x, y, q.fx, q.fz);
+  const [tx, ty] = d === 'h' ? [x, y - 1 + side] : [x - 1 + side, y];
+  const indoor = !!levelView(plot, S.level).floor[key(tx, ty)];
+  return { edge, side, indoor, fill: keys.has('shift') ? (indoor ? 'room' : 'outside') : null };
+}
+
 function designAt(h, base, send) {
   const plot = S.plots[S.myPlot];
+  // Doors and windows first: cycle their paint.
+  const qw = pickLocal(h.cx, h.cy, 1.0);
+  if (qw) {
+    const { edge, dist } = edgeOf(qw);
+    const w = plot.walls?.[edgeKey(S.level, ...edge)];
+    if (w?.f && dist < 0.3) {
+      send({ type: 'design', ...base, edge });
+      pushUndo(`repainting the ${ITEMS[w.f].name.toLowerCase()}`, [{ type: 'design', ...base, edge, c: w.fc || 0 }]);
+      return;
+    }
+  }
   const q = pickLocal(h.cx, h.cy);
   if (!q) return;
   const [lx, ly] = tileOf(q);
@@ -1866,6 +1922,14 @@ function commit(h) {
   if (t.kind === 'movehouse') return moveHouseAt(h, base, out);
   if (t.kind === 'saveRoom') return saveRoomAt(h);
   if (t.kind === 'wall' && S.wallTool === 'chain') return;
+  if (t.kind === 'wall' && S.wallTool === 'paint') {
+    const pt = paintTarget(h);
+    if (!pt) return toast('Click a wall to paint it');
+    const [dd, x, y] = pt.edge;
+    const w = plot.walls[edgeKey(S.level, dd, x, y)];
+    pushUndo(`painting with ${d.name}`, pt.fill ? [] : [{ type: 'wallPaint', ...base, d: dd, x, y, side: pt.side, m: pt.side ? w.o || w.m : w.m }]);
+    return out({ type: 'wallPaint', ...base, d: dd, x, y, side: pt.side, m: t.id, fill: pt.fill });
+  }
   if (t.kind === 'remove' && drag?.start && (drag.start[0] !== drag.cur[0] || drag.start[1] !== drag.cur[1])) return sledgeArea(plot, base, out);
   if (t.kind === 'wall') {
     const plan = wallPlan();
@@ -2090,7 +2154,7 @@ cv.addEventListener('pointerdown', (e) => {
   if (S.mode === 'build') {
     const q = pickLocal(e.clientX, e.clientY);
     if (q && S.tool.kind === 'remove' && !S.held) drag = { start: tileOf(q), cur: tileOf(q) };
-    else if (q && S.tool.kind === 'wall' && S.wallTool === 'chain') drag = null;
+    else if (q && S.tool.kind === 'wall' && (S.wallTool === 'chain' || S.wallTool === 'paint')) drag = null;
     else if (q && ['wall', 'floor', 'roof', 'pave', 'dig'].includes(S.tool.kind)) drag = { start: S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q), cur: S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q) };
     else if (['resize', 'merge', 'split'].includes(S.tool.kind)) {
       const plot = myDef(), w = pickWorld(e.clientX, e.clientY);

@@ -39,7 +39,13 @@ You can also befriend villagers whose personalities change based on how you trea
 - **Village clock:** a day runs from 5:00 AM to 5:00 AM. The clock moves in 10-minute steps, about 6 real seconds each, and there are 112 days in a year.
 - **Sims-style build mode** on your own plot:
   - **Walls** sit on the grid lines between tiles. Drag to draw a wall, or use the **Room** tool to drag out four walls plus a floor at once. There are six wall materials.
-  - **Doors and windows** go into walls: wood or French doors, archways, and normal or tall windows. Doors let people through; windows don't.
+  - **Doors and windows** go into walls. Doors let people through; windows don't.
+    - **Doors:** panelled wood doors, French doors, archways, glass shop doors, and two-segment **double doors** (French, or glass shopfront).
+    - **Windows:** normal and tall windows, plus floor-to-ceiling **storefront windows** that join into one glass wall when placed side by side.
+    - **Colours:** the 🎨 Design tool repaints any door or window frame (wood, blue, red, green, black or cream).
+  - **16 wall materials**, including shiplap, stucco, cedar shingles, board-and-batten, painted brick, slate, shopfront panelling, subway tile, floral wallpaper and wainscoting.
+    - **Each side paints separately:** the **🖌 Paint** wall tool paints one side of a wall, so the outside and inside can differ.
+    - **Shift+click** paints a whole room's inside, or the whole outside of that building.
   - **Floors** are laid by dragging a rectangle. **Roofs** are gable roofs dragged over your rooms.
   - **Two storeys and stairs.** Switch between *Ground floor* and *Upstairs* to build and furnish each one. Stairs (in **Walls & Stairs**) take up 1×3 tiles, can be rotated, and cut their own stairwell through the floor above. Walk onto them to go upstairs.
   - **Walls up / cutaway / down**, just like The Sims. When you walk inside a house, the walls cut away and the roof and upstairs hide automatically.
