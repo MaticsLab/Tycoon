@@ -77,6 +77,26 @@ You can also befriend villagers whose personalities change based on how you trea
   - **TV**, **bookshelf**, **low bookcase** or **desk** (read), **piano**, **aquarium** or **fishbowl**, **fireplace** or **fire pit**, **telescope**, **arcade cabinet**, **record player** and **painting easel** fill fun.
   Moving stops what you're doing. Others see a thought bubble with what you're up to, and you can use things in a friend's house while they're home. Crops, Honey Cake and Herbal Tea can be eaten straight from the bag.
 - **Farming.** Till soil, plant seeds, harvest into your bag, then sell to Rosa.
+- **Run a business.** Get a licence at City Hall (🪙500, paid to the treasury). Then stand on a plot that's for sale and tap **Open my shop here**; the land costs the usual price per tile.
+  - **Build it** like a house. In build mode the **🏠 Home ⇄ 🏪** button switches which plot you're building.
+  - **Shop & Machines** tab: shop shelves, produce stands, display tables, chilled cases, a cash register and a shop sign.
+  - **Machines** turn crops into products over a few in-game hours:
+
+    | Machine | Makes |
+    |---|---|
+    | Preserves jar | strawberry jam |
+    | Juice press | carrot juice |
+    | Bakery oven | pumpkin pie, turnip bread |
+    | Soup pot | veggie soup |
+
+    Products sell for more than raw crops, and you can eat them or sell them to Rosa.
+  - **Shelves:** tap one to stock it from your bag and set your own prices. Customers see the goods and price tags on the shelf.
+  - **Opening hours:** the shop is open while you **work the register** (you also earn 10% tips), or while a hired clerk is in, 8 AM to 8 PM. The clerks are Pip, Hazel, Bram and Wren, each with a daily wage and a sales skill. Wages are paid each morning, and a clerk you can't pay quits.
+  - **Customers:**
+    - Walk-in customers (villagers and townsfolk) come more often on busy roads, using City Hall's traffic data, and buy more when prices are fair.
+    - Other players can browse and buy too.
+    - The money reaches you even while you're offline.
+  - **🏪 Shop panel:** shows status, takings, staff and recent sales.
 - **Cheat console** in **⚙️ Settings → Cheats** (the same on desktop and phones). Type a command or tap one of the shortcut chips.
   Type `testingcheats true` first, then any of:
   - `money 9999999` sets your coins.
@@ -85,6 +105,7 @@ You can also befriend villagers whose personalities change based on how you trea
   - `bb.enablefreebuild` turns free building on or off.
   - `tp cityhall`, `tp park`, `tp fair` or `tp square` teleports you (or `tp <x> <y>` in tiles).
   - `fillneeds` (or `sims.fill_all_commodities`) fills every need; `needs hunger 20` sets one.
+  - `give berry 5` puts items in your bag.
   The server setting `CHEATS` in `worker/wrangler.jsonc` controls who can use cheats: `all`, `admins` (only the usernames listed in `ADMINS`) or `off`.
 - **Character creator** in the Stardew style: roll the dice, turn the preview, pick a build, then skin, hair (22 styles, from swept spikes and emo fringes to curls and long waves), shirt (20 designs) and accessory (glasses, beards, hats and more) with the arrows.
   Sliders set eye, hair and pants colour, and you name yourself, your farm and your favourite thing. Change your look later from **👤 Me → Change look**.

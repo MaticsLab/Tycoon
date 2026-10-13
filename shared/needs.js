@@ -52,6 +52,7 @@ export const ACTIVITIES = {
   game:   { label: 'Play video games', icon: '🎮', verb: 'Gaming', gain: { fun: 35 }, until: 'fun', max: 3 },
   music:  { label: 'Play some records', icon: '🎶', verb: 'Listening to music', gain: { fun: 22, energy: 2 }, until: 'fun', max: 3 },
   paint:  { label: 'Paint a picture', icon: '🎨', verb: 'Painting', gain: { fun: 28 }, until: 'fun', max: 3 },
+  cashier: { label: 'Work the register', icon: '🧾', verb: 'Running the shop', gain: { fun: 6 }, max: 12, shop: true },
   grill:  { label: 'Fire up the grill', icon: '🌭', verb: 'Grilling', gain: { fun: 15 }, max: 2 / 3, cost: 12, makes: 'bbq' },
 };
 
@@ -72,6 +73,7 @@ export const USES = {
   recliner: ['eat', 'sit', 'nap'], loveseat: ['eat', 'sit', 'nap'], pouf: ['eat', 'sit'], rockingchair: ['eat', 'sit'], barstool: ['eat', 'sit'],
   picnic: ['eat', 'sit'], hammock: ['nap', 'sit'], bunkbed: ['sleep', 'nap'],
   lowshelf: ['read'], recordplayer: ['music'], arcade: ['game'], easel: ['paint'],
+  register: ['cashier'],
   kitchensink: ['wash'], pedestalsink: ['wash'], fishbowl: ['fish'], grill: ['grill'], firepit: ['warm'],
 };
 
@@ -81,6 +83,7 @@ export const usesOf = (t) => USES[t] || [];
 export const FOODS = {
   turnip: { hunger: 12 }, carrot: { hunger: 18 }, berry: { hunger: 10, fun: 6 }, pumpkin: { hunger: 40 },
   honeycake: { hunger: 25, fun: 10 }, tea: { energy: 12, fun: 4 },
+  jam: { hunger: 18, fun: 8 }, juice: { energy: 14, hunger: 6 }, pie: { hunger: 45, fun: 15 }, bread: { hunger: 24 }, soup: { hunger: 35, fun: 4 },
 };
 
 // Run needs forward by `hours` of in-game time while doing activity `act` (or nothing).

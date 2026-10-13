@@ -19,6 +19,7 @@ export const CATEGORIES = [
   { id: 'furniture', name: 'Furniture' },
   { id: 'kitchen', name: 'Kitchen & Bath' },
   { id: 'decor', name: 'Decor' },
+  { id: 'shop', name: 'Shop & Machines' },
   { id: 'garden', name: 'Garden' },
   { id: 'fall', name: 'Fall & Halloween' },
   { id: 'farm', name: 'Farm' },
@@ -147,6 +148,19 @@ export const ITEMS = {
   seed_pumpkin:  { name: 'Pumpkin Seeds', cat: 'farm', layer: 'obj', price: 30, crop: 'pumpkin' },
   scarecrow:     { name: 'Scarecrow',    cat: 'farm', layer: 'obj', price: 15, solid: true },
 
+  // Business: shelves hold stock for sale (slots), the register lets you be the cashier,
+  // machines turn crops into products (see shared/business.js).
+  shelf:         { name: 'Shop Shelf',     cat: 'shop', layer: 'obj', price: 40, solid: true, rot: 'face', slots: 3 },
+  producestand:  { name: 'Produce Stand',  cat: 'shop', layer: 'obj', price: 55, solid: true, size: [2, 1], rot: 'face', slots: 4 },
+  displaytable:  { name: 'Display Table',  cat: 'shop', layer: 'obj', price: 45, solid: true, size: [2, 1], rot: 'turn', slots: 4 },
+  coolercase:    { name: 'Chilled Case',   cat: 'shop', layer: 'obj', price: 90, solid: true, rot: 'face', slots: 3, light: true },
+  register:      { name: 'Cash Register',  cat: 'shop', layer: 'obj', price: 120, solid: true, rot: 'face' },
+  shopsign:      { name: 'Shop Sign',      cat: 'shop', layer: 'obj', price: 25, solid: true, rot: 'face' },
+  preservesjar:  { name: 'Preserves Jar',  cat: 'shop', layer: 'obj', price: 60, solid: true, machine: true },
+  juicer:        { name: 'Juice Press',    cat: 'shop', layer: 'obj', price: 75, solid: true, rot: 'face', machine: true },
+  bakeryoven:    { name: 'Bakery Oven',    cat: 'shop', layer: 'obj', price: 140, solid: true, rot: 'face', machine: true, light: true },
+  soupot:        { name: 'Soup Pot',       cat: 'shop', layer: 'obj', price: 50, solid: true, machine: true },
+
   // Otto's Furniture exclusives.
   piano:         { name: 'Grand Piano',  cat: 'special', layer: 'obj', price: 260, solid: true, size: [2, 1], rot: 'face', shop: 'otto' },
   fireplace:     { name: 'Fireplace',    cat: 'special', layer: 'obj', price: 180, solid: true, size: [2, 1], rot: 'face', shop: 'otto', light: true },
@@ -166,6 +180,12 @@ export const GOODS = {
   honeycake: { name: 'Honey Cake', kind: 'gift', value: 40, icon: '🍰' },
   tea:       { name: 'Herbal Tea', kind: 'gift', value: 15, icon: '🍵' },
   bookgift:  { name: 'Old Novel',  kind: 'gift', value: 35, icon: '📕' },
+  // Products made in machines (see shared/business.js).
+  jam:       { name: 'Strawberry Jam', kind: 'product', value: 150, icon: '🍓' },
+  juice:     { name: 'Carrot Juice',   kind: 'product', value: 85, icon: '🧃' },
+  pie:       { name: 'Pumpkin Pie',    kind: 'product', value: 320, icon: '🥧' },
+  bread:     { name: 'Turnip Bread',   kind: 'product', value: 60, icon: '🍞' },
+  soup:      { name: 'Veggie Soup',    kind: 'product', value: 75, icon: '🍲' },
 };
 
 export const CROPS = {

@@ -1054,3 +1054,81 @@ test('villagers read how you write', async () => {
   const mixed = blendTone(blendTone(blendTone(null, formal), formal), casual);
   assert.ok(mixed.formal > mixed.casual);
 });
+
+test('businesses: licence, shop plot, shelves, the till, machines, clerks and customers', async () => {
+  const { HOUR_MS } = await import('../../shared/needs.js');
+  const { game, join, advance } = setup();
+  const a = await join({ name: 'Ana' }), b = await join({ name: 'Ben' });
+  const sa = a.session(), sb = b.session();
+  sa.profile.coins = 5000; sb.profile.coins = 1000;
+  // A licence costs 500 and needs a trip to City Hall.
+  a.send({ type: 'bizStart', name: 'Ana’s Pantry' });
+  assert.match(a.last('error').msg, /City Hall/);
+  sa.x = 139.5 * TILE; sa.y = 37.5 * TILE;
+  const t0 = game.city.s.treasury;
+  a.send({ type: 'bizStart', name: 'Ana’s Pantry' });
+  assert.equal(sa.profile.coins, 4500);
+  assert.equal(game.city.s.treasury, t0 + 500);
+  assert.equal(a.last('business').biz.name, 'Ana’s Pantry');
+  // Home on plot 0, shop on plot 1 (land at the city price).
+  a.send({ type: 'claim', plotId: 0 });
+  a.send({ type: 'claim', plotId: 1, business: true });
+  const shop = game.plots[1];
+  assert.equal(shop.owner, sa.profile.id);
+  assert.equal(shop.biz.name, 'Ana’s Pantry');
+  assert.equal(sa.profile.plotId, 0, 'home stays home');
+  // Build it like a house: shelf, register, preserves jar.
+  for (const [item, lx, ly] of [['shelf', 3, 3], ['register', 6, 3], ['preservesjar', 9, 3]]) {
+    a.send({ type: 'place', plotId: 1, lx, ly, item });
+    assert.equal(shop.obj[`${lx},${ly}`]?.t, item, item);
+  }
+  // Make jam: 2 berries, 3 in-game hours.
+  stand(game, a, 1, 9, 4);
+  sa.profile.inv.berry = 4;
+  a.send({ type: 'craft', plotId: 1, lx: 9, ly: 3, recipe: 'jam' });
+  assert.equal(sa.profile.inv.berry, 2);
+  a.send({ type: 'collect', plotId: 1, lx: 9, ly: 3 });
+  assert.match(a.last('error').msg, /Not ready/);
+  advance(3 * HOUR_MS);
+  a.send({ type: 'collect', plotId: 1, lx: 9, ly: 3 });
+  assert.equal(sa.profile.inv.jam, 1);
+  // Stock the shelf: jam at 140, berries at 70.
+  stand(game, a, 1, 3, 4);
+  sa.profile.inv.jam = 3;
+  a.send({ type: 'stock', plotId: 1, lx: 3, ly: 3, item: 'jam', n: 3, price: 140 });
+  a.send({ type: 'stock', plotId: 1, lx: 3, ly: 3, item: 'berry', n: 2, price: 70 });
+  assert.deepEqual(shop.obj['3,3'].stock.map((x) => [x.item, x.n, x.price]), [['jam', 3, 140], ['berry', 2, 70]]);
+  assert.equal(sa.profile.inv.jam, undefined);
+  // Closed (no clerk, nobody at the till): Ben can't buy.
+  stand(game, b, 1, 3, 4);
+  b.send({ type: 'buyStock', plotId: 1, lx: 3, ly: 3, slot: 0 });
+  assert.match(b.last('error').msg, /closed/);
+  // Ana works the register: open. Ben buys a jam; Ana gets the money (+10% tip).
+  stand(game, a, 1, 6, 4);
+  a.send({ type: 'use', plotId: 1, lx: 6, ly: 3, act: 'cashier' });
+  assert.equal(sa.act.id, 'cashier');
+  const ca = sa.profile.coins;
+  b.send({ type: 'buyStock', plotId: 1, lx: 3, ly: 3, slot: 0 });
+  assert.equal(sb.profile.inv.jam, 1);
+  assert.equal(sb.profile.coins, 1000 - 140);
+  assert.equal(sa.profile.coins, ca + 140 + 14);
+  assert.equal(shop.obj['3,3'].stock[0].n, 2);
+  // Ben can't run Ana's till.
+  stand(game, b, 1, 6, 4);
+  b.send({ type: 'use', plotId: 1, lx: 6, ly: 3, act: 'cashier' });
+  assert.match(b.last('error').msg, /own shop/);
+  // Hire Hazel: wage up front, then each morning. A clerk keeps it open 8 AM–8 PM.
+  a.send({ type: 'stop' });
+  a.send({ type: 'bizHire', staff: 'hazel' });
+  assert.equal(shop.biz.staff, 'hazel');
+  // Walk-in customers: with fair prices, someone buys within a few in-game hours.
+  shop.obj['3,3'].stock[0].price = 100;
+  const sold = sa.profile.biz.sales.items;
+  for (let i = 0; i < 200 && sa.profile.biz.sales.items === sold; i++) { advance(HOUR_MS / 6); const { hours } = (await import('../../shared/world.js')).worldClock(game.now(), game.epoch); if (hours < 8 || hours >= 20) continue; game.biz.tick(game.now()); }
+  assert.ok(sa.profile.biz.sales.items > sold, 'a customer bought something');
+  // Next morning Hazel's wage is paid; if you're broke, she quits.
+  sa.profile.coins = 10;
+  advance(24 * HOUR_MS); game.biz.nextSale = 0; game.biz.tick(game.now());
+  assert.equal(sa.profile.biz.staff, null);
+  assert.equal(shop.biz.staff, null);
+});

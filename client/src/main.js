@@ -1,6 +1,6 @@
 import {
   generateWorld, applyRoads, plotIdAtPixel, worldClock, darkness,
-  TILE, MAP_W, MAP_H, PLAYER_SPEED, RUN_MULT, WORLD_VERSION,
+  TILE, MAP_W, MAP_H, PLAYER_SPEED, RUN_MULT, WORLD_VERSION, DAY_MS,
 } from '@shared/world.js';
 import {
   canStand, inInterior, key, placementError, objAt, footprint, canRotate, levelView,
@@ -19,11 +19,12 @@ import { STYLED_ROOMS } from '@shared/rooms.js';
 import { NEEDS, HEALTH, ACTIVITIES, FOODS, PLATES, usesOf, mood } from '@shared/needs.js';
 import { NPC_ACTS } from '@shared/village.js';
 import { questProgress } from '@shared/quests.js';
+import { RECIPES, STAFF, OPEN_HOURS, recipesFor, sellable, valueOf, slotsOf, isMachine, shopOpen } from '@shared/business.js';
 import { drawFloor, drawObject } from './sprites.js';
 import { openCreator, closeCreator } from './creator.js';
 import { renderCity } from './cityui.js';
 import { drawLook } from './people.js';
-import { sanitizeLook, PETS } from '@shared/look.js';
+import { sanitizeLook, randomLook, PETS } from '@shared/look.js';
 import { httpBase, signInGuest, signIn, signUp, getSession, signOut } from './auth.js';
 
 const $ = (id) => document.getElementById(id);
@@ -147,7 +148,7 @@ function onMessage(m) {
       S.me = { ...m.you, dir: 0, moving: false, level: m.you.level || 0 };
       S.coins = m.you.coins;
       S.inv = m.you.inv || {};
-      S.myPlot = m.you.plotId;
+      S.myPlot = S.homePlot = m.you.plotId;
       S.username = m.you.username;
       S.library = m.you.library || [];
       S.needs = m.you.needs || null; S.act = null; S.stopSent = false;
@@ -248,6 +249,15 @@ function onMessage(m) {
     }
     case 'npc': openTalk(m); break;
     case 'npcSay': npcSaid(m); break;
+    case 'business':
+      S.biz = m.biz;
+      $('btn-shop').hidden = !S.biz;
+      $('btn-editplot').hidden = !(S.biz?.plotId != null && S.homePlot != null);
+      updateHud();
+      if (modalKind === 'shop') showShop();
+      if (modalKind === 'city') showCity();
+      break;
+    case 'sale': saleFx(m); break;
     case 'questOffer':
       if (S.talk && S.talk.npc === m.quest.npc) { S.talk.offer = m.quest; renderQuestCard(); }
       break;
@@ -262,6 +272,7 @@ function onMessage(m) {
       indexPlots(world, S.plots);
       plotsDirty = true;
       if (m.plot.id === S.myPlot) S.dropped = null;
+      if (S.stockRedraw && (modalKind === 'stock' || modalKind === 'browse')) S.stockRedraw();
       if (S.mode === 'build') refreshPreview();
       break;
     case 'city':
@@ -296,12 +307,13 @@ function onMessage(m) {
     case 'inv':
       S.inv = m.inv;
       updateHud();
+      if (S.stockRedraw && modalKind === 'stock') S.stockRedraw();
       if (S.mode === 'build' && S.cat === 'special') renderItems();
       if (S.talk?.extra) renderExtra();
       if (modalKind === 'bag') showBag();
       break;
     case 'claimed':
-      S.myPlot = m.plotId;
+      S.myPlot = S.homePlot = m.plotId;
       updateHud();
       toast('🏡 This plot is yours! Tap Build to start your home.');
       break;
@@ -440,7 +452,7 @@ const sysMsg = (text) => addLog(esc(text), 'sys');
 
 function updateHud() {
   $('coins').textContent = `🪙 ${S.coins}`;
-  $('btn-build').disabled = S.myPlot == null;
+  $('btn-build').disabled = S.homePlot == null && S.biz?.plotId == null;
   $('online').textContent = `👥 ${S.players.size + 1}`;
   refreshTrayAffordability();
 }
@@ -478,7 +490,8 @@ function updateContext() {
   else if (usable) action = `use:${usable.plot.id}:${usable.level}:${usable.key}`;
   else if (S.carry) action = `eatHere:${S.carry.food}`;
   else if (nearMyPet()) action = 'pet';
-  else if (plot && !plot.owner && S.myPlot == null) action = 'claim';
+  else if (plot && !plot.owner && S.homePlot == null) action = 'claim';
+  else if (plot && !plot.owner && S.biz && S.biz.plotId == null) action = 'claimShop';
   else if (here === S.myPlot && here >= 0) {
     const ripe = Object.values(plot.obj).filter((o) => ITEMS[o.t]?.crop && cropStage(o, serverNow()) === 3).length;
     if (ripe) action = `harvest:${ripe}`;
@@ -488,13 +501,14 @@ function updateContext() {
     const btn = $('action');
     btn.hidden = !action;
     if (action === 'claim') btn.textContent = '🏡 Claim this plot';
+    else if (action === 'claimShop') btn.textContent = `🏪 Open my shop here (🪙${plot.w * plot.h * landPrice()})`;
     else if (action.startsWith('harvest')) btn.textContent = `🌾 Harvest (${action.split(':')[1]})`;
     else if (action.startsWith('talk')) btn.textContent = `💬 Talk to ${NPCS[action.split(':')[1]].name}`;
     else if (action === 'pet') btn.textContent = `🐾 Pet your ${PETS[petOf(S.me)].kind}`;
     else if (action.startsWith('eatHere')) { const pl = PLATES[S.carry.food]; btn.textContent = `${pl.icon} Eat ${pl.name.toLowerCase()} here`; }
     else if (action.startsWith('stop')) { const a = ACTIVITIES[S.act]; btn.textContent = `${a.icon} ${a.verb}… ✋ Stop`; }
     else if (action.startsWith('use')) {
-      const u = usable, a = ACTIVITIES[u.uses[0]];
+      const u = usable, a = actInfo(u.uses[0]);
       btn.textContent = u.uses.length > 1 ? `${a.icon} ${ITEMS[u.t].name}…` : `${a.icon} ${a.label}${a.cost ? ` · 🪙${a.cost}` : ''}`;
     }
     btn.classList.toggle('busy', action.startsWith('stop'));
@@ -512,6 +526,7 @@ $('action').onclick = () => {
     return;
   }
   if (lastAction === 'claim') send({ type: 'claim', plotId: plotIdAtPixel(world, S.me.x, S.me.y) });
+  else if (lastAction === 'claimShop') send({ type: 'claim', plotId: plotIdAtPixel(world, S.me.x, S.me.y), business: true });
   else if (lastAction.startsWith('harvest')) send({ type: 'harvest', plotId: S.myPlot });
   else if (lastAction.startsWith('talk')) send({ type: 'npcOpen', npc: lastAction.split(':')[1] });
   else if (lastAction === 'pet') { const p = nearMyPet(); if (p) { p.heartUntil = performance.now() + 2200; p.idle = 2; } }
@@ -800,7 +815,7 @@ $('modal-close').onclick = closeModal;
 function showCity() {
   const keep = modalKind === 'city' ? $('modal-body').scrollTop : 0;
   const body = openModal('city', '🏛️ City Hall');
-  renderCity(body, { city: S.city, me: S.me, myPlot: S.myPlot, plots: S.plots, send, rerender: showCity });
+  renderCity(body, { city: S.city, me: S.me, myPlot: S.homePlot ?? S.myPlot, plots: S.plots, biz: S.biz, send, rerender: showCity });
   body.scrollTop = keep;
 }
 
@@ -811,7 +826,7 @@ function showBag() {
   const list = document.createElement('div');
   list.className = 'list';
   for (const [k, n] of entries) {
-    const sub = ITEMS[k] ? 'Furniture · place it from the Bag tab in Build mode' : GOODS[k].kind === 'produce' ? 'Crop · Rosa buys these' : 'Gift · give it to a villager';
+    const sub = ITEMS[k] ? 'Furniture · place it from the Bag tab in Build mode' : GOODS[k].kind === 'produce' ? 'Crop · Rosa buys these, or sell them in your shop' : GOODS[k].kind === 'product' ? 'Homemade · sell it in your shop or to Rosa' : 'Gift · give it to a villager';
     const food = FOODS[k];
     const gives = food ? Object.entries(food).map(([nd, v]) => `+${v} ${(NEEDS.find((x) => x.id === nd) || HEALTH).icon}`).join(' ') : '';
     list.appendChild(itemRow(k, `×${n} · ${sub}${gives ? ` · eat: ${gives}` : ''}`, food ? [['😋 Eat', () => { send({ type: 'eat', item: k }); closeModal(); }]] : []));
@@ -1047,6 +1062,12 @@ function toolInfo(extra) {
 }
 
 function setMode(mode) {
+  if (mode === 'build') {
+    // Build whichever of your plots you're standing on (home or shop), else home.
+    const here = plotIdAtPixel(world, S.me.x, S.me.y);
+    const shop = S.biz?.plotId;
+    S.myPlot = here >= 0 && here === shop ? shop : S.homePlot ?? shop ?? null;
+  } else S.myPlot = S.homePlot;
   if (mode === 'build' && S.myPlot == null) { toast('Claim a plot first!'); return; }
   if (mode !== 'build') { S.held = null; S.chain = null; S.previewHour = null; }
   if (mode === 'build') closeTalk();
@@ -1059,6 +1080,7 @@ function setMode(mode) {
   drag = null;
   ghost.clear();
   if (mode === 'build') {
+    syncEditPlotBtn();
     renderTabs(); renderItems();
     const p = S.plots[S.myPlot];
     view.setTarget(p.x + p.w / 2, p.y + p.h / 2 + 1);
@@ -1072,6 +1094,19 @@ function setMode(mode) {
 }
 
 const landPrice = () => S.city?.landPrice ?? LAND_PRICE;
+
+// In build mode: hop between building your home and your shop.
+$('btn-editplot').onclick = () => {
+  if (S.mode !== 'build' || S.biz?.plotId == null || S.homePlot == null) return;
+  S.myPlot = S.myPlot === S.biz.plotId ? S.homePlot : S.biz.plotId;
+  S.held = null; S.chain = null; undoStack.length = 0; redoStack.length = 0; syncUndoBtns?.();
+  const p = S.plots[S.myPlot];
+  view.setTarget(p.x + p.w / 2, p.y + p.h / 2 + 1);
+  syncEditPlotBtn(); renderTabs(); renderItems(); refreshPreview(); plotsDirty = true;
+};
+function syncEditPlotBtn() {
+  $('btn-editplot').textContent = S.myPlot === S.biz?.plotId ? '🏪 Shop ⇄ 🏠' : '🏠 Home ⇄ 🏪';
+}
 
 // --- picking helpers (plot-local) ---
 function myDef() { return S.plots[S.myPlot]; }
@@ -2146,7 +2181,7 @@ function onTap(cx, cy) {
   const u = usableAt(cx, cy);
   if (u) {
     if (S.act) { toast(`You’re busy: ${ACTIVITIES[S.act].verb.toLowerCase()}`); return; }
-    if (!canUseOn(u.plot)) { toast('You can only use things in someone’s home while they’re in'); return; }
+    if (!u.uses.length) { toast('You can only use things in someone’s home while they’re in'); return; }
     if (u.d > TILE * 1.5) { toast(`Walk up to the ${ITEMS[u.t].name.toLowerCase()} first`); return; }
     openUseMenu(u, cx, cy - 10);
     return;
@@ -2322,6 +2357,24 @@ $('needs-head').onclick = () => { needsOpen = !needsOpen; store.set('needsOpen',
 // you can't fetch more food while you're holding some.
 const usesNow = (t) => usesOf(t).filter((id) => (ACTIVITIES[id].carry ? !!S.carry : !(ACTIVITIES[id].makes && S.carry)));
 
+// Everything you can do with a placed item right now: its activities, plus shop
+// actions (stock or browse a shelf, run a machine).
+const SHOP_ACTS = {
+  'shop:stock': { icon: '📦', label: 'Stock & set prices' },
+  'shop:browse': { icon: '🛍️', label: 'Browse & buy' },
+  'shop:make': { icon: '⚙️', label: 'Make something' },
+  'shop:collect': { icon: '✅', label: 'Collect' },
+  'shop:wait': { icon: '⏳', label: 'Working…' },
+};
+const actInfo = (id) => ACTIVITIES[id] || SHOP_ACTS[id];
+function actionsFor(plot, o) {
+  const mine = plot.owner === S.me.id;
+  const out = canUseOn(plot) ? usesNow(o.t).filter((id) => !ACTIVITIES[id].shop || (mine && plot.biz)) : [];
+  if (slotsOf(o.t)) { if (mine) out.push('shop:stock'); else if (plot.biz) out.push('shop:browse'); }
+  if (isMachine(o.t) && mine) out.push(o.job ? (serverNow() >= o.job.ready ? 'shop:collect' : 'shop:wait') : 'shop:make');
+  return out;
+}
+
 // You can use things at home, or in someone's home while they're in.
 function canUseOn(plot) {
   if (!plot?.owner) return false;
@@ -2338,12 +2391,12 @@ function distTo(plot, ax, ay, t, r) {
 function nearestUsable(range = TILE * 1.5) {
   const here = plotIdAtPixel(world, S.me.x, S.me.y);
   const plot = here >= 0 ? S.plots[here] : null;
-  if (!plot || !canUseOn(plot)) return null;
+  if (!plot || !(canUseOn(plot) || plot.biz)) return null;
   const level = S.me.level || 0, view = level ? plot.l1 : plot;
   if (!view) return null;
   let best = null;
   for (const [k, o] of Object.entries(view.obj)) {
-    const uses = usesNow(o.t);
+    const uses = actionsFor(plot, o);
     if (!uses.length) continue;
     const [ax, ay] = k.split(',').map(Number);
     const d = distTo(plot, ax, ay, o.t, o.r);
@@ -2361,7 +2414,7 @@ function usableAt(cx, cy) {
     const v = level ? plot.l1 : plot;
     if (!v) continue;
     for (const [k, o] of Object.entries(v.obj)) {
-      const uses = usesNow(o.t);
+      const uses = actionsFor(plot, o);
       if (!uses.length) continue;
       const [ax, ay] = k.split(',').map(Number);
       const [w, h] = footprint(o.t, o.r || 0);
@@ -2374,6 +2427,7 @@ function usableAt(cx, cy) {
 }
 function useThing(u, act) {
   closeUseMenu();
+  if (act.startsWith('shop:')) return shopAction(u, act);
   const a = ACTIVITIES[act];
   if (a.cost && S.coins < a.cost) return toast('Not enough coins');
   send({ type: 'use', plotId: u.plot.id, level: u.level, lx: u.lx, ly: u.ly, act });
@@ -2383,11 +2437,15 @@ function openUseMenu(u, x, y) {
   const el = $('usemenu');
   el.innerHTML = `<div class="um-title">${esc(ITEMS[u.t].name)}</div>`;
   const hasStove = [u.plot, u.plot.l1].some((v) => v && Object.values(v.obj).some((o) => o.t === 'stove'));
+  const o = (u.level ? u.plot.l1 : u.plot).obj[u.key];
   for (const id of u.uses) {
-    const a = ACTIVITIES[id];
+    const a = actInfo(id);
     const b = document.createElement('button');
-    const off = a.stove && !hasStove;
-    b.innerHTML = `<span>${a.icon}</span>${esc(a.label)}${a.cost ? ` <small>🪙${a.cost}</small>` : ''}${off ? ' <small>(needs a stove)</small>' : ''}`;
+    const off = (a.stove && !hasStove) || id === 'shop:wait';
+    let label = a.label;
+    if (id === 'shop:collect') label = `Collect ${GOODS[RECIPES[o.job.r].out].name}`;
+    if (id === 'shop:wait') label = `${RECIPES[o.job.r].label}: ready in ${Math.max(1, Math.ceil((o.job.ready - serverNow()) / (DAY_MS / 24 / 6))) * 10} min`;
+    b.innerHTML = `<span>${a.icon}</span>${esc(label)}${a.cost ? ` <small>🪙${a.cost}</small>` : ''}${a.stove && !hasStove ? ' <small>(needs a stove)</small>' : ''}`;
     b.disabled = off;
     b.onclick = (e) => { e.stopPropagation(); useThing(u, id); };
     el.appendChild(b);
@@ -2398,6 +2456,143 @@ function openUseMenu(u, x, y) {
   el.style.top = `${Math.max(8, Math.min(innerHeight - r.height - 8, y - r.height))}px`;
 }
 function closeUseMenu() { const el = $('usemenu'); if (el) el.hidden = true; }
+
+// ---------- Shops ----------
+function shopAction(u, act) {
+  const o = (u.level ? u.plot.l1 : u.plot).obj[u.key];
+  const at = { plotId: u.plot.id, level: u.level, lx: u.lx, ly: u.ly };
+  if (act === 'shop:collect') return send({ type: 'collect', ...at });
+  if (act === 'shop:make') return showMake(u, at);
+  if (act === 'shop:stock') return showStock(u, at);
+  if (act === 'shop:browse') return showBrowse(u, at, o);
+}
+const shelfOf = (u) => (u.level ? u.plot.l1 : u.plot).obj[u.key];
+
+// Owner: what's on this shelf, prices, and adding goods from the bag.
+function showStock(u, at) {
+  const body = openModal('stock', `📦 ${ITEMS[u.t].name}`);
+  const draw = () => {
+    body.innerHTML = '';
+    const o = shelfOf(u);
+    const stock = o?.stock || [];
+    body.insertAdjacentHTML('beforeend', `<p class="muted">${stock.length}/${slotsOf(u.t)} kinds of goods. Customers buy more when prices are fair (around the value shown).</p>`);
+    stock.forEach((sl, i) => {
+      const row = itemRow(sl.item, `×${sl.n} on the shelf · worth about 🪙${valueOf(sl.item)}`, []);
+      const price = document.createElement('input');
+      price.type = 'number'; price.min = 1; price.value = sl.price; price.className = 'price';
+      price.addEventListener('keydown', (e) => e.stopPropagation());
+      price.onchange = () => send({ type: 'restock', ...at, slot: i, price: +price.value });
+      const take = document.createElement('button'); take.textContent = 'Take back';
+      take.onclick = () => send({ type: 'restock', ...at, slot: i, take: true });
+      row.append(document.createTextNode('🪙'), price, take);
+      body.appendChild(row);
+    });
+    const goods = Object.entries(S.inv).filter(([k, n]) => n > 0 && sellable(k));
+    body.insertAdjacentHTML('beforeend', '<h3>Add from your bag</h3>');
+    if (!goods.length) body.insertAdjacentHTML('beforeend', '<p class="muted">Nothing to sell yet: harvest crops, or make products in machines (Build → Shop & Machines).</p>');
+    for (const [k, n] of goods) {
+      const row = itemRow(k, `×${n} in your bag · worth about 🪙${valueOf(k)}`, []);
+      const qty = document.createElement('input'); qty.type = 'number'; qty.min = 1; qty.max = n; qty.value = n; qty.className = 'qty';
+      const price = document.createElement('input'); price.type = 'number'; price.min = 1; price.value = stock.find((x) => x.item === k)?.price || valueOf(k); price.className = 'price';
+      for (const i of [qty, price]) i.addEventListener('keydown', (e) => e.stopPropagation());
+      const add = document.createElement('button'); add.textContent = 'Put out';
+      add.onclick = () => send({ type: 'stock', ...at, item: k, n: +qty.value, price: +price.value });
+      row.append(qty, document.createTextNode(' × 🪙'), price, add);
+      body.appendChild(row);
+    }
+  };
+  draw();
+  S.stockRedraw = draw;
+}
+
+// Customers: buy off someone's shelf.
+function showBrowse(u, at, o) {
+  const owner = u.plot.biz;
+  const body = openModal('browse', `🛍️ ${owner?.name || 'Shop'}`);
+  const draw = () => {
+    body.innerHTML = '';
+    const stock = shelfOf(u)?.stock || [];
+    const { hours } = worldClock(serverNow(), S.epoch);
+    const tillManned = [...S.players.values()].some((p) => p.id === u.plot.owner && p.act === 'cashier');
+    if (!shopOpen(owner, hours, tillManned)) body.insertAdjacentHTML('beforeend', `<p class="warn">Closed right now${owner?.staff ? ` (${STAFF[owner.staff].name} works ${OPEN_HOURS[0]} AM – ${OPEN_HOURS[1] - 12} PM)` : ''}.</p>`);
+    if (!stock.length) body.insertAdjacentHTML('beforeend', '<p class="muted">This shelf is empty.</p>');
+    stock.forEach((sl, i) => {
+      body.appendChild(itemRow(sl.item, `×${sl.n} · 🪙${sl.price} each`, [[`Buy 1 · 🪙${sl.price}`, () => send({ type: 'buyStock', ...at, slot: i, n: 1 }), S.coins < sl.price]]));
+    });
+  };
+  draw();
+  S.stockRedraw = draw;
+}
+
+// Owner: start a machine on a recipe.
+function showMake(u, at) {
+  const body = openModal('make', `⚙️ ${ITEMS[u.t].name}`);
+  for (const r of recipesFor(u.t)) {
+    const has = Object.entries(r.needs).every(([k, n]) => (S.inv[k] || 0) >= n);
+    const needs = Object.entries(r.needs).map(([k, n]) => `${n} × ${GOODS[k].name} (have ${S.inv[k] || 0})`).join(' + ');
+    body.appendChild(itemRow(r.out, `${needs} → ${r.n} in ${r.hours} h · worth 🪙${valueOf(r.out)} each`, [[has ? 'Make' : 'Need more', () => { send({ type: 'craft', ...at, recipe: r.id }); closeModal(); }, !has]]));
+  }
+}
+
+// Owner's business panel: open/closed, staff, takings.
+function showShop() {
+  const b = S.biz;
+  const body = openModal('shop', `🏪 ${b ? b.name : 'Business'}`);
+  if (!b) { body.innerHTML = '<p class="muted">Start a business at City Hall (🪙500).</p>'; return; }
+  const plot = b.plotId != null ? S.plots[b.plotId] : null;
+  body.innerHTML = `
+    <div class="city-card"><div>${plot ? `Shop on plot ${plot.id + 1}` : '<b>No shop plot yet</b>: stand on a plot that’s for sale and tap “Open my shop here”.'}</div>
+    <div>Status: <b>${b.open ? '🟢 Open' : '🔴 Closed'}</b>${b.closed ? ' (you closed it)' : ''} · ${b.stockCount} items on shelves · street traffic ${'🚶'.repeat(Math.max(1, Math.round(b.traffic + 1)))}</div>
+    <div>Today: <b>🪙${b.sales.day === worldClock(serverNow(), S.epoch).day ? b.sales.today : 0}</b> · All time: <b>🪙${b.sales.total}</b> (${b.sales.items || 0} sold)</div></div>
+    <p class="muted small">Open while you work the cash register, or while a clerk is in (${OPEN_HOURS[0]} AM – ${OPEN_HOURS[1] - 12} PM). Busy roads bring more customers; fair prices sell faster.</p>`;
+  const row = document.createElement('div'); row.className = 'row';
+  const name = document.createElement('input'); name.value = b.name; name.maxLength = 24;
+  name.addEventListener('keydown', (e) => e.stopPropagation());
+  const rn = document.createElement('button'); rn.className = 'chip'; rn.textContent = 'Rename';
+  rn.onclick = () => send({ type: 'bizRename', name: name.value });
+  const oc = document.createElement('button'); oc.className = 'chip'; oc.textContent = b.closed ? '🟢 Reopen' : '🔴 Close shop';
+  oc.onclick = () => send({ type: 'bizClosed', closed: !b.closed });
+  row.append(name, rn, oc);
+  body.appendChild(row);
+  body.insertAdjacentHTML('beforeend', '<h3>Staff</h3>');
+  for (const [id, st] of Object.entries(STAFF)) {
+    const hired = b.staff === id;
+    const r = document.createElement('div'); r.className = 'item-row';
+    const pic = document.createElement('canvas'); pic.className = 'portrait'; pic.width = 44; pic.height = 44;
+    drawLook(pic, st.look, { crop: 'bust' });
+    const nm = document.createElement('div'); nm.className = 'nm';
+    nm.innerHTML = `${esc(st.name)}${hired ? ' <span class="tag">working for you</span>' : ''}<small>${esc(st.line)} · 🪙${st.wage}/day</small>`;
+    const btn = document.createElement('button');
+    btn.textContent = hired ? 'Let go' : b.staff ? 'Hire instead' : 'Hire';
+    btn.onclick = () => send(hired ? { type: 'bizFire' } : { type: 'bizHire', staff: id });
+    r.append(pic, nm, btn);
+    body.appendChild(r);
+  }
+  if (b.log?.length) {
+    body.insertAdjacentHTML('beforeend', `<h3>Recent sales</h3><div class="list">${b.log.map((l) => `<div class="news"><span class="muted">Day ${l.day}</span> ${esc(l.who)} bought ${l.n > 1 ? `${l.n} × ` : ''}${esc(GOODS[l.item]?.name || l.item)} · 🪙${l.coins}</div>`).join('')}</div>`);
+  }
+}
+$('btn-shop').onclick = () => (modalKind === 'shop' ? closeModal() : showShop());
+
+// Something sold: coins float up over the till, and a shopper pops in for a moment.
+const saleFxs = [];
+function saleFx(m) {
+  const plot = S.plots[m.plotId];
+  if (!plot) return;
+  const reg = Object.entries(plot.obj).find(([, o]) => o.t === 'register');
+  const [lx, ly] = reg ? reg[0].split(',').map(Number) : [plot.w / 2, plot.h / 2];
+  saleFxs.push({ x: plot.x + lx + 0.5, z: plot.y + ly + 1.6, coins: m.coins, icon: GOODS[m.item]?.icon || '🛍️', t: performance.now(), who: m.who, look: shopperLook(m.who) });
+  if (S.stockRedraw && (modalKind === 'stock' || modalKind === 'browse')) S.stockRedraw();
+}
+const shopperLooks = new Map();
+function shopperLook(who) {
+  if (!shopperLooks.has(who)) {
+    let h = 0; for (const c of who) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    let x = h || 1; const rnd = () => ((x = (x * 16807) % 2147483647) / 2147483647);
+    shopperLooks.set(who, sanitizeLook(randomLook(rnd)));
+  }
+  return shopperLooks.get(who);
+}
 
 // How someone doing an activity is drawn: sitting on a seat, lying in bed, or hidden
 // behind the shower glass / in the tub (steam shows instead).
@@ -2663,6 +2858,7 @@ function render(now) {
     view.actor(`npc:${n.id}`, U(n.x), U(n.y), n.dir, n.moving, d.look, now, !a?.hidden, a?.pose === 'sit' ? 0.12 : 0, null, a?.pose === 'sit' ? { kind: 'sit' } : null);
   }
   drawPerson(S.me, myH);
+  drawShopPeople(now);
   for (const [id, p] of pets) {
     const owner = id === S.me.id ? S.me : S.players.get(id);
     if (!owner) continue;
@@ -2677,6 +2873,26 @@ function render(now) {
   drawOverlay(now);
 }
 
+// Clerks behind the till while the shop's open, and shoppers dropping in.
+function drawShopPeople(now) {
+  const { hours } = worldClock(serverNow(), S.epoch);
+  for (const plot of Object.values(S.plots)) {
+    const st = plot.biz?.staff && STAFF[plot.biz.staff];
+    if (!st || plot.biz.closed || hours < OPEN_HOURS[0] || hours >= OPEN_HOURS[1]) continue;
+    const reg = Object.entries(plot.obj).find(([, o]) => o.t === 'register');
+    if (!reg) continue;
+    const [lx, ly] = reg[0].split(',').map(Number);
+    const r = reg[1].r || 0;
+    const [bx, bz] = [[0.5, -0.35], [1.35, 0.5], [0.5, 1.35], [-0.35, 0.5]][r]; // stands behind the counter
+    view.actor(`staff:${plot.id}`, plot.x + lx + bx, plot.y + ly + bz, [0, 2, 1, 3][r], false, st.look, now);
+  }
+  for (let i = saleFxs.length - 1; i >= 0; i--) {
+    const f = saleFxs[i];
+    if (now - f.t > 4000) { saleFxs.splice(i, 1); continue; }
+    view.actor(`shopper:${f.t}`, f.x, f.z + 0.4, 1, false, f.look, now);
+  }
+}
+
 function drawOverlay(now) {
   octx.setTransform(1, 0, 0, 1, 0, 0);
   octx.clearRect(0, 0, overlay.width, overlay.height);
@@ -2686,9 +2902,52 @@ function drawOverlay(now) {
   const W = innerWidth, H = innerHeight;
   const onScreen = (p) => p.x > -60 && p.y > -60 && p.x < W + 60 && p.y < H + 60;
   for (const st of Object.values(S.plots)) {
-    if (!st.owner) continue;
+    if (!st.owner || st.biz) continue;
     const p = view.toScreen(st.x + st.w / 2, 0.9, st.y + 0.5);
     if (onScreen(p)) tag(`🏡 ${st.farm ? st.farm + ' Farm' : st.ownerName}`, p.x, p.y, 11, st.owner === S.me.id ? '#ffe08a' : '#fff');
+  }
+  // Goods on shelves (with price tags up close), machines at work, coins from sales.
+  const cam = view.target;
+  octx.textAlign = 'center';
+  for (const plot of Object.values(S.plots)) {
+    if (Math.abs(plot.x + plot.w / 2 - cam.x) > 30 || Math.abs(plot.y + plot.h / 2 - cam.z) > 30) continue;
+    for (const [lvl, v] of [[0, plot], [1, plot.l1]]) {
+      if (!v || (lvl && !(S.mode === 'build' ? S.level : S.me.level))) continue;
+      for (const [k, o] of Object.entries(v.obj)) {
+        const [lx, ly] = k.split(',').map(Number);
+        const [w, h] = footprint(o.t, o.r || 0);
+        if (o.stock?.length) {
+          const p = view.toScreen(plot.x + lx + w / 2, lvl * LEVEL_H + 1.25, plot.y + ly + h / 2);
+          if (!onScreen(p)) continue;
+          o.stock.forEach((sl, i) => {
+            const x = p.x + (i - (o.stock.length - 1) / 2) * 18;
+            octx.font = '15px sans-serif';
+            octx.fillText(GOODS[sl.item]?.icon || '📦', x, p.y);
+            if (view.zoom < 22) { octx.font = 'bold 9px sans-serif'; octx.fillStyle = '#fff8e0'; octx.fillText(`🪙${sl.price}`, x, p.y + 11); octx.fillStyle = '#000'; }
+          });
+        }
+        if (o.job) {
+          const p = view.toScreen(plot.x + lx + w / 2, lvl * LEVEL_H + 1.6, plot.y + ly + h / 2);
+          if (!onScreen(p)) continue;
+          const ready = serverNow() >= o.job.ready;
+          octx.font = '15px sans-serif';
+          octx.fillText(ready ? `✅${GOODS[RECIPES[o.job.r].out].icon}` : `⏳`, p.x, p.y + (ready ? Math.sin(now / 300) * 2 : 0));
+        }
+      }
+    }
+    if (plot.biz) {
+      const p = view.toScreen(plot.x + plot.w / 2, 1.4, plot.y + 0.5);
+      if (onScreen(p)) tag(`🏪 ${plot.biz.name}`, p.x, p.y, 12, '#ffd27a');
+    }
+  }
+  for (const f of saleFxs) {
+    const t = (now - f.t) / 4000;
+    const p = view.toScreen(f.x, 1.6 + t * 1.2, f.z);
+    octx.globalAlpha = Math.max(0, 1 - t);
+    octx.font = 'bold 13px sans-serif';
+    octx.fillStyle = '#ffe36e';
+    octx.fillText(`${f.icon} +🪙${f.coins}`, p.x, p.y);
+    octx.globalAlpha = 1;
   }
   const heads = [];
   for (const p of [...S.players.values(), S.me]) heads.push([p, p.name, p === S.me ? '#ffe08a' : '#fff']);

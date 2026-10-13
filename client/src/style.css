@@ -342,3 +342,9 @@ body.building #needs { display: none; }
 @keyframes qpop { from { transform: scale(.94); opacity: 0; } }
 #btn-quests { position: relative; }
 #btn-quests[data-n]:not([data-n=""])::after { content: attr(data-n); position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; border-radius: 9px; background: #d9534f; color: #fff; font-size: 11px; font-weight: bold; display: grid; place-items: center; }
+
+/* ---- Shops ---- */
+.item-row input.price, .item-row input.qty { width: 58px; padding: 4px; border: 2px solid #d8b98c; border-radius: 6px; font-size: 13px; }
+.item-row input.qty { width: 44px; }
+p.warn { background: #ffe1d6; border: 2px solid #e3967a; border-radius: 8px; padding: 6px 8px; color: #7a2e12; }
+#btn-editplot { white-space: nowrap; }

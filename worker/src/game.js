@@ -13,6 +13,7 @@ import { HOUR_MS, NEEDS, ACTIVITIES, FOODS, PLATES, sanitizeNeeds, usesOf, advan
 import { sanitizeLook, randomLook, shirtColor } from '../../shared/look.js';
 import { Npc, parseAiReply, REPLY_SCHEMA } from './npc.js';
 import { Life } from './life.js';
+import { Business } from './business.js';
 import { NPC_ACTS, readTone, blendTone } from '../../shared/village.js';
 
 const randomHex = (n) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -72,6 +73,7 @@ export class Game {
     }
     this.npcs = {};
     this.life = new Life(this);
+    this.biz = new Business(this);
     for (const id of Object.keys(NPCS)) this.npcs[id] = new Npc(id, saved.npcs?.[id]);
     this.sessions = new Map(); // player id -> session
     this.city = new City(this, saved.city);
@@ -181,6 +183,16 @@ export class Game {
       case 'harvest': return this.harvest(s, msg);
       case 'use': return this.use(s, msg);
       case 'questAccept': return this.life.accept(s, msg);
+      case 'bizStart': return this.cityAction(s, () => this.biz.start(s, msg));
+      case 'bizRename': return this.biz.rename(s, msg);
+      case 'bizClosed': return this.biz.setClosed(s, msg);
+      case 'bizHire': return this.biz.hire(s, msg);
+      case 'bizFire': return this.biz.fire(s);
+      case 'stock': return this.biz.stock(s, msg);
+      case 'restock': return this.biz.restock(s, msg);
+      case 'buyStock': return this.biz.buy(s, msg);
+      case 'craft': return this.biz.craft(s, msg);
+      case 'collect': return this.biz.collect(s, msg);
       case 'questDecline': return this.life.decline(s, msg);
       case 'questAbandon': return this.life.abandon(s, msg);
       case 'questTurnIn': return this.life.turnIn(s, msg);
@@ -303,6 +315,7 @@ export class Game {
     });
     this.broadcast({ type: 'join', player: this.publicPlayer(s) }, s);
     this.life.send(s);
+    this.biz.send(s);
     if (profile.plotId != null) this.broadcast({ type: 'plot', plot: this.plots[profile.plotId] });
   }
 
@@ -389,9 +402,10 @@ export class Game {
     }
   }
 
-  claim(s, { plotId }) {
+  claim(s, { plotId, business }) {
     const plot = this.plots[plotId];
     if (!plot) return;
+    if (business) return this.biz.claimShop(s, plot);
     if (s.profile.plotId != null) return s.send({ type: 'error', msg: 'You already own a plot' });
     if (plot.owner) return s.send({ type: 'error', msg: 'That plot is taken' });
     plot.owner = s.profile.id;
@@ -871,7 +885,7 @@ export class Game {
     const off = (v) => ['false', 'off', '0', 'no'].includes(v);
     if (!c) return;
     if (c === 'help') {
-      return say('testingcheats true · money <amount> · motherlode · kaching · rosebud · freerealestate on/off · bb.enablefreebuild · tp cityhall|park|fair|square · fillneeds · needs <need> <0-100>');
+      return say('testingcheats true · money <amount> · motherlode · kaching · rosebud · freerealestate on/off · bb.enablefreebuild · tp cityhall|park|fair|square · fillneeds · needs <need> <0-100> · give <item> <n>');
     }
     if (c === 'testingcheats') {
       if (on(args[0])) { s.cheats.testing = true; return say('Cheats are enabled.'); }
@@ -902,6 +916,12 @@ export class Game {
         s.x = to[0] * TILE; s.y = to[1] * TILE; s.level = 0; s.lastMove = this.now();
         s.send({ type: 'pos', x: s.x, y: s.y, level: 0 });
         return say(spots[args[0]] ? `Whoosh! You’re at the ${args[0]}.` : 'Whoosh!');
+      }
+      case 'give': {
+        const item = args[0], n = Math.max(1, Math.min(99, Number(args[1]) || 1));
+        if (!GOODS[item] && !ITEMS[item]) return say(`Unknown item. Try: ${Object.keys(GOODS).join(', ')}`);
+        this.bag(s, item, n);
+        return say(`+${n} ${itemName(item)}`);
       }
       case 'fillneeds': case 'sims.fill_all_commodities':
         Object.assign(s.profile.needs, fullNeeds(), { hunger: 100, energy: 100, bladder: 100, hygiene: 100, fun: 100 });
@@ -1167,6 +1187,7 @@ export class Game {
     const view = levelView(plot, level);
     const hit = objAt(view, lx, ly);
     if (!hit || !usesOf(hit.obj.t).includes(act)) return;
+    if (a.shop && (plot.owner !== s.profile.id || !plot.biz)) return s.send({ type: 'error', msg: 'You can only run the till in your own shop (get a business licence at City Hall)' });
     const [ax, ay] = hit.key.split(',').map(Number);
     const [w, h] = footprint(hit.obj.t, hit.obj.r || 0);
     // Close enough? (within about a tile of the item, on its floor)
@@ -1236,6 +1257,7 @@ export class Game {
     this.city.update(this.day());
     if (this.city.dirtyView && now - (this.lastCitySend || 0) > 1000) { this.lastCitySend = now; this.sendCity(); }
     if (this.city.statsDirty && now - (this.lastCitySave || 0) > 30_000) { this.lastCitySave = now; this.city.statsDirty = false; this.mark('city'); }
+    this.biz.tick(now);
     if (!this.sessions.size) return;
     // Drop players we haven't heard from for 450 ticks, about 45 s (a phone that went to
     // sleep mid-game). Counted in ticks so a stalled server never drops everyone at once.

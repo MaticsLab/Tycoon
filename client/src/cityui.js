@@ -42,7 +42,34 @@ export function renderCity(body, ctx) {
   ({ overview, election, council, data })[tab](pane, ctx);
 }
 
-function overview(el, { city }) {
+function overview(el, ctx) {
+  overviewInner(el, ctx);
+  bizCard(el, ctx);
+}
+
+// Business licences are issued here.
+function bizCard(el, { biz, me, send }) {
+  const c = document.createElement('div');
+  c.className = 'city-card hl';
+  if (biz) {
+    c.innerHTML = `🏪 You run <b>${esc(biz.name)}</b>. ${biz.plotId == null ? 'Pick a shop plot: stand on one that’s for sale and tap “Open my shop here”.' : 'Manage it from the 🏪 Shop button.'}`;
+  } else {
+    c.innerHTML = `<b>🏪 Start a business</b> · licence 🪙500<div class="muted">Claim a shop plot, build your store, stock shelves with crops and things you make, set your prices, work the till or hire a clerk.</div>`;
+    const row = document.createElement('div');
+    row.className = 'row';
+    const name = document.createElement('input');
+    name.maxLength = 24; name.placeholder = `${me?.name || 'My'}’s Shop`;
+    name.addEventListener('keydown', (e) => e.stopPropagation());
+    const go = document.createElement('button');
+    go.className = 'chip sel'; go.textContent = 'Register (🪙500)';
+    go.onclick = () => send({ type: 'bizStart', name: name.value.trim() });
+    row.append(name, go);
+    c.appendChild(row);
+  }
+  el.insertBefore(c, el.children[1] || null);
+}
+
+function overviewInner(el, { city }) {
   const m = city.officials.mayor;
   const left = city.term.end - city.day;
   const people = city.officials.council;

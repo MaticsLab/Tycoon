@@ -15,7 +15,7 @@ export const NPCS = {
     bio: 'You run Rosa’s Market in the town square. You buy villagers’ crops and sell gifts. You grew up in the village, know everyone, love a bit of gossip and cooking, and worry that the young folks work too hard.',
     base: { warmth: 72, cheer: 66, trust: 62, generosity: 58, energy: 70 },
     likes: ['bouquet', 'tea', 'berry'], dislikes: ['bookgift'],
-    buys: ['turnip', 'carrot', 'berry', 'pumpkin'],
+    buys: ['turnip', 'carrot', 'berry', 'pumpkin', 'jam', 'juice', 'pie', 'bread', 'soup'],
     sells: ['bouquet', 'honeycake', 'tea', 'bookgift'],
   },
   otto: {
