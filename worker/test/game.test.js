@@ -904,6 +904,7 @@ test('needs: run down over time; fridge, toilet, shower, bed and TV fill them; e
   assert.ok(s.profile.needs.hygiene > 15 && s.profile.needs.hygiene < 30, `hygiene ${s.profile.needs.hygiene}`);
   // Others see what you're doing; someone else can't use the same thing.
   const b = await join({ name: 'Ben' });
+  stand(game, b, 0, 14, 5); // nearby, so he hears about it right away
   stand(game, a, 0, 12, 3);
   a.send({ type: 'use', plotId: 0, lx: 12, ly: 2, act: 'tv' });
   game.tick();
@@ -929,4 +930,28 @@ test('needs: run down over time; fridge, toilet, shower, bed and TV fill them; e
   run(20);
   assert.match(a.last('toast').text, /fainted/);
   assert.ok(s.profile.needs.health >= 40);
+});
+
+test('interest management: nearby moves every tick, far ones once a second', async () => {
+  const { game, join, advance } = setup();
+  const a = await join({ name: 'Ana' }), b = await join({ name: 'Ben' }), c = await join({ name: 'Cy' });
+  const [sa, sb, sc] = [a.session(), b.session(), c.session()];
+  sa.x = 40 * TILE; sa.y = 40 * TILE;
+  sb.x = 45 * TILE; sb.y = 40 * TILE;          // 5 tiles from Ana
+  sc.x = 140 * TILE; sc.y = 40 * TILE;         // 100 tiles away
+  advance(1000); game.tick();                  // a full update for everyone
+  const rowOf = (m, who) => m.p.find((r) => r[0] === who.welcome.you.id);
+  assert.ok(rowOf(c.last('state'), a), 'full updates include everyone');
+  // Ana moves: Ben (near) hears it next tick, Cy (far) doesn't until the next full update.
+  sa.x += 8;
+  const cBefore = c.inbox.length;
+  advance(100); game.tick();
+  assert.equal(rowOf(b.last('state'), a)[1], 40 * TILE + 8);
+  assert.ok(!c.inbox.slice(cBefore).some((m) => m.type === 'state' && rowOf(m, a)), 'far player not told yet');
+  // Nothing moving: no state at all between full updates.
+  const bBefore = b.inbox.length;
+  advance(100); game.tick();
+  assert.ok(!b.inbox.slice(bBefore).some((m) => m.type === 'state' && m.p.length), 'quiet ticks send nothing');
+  advance(1000); game.tick();
+  assert.equal(rowOf(c.last('state'), a)[1], 40 * TILE + 8, 'far player catches up on the full update');
 });

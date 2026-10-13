@@ -15,6 +15,8 @@ import { Npc, parseAiReply, REPLY_SCHEMA } from './npc.js';
 
 const randomHex = (n) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, '0')).join('');
 const clean = (s, max) => String(s ?? '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, max);
+// Players hear every move of people within this many tiles; everyone else once a second.
+export const AOI_RANGE = 48;
 const TALK_RANGE = TILE * 3.5;
 
 // Authoritative game state. Transport-agnostic: each connection supplies sendRaw/close
@@ -1202,14 +1204,37 @@ export class Game {
       }
     }
     for (const s of this.sessions.values()) if (now - s.needsAt >= 1000) this.tickNeeds(s, now);
-    const p = [];
-    for (const s of this.sessions.values()) p.push([s.profile.id, Math.round(s.x * 10) / 10, Math.round(s.y * 10) / 10, s.dir, s.moving || 0, s.level || 0, s.act?.id || 0]);
-    const npcs = Object.values(this.npcs).map((n) => [n.id, Math.round(n.x * 10) / 10, Math.round(n.y * 10) / 10, n.dir, n.moving ? 1 : 0]);
-    // Nothing moved: skip it, but still send one a second so clients know we're alive.
-    const sig = JSON.stringify([p, npcs]);
-    if (sig === this.lastState && now - this.lastStateAt < 1000) return;
-    this.lastState = sig; this.lastStateAt = now;
-    this.broadcast({ type: 'state', t: now, p, n: npcs });
+    this.sendState(now);
+  }
+
+  // Positions, with interest management: each player hears about the people near them
+  // (within AOI_RANGE) whenever they move, and about everyone once a second (for the map,
+  // and as a heartbeat). Rows that didn't change since last tick aren't sent at all.
+  sendState(now) {
+    const round = (v) => Math.round(v * 10) / 10;
+    const rows = [], changed = new Set();
+    this.lastRows ||= new Map();
+    for (const o of this.sessions.values()) {
+      const row = [o.profile.id, round(o.x), round(o.y), o.dir, o.moving || 0, o.level || 0, o.act?.id || 0];
+      const k = row.join(',');
+      if (this.lastRows.get(o.profile.id) !== k) { changed.add(o.profile.id); this.lastRows.set(o.profile.id, k); }
+      rows.push([o, row]);
+    }
+    for (const id of this.lastRows.keys()) if (!this.sessions.has(id)) this.lastRows.delete(id);
+    const npcRows = Object.values(this.npcs).map((n) => [n.id, round(n.x), round(n.y), n.dir, n.moving ? 1 : 0]);
+    const npcSig = JSON.stringify(npcRows);
+    const npcMoved = npcSig !== this.lastNpcSig;
+    this.lastNpcSig = npcSig;
+    const full = now - (this.lastFull || 0) >= 1000;
+    if (full) this.lastFull = now;
+    const R = AOI_RANGE * TILE;
+    for (const s of this.sessions.values()) {
+      let p;
+      if (full) p = rows.map(([, row]) => row);
+      else p = rows.filter(([o, row]) => o !== s && changed.has(row[0]) && Math.abs(o.x - s.x) < R && Math.abs(o.y - s.y) < R).map(([, row]) => row);
+      if (!full && !p.length && !npcMoved) continue;
+      s.send({ type: 'state', t: now, p, n: full || npcMoved ? npcRows : [] });
+    }
   }
 }
 
