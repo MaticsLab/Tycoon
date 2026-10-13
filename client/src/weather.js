@@ -1,7 +1,7 @@
 // Weather and seasonal particles drawn over the 3D view: rain (and storms with
 // lightning), snow, falling leaves in fall, blossom petals in spring and fireflies on
 // summer nights. Screen-space and cheap: a few hundred particles at most.
-export function makeWeather() {
+export function makeWeather({ onFlash } = {}) {
   const parts = [];
   let mode = '', flash = 0;
   const rnd = (a, b) => a + Math.random() * (b - a);
@@ -63,7 +63,7 @@ export function makeWeather() {
     c.restore();
     // Storms: now and then, lightning.
     if (kind === 'storm') {
-      if (flash <= 0 && Math.random() < dt * 0.08) flash = 1;
+      if (flash <= 0 && Math.random() < dt * 0.08) { flash = 1; onFlash?.(); }
       if (flash > 0) { c.fillStyle = `rgba(255,255,255,${flash * 0.55})`; c.fillRect(0, 0, W, H); flash -= dt * 3.5; }
     }
   }

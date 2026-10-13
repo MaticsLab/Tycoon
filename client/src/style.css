@@ -402,3 +402,6 @@ body.night-skip::after { opacity: 1; transition: opacity .25s; }
   #usemenu button { min-height: 48px; font-size: 16px; }
   .chip { min-height: 40px; }
 }
+
+.row.vol { display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 8px; margin: 6px 0; }
+.row.vol input[type=range] { width: 100%; accent-color: #d98a2b; min-height: 32px; }

@@ -26,6 +26,8 @@ import { openCreator, closeCreator } from './creator.js';
 import { renderCity } from './cityui.js';
 import { socialUI } from './social-ui.js';
 import { makeWeather } from './weather.js';
+import { createAudio } from './audio.js';
+import { FOUNTAIN } from '@shared/world.js';
 import { applyNature, wildKind, treeStage, fruitReady, HITS, TOOL_FOR, weatherAt } from '@shared/nature.js';
 import { drawLook } from './people.js';
 import { sanitizeLook, randomLook, PETS } from '@shared/look.js';
@@ -151,6 +153,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) chec
 addEventListener('online', () => { if (!S.connected && S.me) { failures = 0; connect(); } });
 
 function onMessage(m) {
+  if (m.type === 'fishing') audio.sfx(m.state === 'cast' ? 'splash' : m.state === 'bite' ? 'bite' : m.state === 'caught' ? 'splash' : '');
   if (ui?.handle(m)) return;
   switch (m.type) {
     case 'welcome': {
@@ -286,6 +289,7 @@ function onMessage(m) {
       break;
     case 'sale': saleFx(m); break;
     case 'nature': {
+      if ((m.cut || []).length === 1 && Math.hypot((m.cut[0] % MAP_W + 0.5) * TILE - S.me.x, (Math.floor(m.cut[0] / MAP_W) + 0.5) * TILE - S.me.y) < TILE * 3) audio.sfx(world.tiles[m.cut[0]] === T.ROCK ? 'mine' : 'fell');
       for (const i of m.cut || []) if (world.tiles[i] === T.TREE || world.tiles[i] === T.ROCK) { const x = i % MAP_W, y = Math.floor(i / MAP_W); chips(x, y, world.tiles[i] === T.TREE ? 'tree' : 'rock', 14); world.tiles[i] = T.GRASS; }
       for (const [i, kind] of m.grow || []) if (world.tiles[i] !== T.PATH) world.tiles[i] = kind === 'rock' ? T.ROCK : T.TREE;
       world.natureVersion = (world.natureVersion || 0) + 1;
@@ -295,7 +299,7 @@ function onMessage(m) {
     case 'natureHit': {
       const x = m.i % MAP_W, y = Math.floor(m.i / MAP_W);
       chips(x, y, world.tiles[m.i] === T.ROCK ? 'rock' : 'tree', 6);
-      if (m.by === S.me.id) haptic(10);
+      if (m.by === S.me.id) { haptic(10); audio.sfx(world.tiles[m.i] === T.ROCK ? 'mine' : 'chop'); }
       break;
     }
     case 'weather': S.weather = m.now; break;
@@ -357,6 +361,7 @@ function onMessage(m) {
       refreshTrayAffordability();
       break;
     case 'coins':
+      if (S.talk && m.coins > S.coins) audio.sfx('coin');
       S.coins = m.coins;
       updateHud();
       if (S.talk?.extra) renderExtra();
@@ -2179,6 +2184,21 @@ function showSettings(tab = settingsTab) {
   const body = document.createElement('div');
   root.appendChild(body);
   if (tab === 'me') return renderMe(body);
+  // Sound: music, ambience and effects volumes.
+  body.insertAdjacentHTML('beforeend', '<h3>🔊 Sound</h3>');
+  for (const [k, label] of [['music', '🎵 Music'], ['ambience', '🌧️ Ambience'], ['sfx', '🪓 Effects']]) {
+    const row = document.createElement('label');
+    row.className = 'row vol';
+    row.innerHTML = `<span>${label}</span>`;
+    const r = Object.assign(document.createElement('input'), { type: 'range', min: 0, max: 1, step: 0.05, value: audio.vol[k] });
+    r.oninput = () => { audio.start(); audio.setVolume(k, +r.value); };
+    row.appendChild(r);
+    body.appendChild(row);
+  }
+  const mute = document.createElement('button');
+  mute.className = 'chip'; mute.textContent = audio.vol.muted ? '🔇 Sound off: tap to turn on' : '🔊 Sound on: tap to mute';
+  mute.onclick = () => { audio.start(); audio.setVolume('muted', !audio.vol.muted); showSettings('game'); };
+  body.appendChild(mute);
   body.insertAdjacentHTML('beforeend', `
     <h3>🧪 Cheats</h3>
     <p class="muted">Type <b>testingcheats true</b> first, then <b>money 5000</b>, <b>motherlode</b> (+50,000), <b>kaching</b> or <b>rosebud</b> (+1,000), <b>freerealestate on</b> or <b>bb.enablefreebuild</b>.</p>`);
@@ -3400,6 +3420,7 @@ function drawOverlay(now) {
     const { day, hours } = worldClock(serverNow(), S.epoch);
     const wx = S.weather ?? weatherAt(day, hours);
     view.overcast = wx === 'storm' ? 1 : wx ? 0.6 : 0;
+    updateAudio(now, wx, day);
     weather.draw(octx, innerWidth, innerHeight, now, Math.min(0.05, (now - (lastWeather || now)) / 1000), { kind: wx, season: seasonOf(day).id, dark: darkness(serverNow(), S.epoch) });
     lastWeather = now;
   }
@@ -3628,7 +3649,7 @@ if (new URLSearchParams(location.search).has('debug')) {
     plotToClient: (lx, ly, h = 0, plotId = S.myPlot) => { const d = S.plots[plotId]; return view.toScreen(d.x + lx, S.level * LEVEL_H + h, d.y + ly); },
     worldToClient: (x, z, h = 0) => view.toScreen(x, h, z),
     tileToClient: (tx, ty) => view.toScreen(tx + 0.5, 0, ty + 0.5),
-    setLevel, cycleWalls, turnCamera, setMode, send, nearestUsable, usableAt, showCity: () => showCity(), showBag: () => showBag(), season: (id) => { S.seasonOverride = id; },
+    setLevel, cycleWalls, turnCamera, setMode, send, nearestUsable, usableAt, showCity: () => showCity(), showBag: () => showBag(), audio: () => audio, season: (id) => { S.seasonOverride = id; },
   };
 }
 
@@ -3825,6 +3846,7 @@ function confirmStage() {
   commit(h);
   drag = null; hover = null;
   haptic(18);
+  audio.sfx('place');
   refreshPreview(); toolInfo();
 }
 function cancelStage() { dropStage(); drag = null; hover = null; refreshPreview(); toolInfo(); }
@@ -3840,7 +3862,7 @@ function startLongPress(e) {
     longPress = null;
     if (pointers.size !== 1 || S.held || S.mode !== 'build') return;
     pickUp({ cx: x, cy: y });
-    if (S.held) { drag = null; haptic(25); hover = { cx: x, cy: y - TOUCH_LIFT, fx: x, fy: y, touch: true }; refreshPreview(); toolInfo(); }
+    if (S.held) { drag = null; haptic(25); audio.sfx('pickup'); hover = { cx: x, cy: y - TOUCH_LIFT, fx: x, fy: y, touch: true }; refreshPreview(); toolInfo(); }
   }, 480) };
 }
 function cancelLongPress() { if (longPress) { clearTimeout(longPress.timer); longPress = null; } }
@@ -3867,7 +3889,30 @@ function drawTouchMarks(now) {
 $('btn-traymin').onclick = () => { $('tray').classList.toggle('mini'); $('btn-traymin').textContent = $('tray').classList.contains('mini') ? '▴' : '▾'; if (staged) showStage(); };
 
 // ---------- trees and rocks ----------
-const weather = makeWeather();
+const audio = createAudio({ store });
+const weather = makeWeather({ onFlash: () => audio.thunder() });
+// Sound can only start after the player touches the page.
+for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, () => audio.start(), { passive: true });
+// What the soundscape should be right now (called every frame; cheap).
+let audioAt = 0;
+function updateAudio(now, wx, day) {
+  if (now - audioAt < 300 || !S.me) return;
+  audioAt = now;
+  const here = plotIdAtPixel(world, S.me.x, S.me.y), plot = here >= 0 ? S.plots[here] : null;
+  let indoor = false;
+  if (plot) {
+    const lx = Math.floor(S.me.x / TILE) - plot.x, ly = Math.floor(S.me.y / TILE) - plot.y;
+    indoor = roofAt(plot, lx, ly, S.me.level || 0) >= 0 || (S.me.level || 0) > 0;
+  }
+  // How close the nearest water is (pond, lake, the fountain).
+  let water = 0;
+  const tx = Math.floor(S.me.x / TILE), ty = Math.floor(S.me.y / TILE);
+  for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) {
+    const t = world.tiles[(ty + dy) * MAP_W + tx + dx];
+    if (t === T.WATER || t === T.FOUNTAIN) water = Math.max(water, 1 - Math.hypot(dx, dy) / 6);
+  }
+  audio.update({ season: S.seasonOverride || seasonOf(day).id, night: darkness(serverNow(), S.epoch) > 0.35, weather: wx, indoor, water });
+}
 let lastWeather = 0;
 // A wild tree or rock right next to you (in front of you first), if you have the tool.
 function wildNear() {
