@@ -49,4 +49,20 @@ export const STYLED_ROOMS = {
     w: 4, h: 4, floor: 'floor_stone', open: true,
     objs: [['bench', 1, 0], ['lamppost', 0, 0], ['flowerbed', 3, 0], ['bush', 0, 3], ['flowerbed', 1, 3], ['flowerbed', 2, 3], ['bush', 3, 3]],
   }),
+  // Arcade, records and books along the back wall with a free row in front of them.
+  gameroom: room('Game Room', '🎮', {
+    w: 5, h: 4, wall: 'wall_blue', floor: 'floor_blue', door: 2, windows: [['h', 2, 0]],
+    objs: [['arcade', 0, 0], ['recordplayer', 1, 0], ['cattree', 2, 0], ['lowshelf', 3, 0], ['pouf', 3, 2], ['loveseat', 0, 3, 2], ['cactus', 3, 3], ['arclamp', 4, 3]],
+  }),
+  laundry: room('Laundry Nook', '🧺', {
+    w: 3, h: 3, wall: 'wall_white', floor: 'floor_tile', door: 1, windows: [['v', 3, 1]],
+    objs: [['washer', 0, 0], ['dryer', 1, 0], ['pedestalsink', 2, 0], ['succulents', 0, 2], ['houseplant', 2, 2]],
+  }),
+  backyard: room('Backyard Picnic', '🌭', {
+    w: 5, h: 4, floor: 'floor_stone', open: true,
+    objs: [
+      ['stonelantern', 0, 0], ['flowerbed', 1, 0], ['flowerbed', 2, 0], ['grill', 4, 0], ['picnic', 1, 1],
+      ['firepit', 4, 2], ['birdbath', 0, 3], ['gnome', 1, 3], ['hammock', 2, 3],
+    ],
+  }),
 };

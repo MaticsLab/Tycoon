@@ -50,9 +50,10 @@ You can also befriend villagers whose personalities change based on how you trea
     - **💧 Copy (C)** copies whatever you click as your current tool. **🎨 Design (T)** cycles furniture through colour swatches and roofs through materials.
     - **↶ Undo / ↷ Redo** for every build action, **🏠 Move** to shift the whole house, **🌗 Day** to preview your house at morning, afternoon, dusk and night, and **ℹ️ Lot** for lot value, bedrooms, bathrooms, rooms and the bulldozer.
     - **⌁ Custom room** (Walls tab): click corner points, then double-click or press Enter to finish. Click the first point again to close the room and it gets a floor. The tooltip shows the cost as you go.
-  - **📚 Rooms & Library**: six ready-made **styled rooms** (bedroom, bathroom, kitchen, living room, study and garden patio) that you place and turn, with live previews of their furniture, then **Buy**. Save any room, or your whole house, to **My Library** (up to 12) and place copies anywhere. Shop furniture in a blueprint comes from your bag; any pieces you don't have are left out and the game tells you which.
+  - **📚 Rooms & Library**: nine ready-made **styled rooms** (bedroom, bathroom, kitchen, living room, study, garden patio, game room, laundry nook and backyard picnic) that you place and turn, with live previews of their furniture, then **Buy**. Save any room, or your whole house, to **My Library** (up to 12) and place copies anywhere. Shop furniture in a blueprint comes from your bag; any pieces you don't have are left out and the game tells you which.
 - **Town square** with two shops and three NPCs:
   - **Rosa's Market** buys your crops and sells gifts.
+  - **More furniture & decor**: recliner, spindle loveseat, knitted pouf, low bookcase, record player, arcade cabinet, arc floor lamp, bunk bed, rocking chair and vanity; a kitchen island, kitchen sink, dishwasher, bar stool, washer, dryer and pedestal sink; cactus, succulents, globe, painting easel, fishbowl, candle lantern and cat tree; and for the garden a picnic table, BBQ grill, birdbath, gnome, hammock, rose arch, fire pit and stone lantern.
   - **Otto's Furniture** sells exclusive pieces: piano, fireplace, aquarium, grandfather clock, telescope and statue.
   - **Juniper** is the village gardener and gossip.
 - **NPCs with memory and evolving personalities.** Conversations run on Workers AI.
@@ -63,8 +64,9 @@ You can also befriend villagers whose personalities change based on how you trea
   Walk up to furniture and use the action button, or tap it for a menu:
   - **Fridge**: grab a snack (🪙5) or cook a meal (🪙15, needs a stove). The stove cooks too.
   - **Toilet**, **shower**, **bathtub** and **sink** fill bladder and hygiene; showers and baths steam.
-  - **Bed**: sleep or nap, lying down with drifting Zzz. Sofas, armchairs, chairs, bean bags and benches let you sit and relax.
-  - **TV**, **bookshelf** or **desk** (read), **piano**, **aquarium**, **fireplace** and **telescope** fill fun.
+  - **Bed** or **bunk bed**: sleep or nap, lying down with drifting Zzz. Sofas, loveseats, armchairs, recliners, rocking chairs, chairs, poufs, bar stools, bean bags, benches and picnic tables let you sit and relax; recliners and hammocks are good for a nap.
+  - **BBQ grill**: grill a meal (🪙12, no stove needed). Kitchen and pedestal sinks wash up.
+  - **TV**, **bookshelf**, **low bookcase** or **desk** (read), **piano**, **aquarium** or **fishbowl**, **fireplace** or **fire pit**, **telescope**, **arcade cabinet**, **record player** and **painting easel** fill fun.
   Moving stops what you're doing. Others see a thought bubble with what you're up to, and you can use things in a friend's house while they're home. Crops, Honey Cake and Herbal Tea can be eaten straight from the bag.
 - **Farming.** Till soil, plant seeds, harvest into your bag, then sell to Rosa.
 - **Cheat console** in **⚙️ Settings → Cheats** (the same on desktop and phones). Type a command or tap one of the shortcut chips.

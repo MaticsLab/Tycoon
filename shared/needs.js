@@ -45,6 +45,10 @@ export const ACTIVITIES = {
   fish:   { label: 'Watch the fish', icon: '🐠', verb: 'Watching fish', gain: { fun: 15, energy: 2 }, until: 'fun', max: 2 },
   warm:   { label: 'Warm up by the fire', icon: '🔥', verb: 'Warming up', gain: { fun: 10, energy: 5 }, max: 2 },
   stars:  { label: 'Stargaze', icon: '🔭', verb: 'Stargazing', gain: { fun: 25 }, until: 'fun', max: 3 },
+  game:   { label: 'Play video games', icon: '🎮', verb: 'Gaming', gain: { fun: 35 }, until: 'fun', max: 3 },
+  music:  { label: 'Play some records', icon: '🎶', verb: 'Listening to music', gain: { fun: 22, energy: 2 }, until: 'fun', max: 3 },
+  paint:  { label: 'Paint a picture', icon: '🎨', verb: 'Painting', gain: { fun: 28 }, until: 'fun', max: 3 },
+  grill:  { label: 'Fire up the grill', icon: '🌭', verb: 'Grilling', gain: { hunger: 100, fun: 15 }, until: 'hunger', max: 1, cost: 12 },
 };
 
 export const USES = {
@@ -54,6 +58,10 @@ export const USES = {
   shower: ['shower'], bathtub: ['bath'], sink: ['wash'], toilet: ['toilet'],
   sofa: ['sit', 'nap'], armchair: ['sit'], chair: ['sit'], beanbag: ['sit', 'nap'], bench: ['sit'],
   piano: ['piano'], aquarium: ['fish'], fireplace: ['warm'], telescope: ['stars'],
+  recliner: ['sit', 'nap'], loveseat: ['sit', 'nap'], pouf: ['sit'], rockingchair: ['sit'], barstool: ['sit'],
+  picnic: ['sit'], hammock: ['nap', 'sit'], bunkbed: ['sleep', 'nap'],
+  lowshelf: ['read'], recordplayer: ['music'], arcade: ['game'], easel: ['paint'],
+  kitchensink: ['wash'], pedestalsink: ['wash'], fishbowl: ['fish'], grill: ['grill'], firepit: ['warm'],
 };
 
 export const usesOf = (t) => USES[t] || [];
