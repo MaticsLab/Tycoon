@@ -2626,7 +2626,7 @@ function drawOverlay(now) {
     tag(label, s.x, s.y, 11, col);
     if (p.bubble && performance.now() < p.bubbleUntil) bubble(p.bubble, s.x, s.y - 20, 13);
     else if (p.act && ACTIVITIES[p.act]) actIcon(p, s, now);
-    if (p.carry && PLATES[p.carry] && !ACTIVITIES[p.act]?.carry) {
+    if (p.carry && PLATES[p.carry] && !p.act) {
       // Carrying a plate: it sits in their hands.
       const hnd = view.toScreen(U(p.x), 0.72 + heightAt(world, S.plots, p.x, p.y, p.level || 0), U(p.y) + 0.12);
       octx.font = '13px sans-serif';

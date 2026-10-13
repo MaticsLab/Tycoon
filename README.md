@@ -90,7 +90,7 @@ You can also befriend villagers whose personalities change based on how you trea
 ```
 shared/   world map, plot & building rules (walls, levels, roofs, collision), catalog, NPC definitions
 worker/   Cloudflare Worker + Durable Object (the authoritative game server), Better Auth, NPC minds
-client/   the game: Vite + Three.js (3D view) + canvas pixel-art painters; Capacitor Android project in client/android
+client/   the game: Vite + Babylon.js (3D view, one custom shader for the HD-2D pixel look) + canvas pixel-art painters; Capacitor Android project in client/android
 ```
 
 | Piece                 | Cloudflare product                                                                                         |
