@@ -487,7 +487,6 @@ function updateContext() {
   else if (npc) action = `talk:${npc.id}`;
   else if (usable) action = `use:${usable.plot.id}:${usable.level}:${usable.key}`;
   else if (S.carry) action = `eatHere:${S.carry.food}`;
-  else if (nearMyPet()) action = 'pet';
   else if (plot && !plot.owner && S.homePlot == null) action = 'claim';
   else if (plot && !plot.owner && S.biz && S.biz.plotId == null) action = 'claimShop';
   else if (here === S.myPlot && here >= 0) {
@@ -2286,6 +2285,16 @@ function onTap(cx, cy) {
     openUseMenu(u, cx, cy - 10);
     return;
   }
+  // Tap your pet to pet it.
+  const pet = pets.get(S.me.id);
+  if (pet) {
+    const pp = view.toScreen(U(pet.x), 0.4 + heightAt(world, S.plots, pet.x, pet.y, pet.level), U(pet.y));
+    if (Math.hypot(pp.x - cx, pp.y - cy) < 28) {
+      if (Math.hypot(pet.x - S.me.x, pet.y - S.me.y) < TILE * 3) { pet.heartUntil = performance.now() + 2200; pet.idle = 2; }
+      else toast(`Walk closer to your ${PETS[petOf(S.me)].kind}`);
+      return;
+    }
+  }
   // Tap an NPC to talk.
   for (const n of S.npcs.values()) {
     if (NPC_ACTS[n.act]?.hidden) continue;
@@ -2380,6 +2389,7 @@ function update(dt) {
     v = { x: 0, y: 0 };
   }
   me.act = S.act || 0;
+  autoHarvest();
   me.moving = Math.hypot(v.x, v.y) > 0.1;
   me.running = me.moving && !!v.run;
   if (me.moving) view.offset.multiplyScalar(Math.max(0, 1 - dt * 3));
@@ -2719,6 +2729,27 @@ function actPose(p) {
     return { y: 0.56, pose: { kind: 'sleep', r: it.r, w, h } };
   }
   return { y: SEAT_Y[it?.t] ?? 0.08, pose: { kind: 'sit' } };
+}
+
+// Walk over a ripe crop on your plot to pick it (like Stardew's harvest-by-walking).
+const harvestSent = new Map();
+function autoHarvest() {
+  if (S.mode !== 'walk' || S.act || (S.me.level || 0)) return;
+  const id = plotIdAtPixel(world, S.me.x, S.me.y);
+  const plot = id >= 0 ? S.plots[id] : null;
+  if (!plot || plot.owner !== S.me.id) return;
+  const fx = S.me.x / TILE - plot.x, fy = S.me.y / TILE - plot.y - 0.3;
+  const now = performance.now(), sNow = serverNow();
+  // The tile under your feet and any you brush past.
+  for (const [dx, dy] of [[0, 0], [-0.35, 0], [0.35, 0], [0, -0.35], [0, 0.35]]) {
+    const lx = Math.floor(fx + dx), ly = Math.floor(fy + dy);
+    const o = plot.obj[key(lx, ly)];
+    if (!o || !ITEMS[o.t]?.crop || cropStage(o, sNow) < 3) continue;
+    const k = `${id}:${lx},${ly}`;
+    if (now - (harvestSent.get(k) || 0) < 1500) continue;
+    harvestSent.set(k, now);
+    send({ type: 'harvest', plotId: id, lx, ly });
+  }
 }
 
 // ---------- Pets ----------

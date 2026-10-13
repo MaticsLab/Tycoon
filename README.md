@@ -82,7 +82,7 @@ You can also befriend villagers whose personalities change based on how you trea
   - **BBQ grill**: grill a meal (🪙12, no stove needed). Kitchen and pedestal sinks wash up.
   - **TV**, **bookshelf**, **low bookcase** or **desk** (read), **piano**, **aquarium** or **fishbowl**, **fireplace** or **fire pit**, **telescope**, **arcade cabinet**, **record player** and **painting easel** fill fun.
   Moving stops what you're doing. Others see a thought bubble with what you're up to, and you can use things in a friend's house while they're home. Crops, Honey Cake and Herbal Tea can be eaten straight from the bag.
-- **Farming.** Till soil, plant seeds, harvest into your bag, then sell to Rosa.
+- **Farming.** Till soil and plant seeds. Walk over ripe crops to pick them into your bag, then sell them to Rosa or in your shop.
 - **Run a business.** Get a licence at City Hall (🪙500, paid to the treasury). Then stand on a plot that's for sale and tap **Open my shop here**; the land costs the usual price per tile.
   - **Build it** like a house. In build mode the **🏠 Home ⇄ 🏪** button switches which plot you're building.
   - **Shop & Machines** tab: shop shelves, produce stands, display tables, chilled cases, a cash register and a shop sign.

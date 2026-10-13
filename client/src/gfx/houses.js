@@ -2,7 +2,7 @@
 // floors on two levels, wall segments on tile edges with real door/window openings,
 // Sims cutaway, gable roofs, furniture models and pixel-art cards for plants/crops.
 import { ITEMS, cropStage } from '@shared/catalog.js';
-import { parseEdge, levelView, footprint, LEVELS, LEVEL_H, featurePair, edgeKey } from '@shared/plot.js';
+import { parseEdge, levelView, footprint, LEVELS, LEVEL_H, featurePair, edgeKey, objAt } from '@shared/plot.js';
 import { wallTex, floorTex, roofTex, woodTex, signTex, doorTex, WALL_H } from './textures.js';
 import { Batch, boxAt, gableRoof } from './geom.js';
 import { itemInto, hasModel, BILLBOARD, materials } from './models.js';
@@ -34,6 +34,8 @@ const panelDoorMat = (fc = 0, style = 'panel') => mat(`doorp|${fc}|${style}`, ()
 const alumMat = () => mat('alum', () => lambert({ color: '#3a4048' }));
 // Storefront pieces join up into one glass wall when they sit side by side.
 const SHOPFRONT = new Set(['window_shop', 'door_shop', 'door_shopdouble']);
+const featureWidth2 = (f) => (ITEMS[f]?.width || 1) === 2;
+const railMat = () => mat('rail', () => lambert({ map: woodTex() }));
 const ceilMat = () => mat('ceil', () => lambert({ color: '#e8e2d4' }));
 const roofMat = (m) => mat(`roof|${m}`, () => lambert({ map: roofTex(m) }));
 const floorMat = (t) => mat(`floor|${t}`, () => lambert({ map: floorTex(t) }));
@@ -83,7 +85,10 @@ function lowered(plot, e, level, cut) {
   if (cut.mode !== 'cut') return false;
   const view = levelView(plot, level);
   const far = e.d === 'h' ? (cut.fz < 0 ? [e.x, e.y - 1] : [e.x, e.y]) : (cut.fx < 0 ? [e.x - 1, e.y] : [e.x, e.y]);
-  return !!view.floor[`${far[0]},${far[1]}`];
+  if (view.floor[`${far[0]},${far[1]}`]) return true;
+  // Upstairs, the stairwell counts as part of the room (there's no floor, just the hole).
+  if (level > 0) { const hit = objAt(plot, far[0], far[1]); if (hit && ITEMS[hit.obj.t]?.stairs) return true; }
+  return false;
 }
 
 // Plots have no fences. Land for sale gets little survey stakes at its corners.
@@ -146,7 +151,14 @@ export function buildPlot(plot, opts) {
     // Neighbouring segments along the same wall line (for joined shopfronts).
     const along = (n) => plot.walls[e.d === 'h' ? edgeKey(e.l, e.d, e.x + n, e.y) : edgeKey(e.l, e.d, e.x, e.y + n)];
     const joinPrev = SHOPFRONT.has(f) && SHOPFRONT.has(along(-1)?.f), joinNext = SHOPFRONT.has(f) && SHOPFRONT.has(along(1)?.f);
-    if (!f || low) {
+    if (low && f && ITEMS[f]?.passable) {
+      // Cut-away wall with a doorway: keep the gap, so you can see where the door is.
+      const pair = featureWidth2(f) ? featurePair(plot, e.l, e.d, e.x, e.y) : null;
+      const a = pair ? (pair.part ? 0 : 0.1) : SHOPFRONT.has(f) && joinPrev ? 0 : 0.14;
+      const b = pair ? (pair.part ? 0.9 : 1) : SHOPFRONT.has(f) && joinNext ? 1 : 0.86;
+      piece(0, a, 0, H); piece(b, 1, 0, H);
+      wallPiece(batch, frameMat(fc), e, ox, oz, base, a, b, 0, 0.03, THICK + 0.04); // threshold
+    } else if (!f || low) {
       piece(0, 1, 0, H);
     } else if (f === 'window' || f === 'window_tall') {
       const [s, t] = f === 'window' ? [0.9, 1.85] : [0.45, 2.1];
@@ -242,6 +254,29 @@ export function buildPlot(plot, opts) {
       if (rf.l > maxLevel) continue;
       const y = rf.l * LEVEL_H + WALL_H;
       gableRoof(batch, ox + rf.x, oz + rf.y, ox + rf.x + rf.w, oz + rf.y + rf.h, y, roofMat(rf.m), wallMat('wall_white'), trimMat());
+    }
+  }
+  // A balustrade upstairs around each stairwell (open sides only, not the top exit).
+  if (maxLevel >= 1) {
+    const up = levelView(plot, 1);
+    for (const [k, o] of Object.entries(plot.obj)) {
+      if (!ITEMS[o.t]?.stairs) continue;
+      const [sx, sy] = k.split(',').map(Number);
+      const r = o.r || 0;
+      const [w, h] = footprint(o.t, r);
+      // The stairs climb away from their front: front south (r 0) -> exit at the north end.
+      const exit = [['h', sx, sy], ['v', sx + w, sy], ['h', sx, sy + h], ['v', sx, sy]][r];
+      const edges = [];
+      for (let i = 0; i < w; i++) edges.push(['h', sx + i, sy, [sx + i, sy - 1]], ['h', sx + i, sy + h, [sx + i, sy + h]]);
+      for (let j = 0; j < h; j++) edges.push(['v', sx, sy + j, [sx - 1, sy + j]], ['v', sx + w, sy + j, [sx + w, sy + j]]);
+      for (const [d, x, y2, [nx, ny]] of edges) {
+        if (d === exit[0] && x === exit[1] && y2 === exit[2]) continue;
+        if (plot.walls?.[edgeKey(1, d, x, y2)] || !up.floor[`${nx},${ny}`]) continue;
+        const e = { d, x, y: y2 }, base = LEVEL_H;
+        wallPiece(batch, railMat(), e, ox, oz, base, 0, 1, 0.86, 0.94, 0.1);             // handrail
+        wallPiece(batch, railMat(), e, ox, oz, base, 0, 1, 0, 0.06, 0.1);                // bottom rail
+        for (let t = 0.1; t < 1; t += 0.2) wallPiece(batch, railMat(), e, ox, oz, base, t - 0.025, t + 0.025, 0.06, 0.86, 0.05); // balusters
+      }
     }
   }
   batch.build(group);
