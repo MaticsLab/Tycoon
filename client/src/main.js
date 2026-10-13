@@ -192,7 +192,7 @@ function onMessage(m) {
     case 'profile':
       Object.assign(S.me, { name: m.name, look: m.look, farm: m.farm, fav: m.fav });
       store.set('name', m.name);
-      if (modalKind === 'me') showMe();
+      if (modalKind === 'settings' && settingsTab === 'me') showSettings('me');
       updateHud();
       break;
     case 'join':
@@ -548,7 +548,6 @@ function syncBuildBtn() {
 $('btn-done').onclick = () => setMode('walk');
 $('btn-chat').onclick = () => openChat();
 $('btn-bag').onclick = () => (modalKind === 'bag' ? closeModal() : showBag());
-$('btn-me').onclick = () => (modalKind === 'me' ? closeModal() : showMe());
 $('btn-settings').onclick = () => (modalKind === 'settings' ? closeModal() : showSettings());
 $('cam-left').onclick = () => turnCamera(-1);
 $('cam-right').onclick = () => turnCamera(1);
@@ -855,8 +854,8 @@ function showBag() {
   body.appendChild(list);
 }
 
-function showMe() {
-  const body = openModal('me', '👤 ' + (S.me?.name || 'You'));
+function showMe() { showSettings('me'); }
+function renderMe(body) {
   const card = document.createElement('div');
   card.className = 'me-card';
   const pic = document.createElement('canvas');
@@ -1788,7 +1787,7 @@ function showLot() {
     row.appendChild(b);
   }
   body.appendChild(row);
-  body.insertAdjacentHTML('beforeend', '<p class="muted small">Change your farm name from 👤 Me → Change look.</p>');
+  body.insertAdjacentHTML('beforeend', '<p class="muted small">Change your farm name from ⚙️ Settings → 👤 Me → Change look.</p>');
 }
 $('btn-lot').onclick = () => (modalKind === 'lot' ? closeModal() : showLot());
 
@@ -2010,8 +2009,24 @@ const consoleInput = $('console-input');
 consoleForm.remove();
 const CHEAT_CHIPS = ['testingcheats true', 'motherlode', 'kaching', 'freerealestate on', 'bb.enablefreebuild', 'tp cityhall', 'help'];
 
-function showSettings() {
-  const body = openModal('settings', '⚙️ Settings');
+// Settings has two tabs: 👤 Me (your character and account) and ⚙️ Game (cheats, controls).
+let settingsTab = 'me';
+function showSettings(tab = settingsTab) {
+  settingsTab = tab;
+  const root = openModal('settings', '⚙️ Settings');
+  const tabs = document.createElement('div');
+  tabs.className = 'seg';
+  for (const [k, label] of [['me', `👤 ${S.me?.name || 'Me'}`], ['game', '⚙️ Game']]) {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.className = k === tab ? 'sel' : '';
+    b.onclick = () => showSettings(k);
+    tabs.appendChild(b);
+  }
+  root.appendChild(tabs);
+  const body = document.createElement('div');
+  root.appendChild(body);
+  if (tab === 'me') return renderMe(body);
   body.insertAdjacentHTML('beforeend', `
     <h3>🧪 Cheats</h3>
     <p class="muted">Type <b>testingcheats true</b> first, then <b>money 5000</b>, <b>motherlode</b> (+50,000), <b>kaching</b> or <b>rosebud</b> (+1,000), <b>freerealestate on</b> or <b>bb.enablefreebuild</b>.</p>`);
@@ -2050,7 +2065,7 @@ function consoleLine(text, mine = false) {
   consoleLog.appendChild(d);
   while (consoleLog.children.length > 40) consoleLog.firstChild.remove();
   consoleLog.scrollTop = consoleLog.scrollHeight;
-  if (!mine && modalKind !== 'settings') toast(text);
+  if (!mine && !(modalKind === 'settings' && settingsTab === 'game')) toast(text);
 }
 function runCheat(cmd) {
   cmd = cmd.trim();
