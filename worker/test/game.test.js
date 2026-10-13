@@ -266,15 +266,36 @@ test('"home" lands on a walkable tile outside every plot gate', async () => {
   }
 });
 
-test('NPCs wander but stay on walkable ground', () => {
+test('villagers live their day: walk to planned places, sit, sleep indoors, meet up and chat', async () => {
+  const { PLACES, NPC_ACTS, stepAt } = await import('../../shared/village.js');
   let clock = 0;
   const game = new Game({}, { now: () => clock });
-  game.sessions.set('x', { profile: { id: 'x', uid: 'x', name: 'X' }, x: 0, y: 0, greeted: {}, sendRaw() {}, send() {} });
-  for (let i = 0; i < 3000; i++) { clock += 100; game.tick(); }
-  for (const n of Object.values(game.npcs)) {
-    assert.ok(canStand(game.world, game.plots, n.x, n.y), n.id);
-    assert.ok(Math.hypot(n.x - n.def.home.x, n.y - n.def.home.y) <= n.def.wander + 1, n.id);
+  const bubbles = [];
+  game.sessions.set('x', { profile: { id: 'x', uid: 'x', name: 'X' }, x: 0, y: 0, greeted: {}, quiet: -1e9, sendRaw(d) { const m = JSON.parse(d); if (m.type === 'npcBubble') bubbles.push(m); }, send() {} });
+  // Run one whole village day (24 in-game hours = 864 s) in 100 ms ticks.
+  const seen = {};
+  for (let i = 0; i < 8640; i++) {
+    clock += 100; game.tick();
+    if (i % 50) continue;
+    await new Promise((r) => setTimeout(r, 0)); // let banter (async) arrive
+    for (const n of Object.values(game.npcs)) {
+      const act = NPC_ACTS[n.act];
+      if (!n.act) continue;
+      (seen[n.id] ||= new Set()).add(n.act);
+      // Arrived somewhere: standing on walkable ground, on their bench, or indoors.
+      const place = PLACES[n.step.place];
+      if (act?.pose === 'sit' && place.seat) assert.deepEqual([n.x, n.y], [place.seat[0] * TILE, place.seat[1] * TILE], `${n.id} on the bench`);
+      else if (!act?.hidden) assert.ok(canStand(game.world, game.plots, n.x, n.y) || Math.hypot(n.x - place.x * TILE, n.y - place.y * TILE) < 4, `${n.id} ${n.act} at ${n.x},${n.y}`);
+    }
   }
+  for (const id of Object.keys(game.npcs)) {
+    assert.ok(seen[id]?.has('sleep'), `${id} slept`);
+    assert.ok(seen[id].size >= 3, `${id} did several things: ${[...seen[id]]}`);
+  }
+  // Rosa works at her market in the morning.
+  assert.equal(stepAt(game.npcs.rosa.plan, 9).place, 'rosa_shop');
+  // Friends met up and their banter showed in bubbles (scripted without the AI).
+  assert.ok(bubbles.length >= 2, `banter bubbles: ${bubbles.length}`);
 });
 
 test('broken model output is salvaged or rejected, never shown raw', async () => {
@@ -974,4 +995,62 @@ test('interest management: nearby moves every tick, far ones once a second', asy
   assert.ok(!b.inbox.slice(bBefore).some((m) => m.type === 'state' && m.p.length), 'quiet ticks send nothing');
   advance(1000); game.tick();
   assert.equal(rowOf(c.last('state'), a)[1], 40 * TILE + 8, 'far player catches up on the full update');
+});
+
+test('villager requests: offered on talking, accepted, handed in, messages delivered', async () => {
+  const { game, join } = setup();
+  const a = await join({ name: 'Ana' });
+  const s = a.session();
+  // Talking to Rosa: she asks a favour.
+  standBy(game, a, 'rosa');
+  game.npcs.rosa.act = 'work';
+  a.send({ type: 'npcOpen', npc: 'rosa' });
+  await new Promise((r) => setTimeout(r, 0));
+  const offer = a.last('questOffer').quest;
+  assert.equal(offer.npc, 'rosa');
+  assert.ok(offer.text.length > 10);
+  a.send({ type: 'questAccept', id: offer.id });
+  assert.equal(a.last('quests').quests[0].id, offer.id);
+  // Only one offer a day each.
+  a.send({ type: 'npcOpen', npc: 'rosa' });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(a.inbox.filter((m) => m.type === 'questOffer').length, 1);
+  const q = s.profile.quests[0];
+  // Force a deliver request we can test: 2 turnips.
+  Object.assign(q, { kind: 'deliver', item: 'turnip', n: 2, reward: 50 });
+  a.send({ type: 'questTurnIn', id: q.id });
+  assert.match(a.last('error').msg, /Not yet/);
+  s.profile.inv.turnip = 3;
+  const c0 = s.profile.coins, aff0 = game.npcs.rosa.affinity(s.profile);
+  a.send({ type: 'questTurnIn', id: q.id });
+  assert.equal(s.profile.coins, c0 + 50);
+  assert.equal(s.profile.inv.turnip, 1);
+  assert.ok(game.npcs.rosa.affinity(s.profile) > aff0, 'she likes you more');
+  assert.equal(q.status, 'done');
+  // A message for Otto: delivered by talking to him.
+  s.profile.quests.push({ id: 'm1', npc: 'juniper', kind: 'visit', target: 'otto', message: 'a snail moved into the fountain', reply: 'A snail. In MY fountain.', reward: 35, status: 'active' });
+  standBy(game, a, 'otto');
+  game.npcs.otto.act = 'work';
+  const c1 = s.profile.coins;
+  a.send({ type: 'npcOpen', npc: 'otto' });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(s.profile.coins, c1 + 35);
+  assert.equal(a.last('npcSay').text, 'A snail. In MY fountain.');
+  // Sleeping villagers can't talk.
+  game.npcs.otto.act = 'sleep';
+  a.send({ type: 'npcOpen', npc: 'otto' });
+  assert.match(a.last('error').msg, /asleep/);
+});
+
+test('villagers read how you write', async () => {
+  const { readTone, blendTone, toneGuide } = await import('../../shared/village.js');
+  const casual = readTone('yo lol thats so sick bro 😂');
+  const formal = readTone('Good afternoon, Mabel. Could you please explain how the council election works?');
+  assert.ok(casual.casual > 0.5 && casual.playful > 0.4 && casual.emoji > 0.3);
+  assert.ok(formal.formal > 0.6 && formal.casual < 0.2);
+  assert.match(toneGuide(blendTone(null, casual)), /casually|playful/);
+  assert.match(toneGuide(blendTone(null, formal)), /polite/);
+  // One message doesn't flip a settled style.
+  const mixed = blendTone(blendTone(blendTone(null, formal), formal), casual);
+  assert.ok(mixed.formal > mixed.casual);
 });

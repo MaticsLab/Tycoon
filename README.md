@@ -56,7 +56,15 @@ You can also befriend villagers whose personalities change based on how you trea
   - **More furniture & decor**: recliner, spindle loveseat, knitted pouf, low bookcase, record player, arcade cabinet, arc floor lamp, bunk bed, rocking chair and vanity; a kitchen island, kitchen sink, dishwasher, bar stool, washer, dryer and pedestal sink; cactus, succulents, globe, painting easel, fishbowl, candle lantern and cat tree; and for the garden a picnic table, BBQ grill, birdbath, gnome, hammock, rose arch, fire pit and stone lantern.
   - **Otto's Furniture** sells exclusive pieces: piano, fireplace, aquarium, grandfather clock, telescope and statue.
   - **Juniper** is the village gardener and gossip.
-- **NPCs with memory and evolving personalities.** Conversations run on Workers AI.
+- **Villagers with daily lives.** Every morning each villager plans their day. The routine is fixed but the AI picks the variations, and also decides what's on their mind and what they'll call out to passers-by. Rosa opens the market, lunches on a park bench and gossips with Otto in the evening. Juniper gardens and stargazes; Mabel takes her coffee outside City Hall before her shift. They walk real routes around the village (A* path finding over public land), sit on benches, and sleep indoors at night (no chatting while they're asleep). Friends meet up and trade AI-written banter in speech bubbles everyone nearby can see.
+- **Requests (quests).** Chat with a villager and they may ask a favour, at most once a day each, up to 3 at a time:
+  - bring them crops or gifts;
+  - put a particular piece of furniture in your home;
+  - do something (cook, read, paint, stargaze…);
+  - carry a message to another villager, who reacts when you deliver it.
+
+  The game picks what's asked, so it's always doable, and the villager's AI words it in character. Rewards are coins and friendship. Track them with **📜 Quests**, and hand them in from the talk panel.
+- **NPCs with memory and evolving personalities.** Conversations run on Workers AI. Each villager has their own sense of humour: Rosa's teasing auntie food puns, Otto's bone-dry deadpan, Juniper's whimsical plant drama, Mabel's bureaucratic comedy. They read how *you* write (casual or formal, playful, emoji, short and snappy) and mirror it, keep running jokes with you, and know what they're doing right now and what they've asked you for. Their core personality stays, but it shifts with how they're treated.
   - Each NPC has five traits: warmth, cheer, trust, generosity and energy. Kindness, insults and gifts shift those traits over time, and the NPC keeps a diary of how and why they changed.
   - They remember facts about you, keep the last few lines of your conversation, and pass gossip to each other.
   - Their mood and how much they like you change their shop prices.

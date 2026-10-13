@@ -330,3 +330,15 @@ body.building #needs { display: none; }
 #usemenu button:disabled { opacity: .5; }
 #usemenu button span { font-size: 18px; }
 #usemenu button small { margin-left: auto; color: #8f5512; }
+
+/* ---- Villager requests ---- */
+#npc-quest { display: grid; gap: 6px; margin: 6px 0; }
+.qcard { background: #fff6dc; border: 2px solid #e2c27a; border-radius: 10px; padding: 7px 9px; font-size: 13px; color: var(--ink); display: grid; gap: 4px; }
+.qcard.offer { background: #fff0c4; border-color: #d9a441; animation: qpop .35s ease-out; }
+.qcard p { margin: 0; font-style: italic; }
+.qcard small { color: #8f5512; }
+.qcard .row { display: flex; gap: 6px; }
+.qcard .chip { justify-self: start; }
+@keyframes qpop { from { transform: scale(.94); opacity: 0; } }
+#btn-quests { position: relative; }
+#btn-quests[data-n]:not([data-n=""])::after { content: attr(data-n); position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; border-radius: 9px; background: #d9534f; color: #fff; font-size: 11px; font-weight: bold; display: grid; place-items: center; }

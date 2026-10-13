@@ -27,6 +27,7 @@ export const plotList = (plots) => (Array.isArray(plots) ? plots.filter(Boolean)
 
 // Fill world.plotAt (tile -> plot id) from the live plots.
 export function indexPlots(world, plots) {
+  world.plotsVersion = (world.plotsVersion || 0) + 1; // lets caches (e.g. villager paths) know
   world.plotAt.fill(-1);
   for (const p of plotList(plots)) {
     for (let y = p.y; y < p.y + p.h; y++) for (let x = p.x; x < p.x + p.w; x++) {

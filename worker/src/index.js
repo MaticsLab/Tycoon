@@ -61,7 +61,7 @@ export class World extends DurableObject {
     ctx.blockConcurrencyWhile(async () => {
       const entries = await ctx.storage.list();
       this.game = new Game(Game.fromEntries(entries), {
-        ai: env.AI ? (messages, schema, parse) => this.askAI(messages, schema, parse) : null,
+        ai: env.AI ? (messages, schema, parse, opts) => this.askAI(messages, schema, parse, opts) : null,
         cheats: env.CHEATS || 'all',
         admins: String(env.ADMINS || '').split(',').map((u) => u.trim().toLowerCase()).filter(Boolean),
       });
@@ -69,13 +69,13 @@ export class World extends DurableObject {
   }
 
   // Try each model until one returns something `parse` accepts.
-  async askAI(messages, schema, parse) {
+  async askAI(messages, schema, parse, opts = {}) {
     for (const model of MODELS) {
       try {
         const res = await this.env.AI.run(model, {
           messages,
-          max_tokens: 220,
-          temperature: 0.7,
+          max_tokens: opts.maxTokens || 220,
+          temperature: opts.temperature ?? 0.7,
           response_format: { type: 'json_schema', json_schema: schema },
         });
         const parsed = parse(res?.response ?? res?.choices?.[0]?.message?.content);

@@ -12,6 +12,8 @@ import { NPCS } from '../../shared/npcs.js';
 import { HOUR_MS, NEEDS, ACTIVITIES, FOODS, PLATES, sanitizeNeeds, usesOf, advanceNeeds, activityDone, fullNeeds } from '../../shared/needs.js';
 import { sanitizeLook, randomLook, shirtColor } from '../../shared/look.js';
 import { Npc, parseAiReply, REPLY_SCHEMA } from './npc.js';
+import { Life } from './life.js';
+import { NPC_ACTS, readTone, blendTone } from '../../shared/village.js';
 
 const randomHex = (n) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, '0')).join('');
 const clean = (s, max) => String(s ?? '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, max);
@@ -69,6 +71,7 @@ export class Game {
       }
     }
     this.npcs = {};
+    this.life = new Life(this);
     for (const id of Object.keys(NPCS)) this.npcs[id] = new Npc(id, saved.npcs?.[id]);
     this.sessions = new Map(); // player id -> session
     this.city = new City(this, saved.city);
@@ -177,6 +180,10 @@ export class Game {
       case 'setLook': return this.setLook(s, msg);
       case 'harvest': return this.harvest(s, msg);
       case 'use': return this.use(s, msg);
+      case 'questAccept': return this.life.accept(s, msg);
+      case 'questDecline': return this.life.decline(s, msg);
+      case 'questAbandon': return this.life.abandon(s, msg);
+      case 'questTurnIn': return this.life.turnIn(s, msg);
       case 'stop': return this.stopActivity(s, true);
       case 'eat': return this.eat(s, msg);
       case 'home': return this.home(s);
@@ -295,6 +302,7 @@ export class Game {
       city: this.city.view(this.day(), profile),
     });
     this.broadcast({ type: 'join', player: this.publicPlayer(s) }, s);
+    this.life.send(s);
     if (profile.plotId != null) this.broadcast({ type: 'plot', plot: this.plots[profile.plotId] });
   }
 
@@ -961,10 +969,12 @@ export class Game {
   npcOpen(s, { npc }) {
     const n = this.nearNpc(s, npc);
     if (!n) return;
+    if (n.asleep) return s.send({ type: 'error', msg: `${n.def.name} is fast asleep. Zzz… (try again in the morning)` });
     this.hold(n, s);
     const greeting = n.greeting(s.profile, this.now());
-    s.send({ type: 'npc', ...n.view(s.profile, this.now()), say: greeting });
+    s.send({ type: 'npc', ...n.view(s.profile, this.now()), doing: n.doing(), thought: n.thought, say: greeting });
     this.broadcast({ type: 'npcBubble', id: n.id, text: greeting });
+    return this.life.onOpen(s, n);
   }
 
   npcClose(s, { npc }) {
@@ -1002,7 +1012,9 @@ export class Game {
   // Ask the NPC's mind for a reply. `forced` overrides the sentiment (used for gifts).
   async converse(s, n, text, forced) {
     const now = this.now();
-    const ctx = { now, epoch: this.epoch, playerFacts: this.playerFacts(s), gossip: this.gossip.slice(-6), city: n.def.clerk ? this.city.brief() : null };
+    // How this player writes, averaged over time, so the villager can match it.
+    if (!text.startsWith('*')) { const r0 = n.rel(s.profile); r0.tone = blendTone(r0.tone, readTone(text)); }
+    const ctx = { now, epoch: this.epoch, playerFacts: this.playerFacts(s), gossip: this.gossip.slice(-6), city: n.def.clerk ? this.city.brief() : null, quests: this.life.promptFor(s, n) };
     let res = null;
     if (this.ai) {
       try { res = await this.ai(n.buildPrompt(s.profile, text, ctx), REPLY_SCHEMA, parseAiReply); } catch (e) { console.error('ai error', e); }
@@ -1014,6 +1026,7 @@ export class Game {
     n.addHistory(s.profile, s.profile.name, text);
     n.addHistory(s.profile, n.def.name, res.reply);
     if (res.remember) n.remember(s.profile, res.remember);
+    if (res.bit) n.addBit(s.profile, res.bit);
     if (res.gossip) this.addGossip(n.def.name, res.gossip);
     const changes = n.feel(s.profile, sentiment, this.now(), sentiment >= 0 ? `${s.profile.name} was kind to me` : `${s.profile.name} upset me`, this.epoch);
     this.mark(`npc:${n.id}`);
@@ -1187,6 +1200,8 @@ export class Game {
     if (!act) return;
     s.act = null;
     const a = ACTIVITIES[act.id];
+    // Count it (for villagers' "do" requests) if it finished or went on a while.
+    if (done || (this.now() - act.t0) / HOUR_MS >= 0.2) this.life.onActivity(s, act.id === 'eatHere' ? 'eat' : act.id);
     if (a?.makes) {
       if (done) {
         const plate = PLATES[a.makes];
@@ -1228,8 +1243,13 @@ export class Game {
       o.quiet = (o.quiet || 0) + 1;
       if (o.quiet > 450) { this.leave(o); try { o.conn.close(); } catch { /* gone */ } }
     }
+    const clock = worldClock(now, this.epoch);
+    this.life.ensurePlans(clock.day);
+    const hours = clock.hours; // fractional, 0..24
+    this.life.tickMeetups(now);
     for (const n of Object.values(this.npcs)) {
-      n.tick(dt, now, this.world, this.plots);
+      n.tick(dt, now, this.world, this.plots, hours);
+      if (n.asleep) continue;
       // Say hello to players walking past (at most every 5 minutes each).
       for (const s of this.sessions.values()) {
         if (Math.hypot(n.x - s.x, n.y - s.y) > TILE * 2.2) continue;
@@ -1256,7 +1276,7 @@ export class Game {
       rows.push([o, row]);
     }
     for (const id of this.lastRows.keys()) if (!this.sessions.has(id)) this.lastRows.delete(id);
-    const npcRows = Object.values(this.npcs).map((n) => [n.id, round(n.x), round(n.y), n.dir, n.moving ? 1 : 0]);
+    const npcRows = Object.values(this.npcs).map((n) => [n.id, round(n.x), round(n.y), n.dir, n.moving ? 1 : 0, n.act || 0]);
     const npcSig = JSON.stringify(npcRows);
     const npcMoved = npcSig !== this.lastNpcSig;
     this.lastNpcSig = npcSig;

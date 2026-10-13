@@ -17,6 +17,8 @@ import { Minimap } from './minimap.js';
 import { roomTiles, roomRegion, extract, rotateTimes, fragmentValue, removeAt, stockFragment, placeError as fragError } from '@shared/blueprint.js';
 import { STYLED_ROOMS } from '@shared/rooms.js';
 import { NEEDS, HEALTH, ACTIVITIES, FOODS, PLATES, usesOf, mood } from '@shared/needs.js';
+import { NPC_ACTS } from '@shared/village.js';
+import { questProgress } from '@shared/quests.js';
 import { drawFloor, drawObject } from './sprites.js';
 import { openCreator, closeCreator } from './creator.js';
 import { renderCity } from './cityui.js';
@@ -217,10 +219,10 @@ function onMessage(m) {
         if (buf.length > 12) buf.splice(0, buf.length - 12);
         if (Math.hypot(p.x - x, p.y - y) > 96) { p.x = x; p.y = y; }
       }
-      for (const [id, x, y, dir, moving] of m.n || []) {
+      for (const [id, x, y, dir, moving, act] of m.n || []) {
         const n = S.npcs.get(id);
         if (!n) continue;
-        n.tx = x; n.ty = y; n.dir = dir; n.moving = !!moving;
+        n.tx = x; n.ty = y; n.dir = dir; n.moving = !!moving; n.act = act || 0;
       }
       break;
     case 'pos':
@@ -246,6 +248,15 @@ function onMessage(m) {
     }
     case 'npc': openTalk(m); break;
     case 'npcSay': npcSaid(m); break;
+    case 'questOffer':
+      if (S.talk && S.talk.npc === m.quest.npc) { S.talk.offer = m.quest; renderQuestCard(); }
+      break;
+    case 'quests':
+      S.quests = m.quests; S.stats = m.stats || {};
+      $('btn-quests').dataset.n = S.quests.length || '';
+      if (S.talk) renderQuestCard();
+      if (modalKind === 'quests') showQuests();
+      break;
     case 'plot':
       S.plots[m.plot.id] = m.plot;
       indexPlots(world, S.plots);
@@ -443,6 +454,7 @@ function fmtClock() {
 function nearestNpc(range = TILE * 2.6) {
   let best = null, bd = range;
   for (const n of S.npcs.values()) {
+    if (NPC_ACTS[n.act]?.hidden) continue; // asleep indoors
     const d = Math.hypot(n.x - S.me.x, n.y - S.me.y);
     if (d < bd) { bd = d; best = n; }
   }
@@ -547,12 +559,71 @@ function openTalk(v) {
     drawLook($('npc-portrait'), def.look, { crop: 'bust' });
   }
   S.talk.view = v;
+  S.talk.offer = null;
+  $('npc-role').textContent = v.doing ? `${def.role} · ${v.doing}` : def.role;
   if (v.say) S.talk.lines.push({ who: 'them', text: v.say });
   $('npcpanel').hidden = false;
   $('npc-shop').hidden = !(v.sells.length || v.buys.length);
   $('npc-city').hidden = !def.clerk;
-  renderStatus(); renderLog(); renderExtra();
+  renderStatus(); renderLog(); renderExtra(); renderQuestCard();
 }
+
+// Requests in the talk panel: a new one they're asking for, or yours in progress.
+function renderQuestCard() {
+  const box = $('npc-quest');
+  if (!S.talk) return;
+  const npc = S.talk.npc;
+  const mine = (S.quests || []).filter((q) => q.npc === npc);
+  const offer = S.talk.offer;
+  box.innerHTML = '';
+  box.hidden = !offer && !mine.length;
+  if (offer) {
+    const c = document.createElement('div');
+    c.className = 'qcard offer';
+    c.innerHTML = `<b>📜 ${esc(NPCS[npc].name)} asks a favour</b><p>“${esc(offer.text)}”</p><small>${esc(offer.goal)} · reward 🪙${offer.reward}</small>`;
+    const row = document.createElement('div'); row.className = 'row';
+    const yes = document.createElement('button'); yes.className = 'chip'; yes.textContent = '👍 Sure!';
+    yes.onclick = () => { send({ type: 'questAccept', id: offer.id }); S.talk.offer = null; renderQuestCard(); };
+    const no = document.createElement('button'); no.className = 'chip'; no.textContent = 'Not today';
+    no.onclick = () => { send({ type: 'questDecline', id: offer.id }); S.talk.offer = null; renderQuestCard(); };
+    row.append(yes, no); c.appendChild(row); box.appendChild(c);
+  }
+  for (const q of mine) {
+    const pr = localProgress(q);
+    const c = document.createElement('div');
+    c.className = 'qcard';
+    c.innerHTML = `<b>📜 ${esc(q.goal)}</b><small>${pr.have}/${pr.need} · 🪙${q.reward}</small>`;
+    if (q.kind !== 'visit') {
+      const b = document.createElement('button'); b.className = 'chip'; b.disabled = !pr.ready;
+      b.textContent = pr.ready ? (q.kind === 'deliver' ? '🎁 Hand it over' : '✅ Tell them it’s done') : '⏳ Not done yet';
+      b.onclick = () => send({ type: 'questTurnIn', id: q.id });
+      c.appendChild(b);
+    }
+    box.appendChild(c);
+  }
+}
+// Progress worked out from what this client knows (bag, house, activity counts).
+function localProgress(q) {
+  return questProgress(q, { inv: S.inv, stats: S.stats || {}, plot: S.plots[S.myPlot] });
+}
+
+// The quest log: everything villagers have asked of you.
+function showQuests() {
+  const body = openModal('quests', '📜 Requests');
+  const qs = S.quests || [];
+  if (!qs.length) body.insertAdjacentHTML('beforeend', '<p class="muted">No requests right now. Chat with villagers: they’ll often ask for a favour (once a day each).</p>');
+  for (const q of qs) {
+    const pr = localProgress(q);
+    const c = document.createElement('div');
+    c.className = 'qcard';
+    c.innerHTML = `<b>${NPCS[q.npc].icon} ${esc(NPCS[q.npc].name)}: ${esc(q.goal)}</b><p>“${esc(q.text)}”</p><small>${pr.ready ? '✅ Ready to hand in' : `${pr.have}/${pr.need}`} · reward 🪙${q.reward}</small>`;
+    const drop = document.createElement('button'); drop.className = 'chip'; drop.textContent = 'Give up';
+    drop.onclick = () => { if (confirm('Give up on this request?')) send({ type: 'questAbandon', id: q.id }); };
+    c.appendChild(drop);
+    body.appendChild(c);
+  }
+}
+$('btn-quests').onclick = () => (modalKind === 'quests' ? closeModal() : showQuests());
 
 function npcSaid(m) {
   if (!S.talk || S.talk.npc !== m.npc) return;
@@ -2082,6 +2153,7 @@ function onTap(cx, cy) {
   }
   // Tap an NPC to talk.
   for (const n of S.npcs.values()) {
+    if (NPC_ACTS[n.act]?.hidden) continue;
     const p = view.toScreen(U(n.x), 0.8, U(n.y));
     if (Math.hypot(p.x - cx, p.y - cy) < 34) {
       if (Math.hypot(n.x - S.me.x, n.y - S.me.y) < TILE * 3.4) send({ type: 'npcOpen', npc: n.id });
@@ -2587,7 +2659,8 @@ function render(now) {
   for (const p of S.players.values()) drawPerson(p, hOf(p));
   for (const n of S.npcs.values()) {
     const d = NPCS[n.id];
-    view.actor(`npc:${n.id}`, U(n.x), U(n.y), n.dir, n.moving, d.look, now);
+    const a = NPC_ACTS[n.act];
+    view.actor(`npc:${n.id}`, U(n.x), U(n.y), n.dir, n.moving, d.look, now, !a?.hidden, a?.pose === 'sit' ? 0.12 : 0, null, a?.pose === 'sit' ? { kind: 'sit' } : null);
   }
   drawPerson(S.me, myH);
   for (const [id, p] of pets) {
@@ -2619,13 +2692,14 @@ function drawOverlay(now) {
   }
   const heads = [];
   for (const p of [...S.players.values(), S.me]) heads.push([p, p.name, p === S.me ? '#ffe08a' : '#fff']);
-  for (const n of S.npcs.values()) { const d = NPCS[n.id]; heads.push([n, `${d.icon} ${d.name}`, '#bdf0a8']); }
+  for (const n of S.npcs.values()) { if (NPC_ACTS[n.act]?.hidden) continue; const d = NPCS[n.id]; heads.push([n, `${d.icon} ${d.name}`, '#bdf0a8']); }
   for (const [p, label, col] of heads) {
     const s = view.toScreen(U(p.x), 1.95 + heightAt(world, S.plots, p.x, p.y, p.level || 0), U(p.y));
     if (!onScreen(s)) continue;
     tag(label, s.x, s.y, 11, col);
     if (p.bubble && performance.now() < p.bubbleUntil) bubble(p.bubble, s.x, s.y - 20, 13);
-    else if (p.act && ACTIVITIES[p.act]) actIcon(p, s, now);
+    else if (p.act && ACTIVITIES[p.act] && S.npcs.get(p.id) !== p) actIcon(p, s, now);
+    else if (p.act && S.npcs.get(p.id) === p && NPC_ACTS[p.act]?.icon) npcIcon(NPC_ACTS[p.act].icon, s, now);
     if (p.carry && PLATES[p.carry] && !p.act) {
       // Carrying a plate: it sits in their hands.
       const hnd = view.toScreen(U(p.x), 0.72 + heightAt(world, S.plots, p.x, p.y, p.level || 0), U(p.y) + 0.12);
@@ -2667,6 +2741,14 @@ function drawOverlay(now) {
     octx.beginPath(); octx.arc(stick.sx + dx * k, stick.sy + dy * k, 18, 0, Math.PI * 2); octx.fill();
     octx.globalAlpha = 1;
   }
+}
+
+// A villager's activity (gardening, lunch, reading...) as a small floating icon.
+function npcIcon(icon, s, now) {
+  octx.font = '14px sans-serif';
+  octx.globalAlpha = 0.9;
+  octx.fillText(icon, s.x + 18, s.y - 4 + Math.sin(now / 500) * 2);
+  octx.globalAlpha = 1;
 }
 
 // What someone's doing, over their head: a thought bubble with the activity's icon,

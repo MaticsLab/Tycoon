@@ -7,6 +7,7 @@ export const TRAITS = ['warmth', 'cheer', 'trust', 'generosity', 'energy'];
 export const NPCS = {
   rosa: {
     name: 'Rosa',
+    humor: 'Warm, teasing auntie humour: food puns, playful mock-scolding ("you call that lunch?"), dramatic sighs about the youth, and village gossip told like a soap opera.',
     role: 'Grocer · Rosa’s Market',
     icon: '🛒',
     look: { pet: -1, body: 1, skin: 5, hair: 17, shirt: 9, acc: 15, eyes: [8, 60, 40], hairColor: [5, 75, 48], pants: [8, 45, 35] },
@@ -19,6 +20,7 @@ export const NPCS = {
   },
   otto: {
     name: 'Otto',
+    humor: 'Bone-dry deadpan. Grumbles, understatement and sarcasm, grudging wood and carpentry puns he pretends not to enjoy, and the odd accidental sweetness he immediately denies.',
     role: 'Carpenter · Otto’s Furniture',
     icon: '🪑',
     look: { pet: -1, body: 0, skin: 7, hair: 6, shirt: 11, acc: 4, eyes: [58, 45, 45], hairColor: [58, 6, 68], pants: [8, 40, 30] },
@@ -31,6 +33,7 @@ export const NPCS = {
   },
   juniper: {
     name: 'Juniper',
+    humor: 'Whimsical and absurd: plants have strong opinions and drama, cheerful non-sequiturs, tiny conspiracy theories about snails and the moon, delivered with total sincerity.',
     role: 'Gardener · Village gossip',
     icon: '🌻',
     look: { pet: -1, body: 1, skin: 2, hair: 18, shirt: 19, acc: 12, eyes: [30, 70, 55], hairColor: [13, 75, 95], pants: [30, 40, 40] },
@@ -42,6 +45,7 @@ export const NPCS = {
   },
   mabel: {
     name: 'Mabel',
+    humor: 'Bureaucratic comedy: everything needs a form in triplicate, oddly specific statistics, rubber-stamp enthusiasm and very formal phrasing for very silly things.',
     role: 'City Clerk · City Hall',
     icon: '🏛️',
     clerk: true,
