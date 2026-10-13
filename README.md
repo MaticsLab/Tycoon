@@ -59,7 +59,7 @@ You can also befriend villagers whose personalities change based on how you trea
     - **Above the panel:** a search box that searches every item ("/" jumps to it) and your coins, which flash −45 or +45 as you build.
     - **While you hold an item,** a dashed box with its icon follows the cursor, labelled with the price (or "From bag"), R rotate and Esc cancel. Esc puts it down.
     - **Click with Select** to select what's under the pointer. The game tests each piece of furniture's real 3D shape (and the walls in front of it), so clicking the top of a fridge or the back of a sofa inside a house picks that, not the floor or the room behind it. A popup appears above the selection:
-      - **Furniture:** turn it left or right (Shift+R / R) or pick it up and move it. Delete sells it back.
+      - **Furniture:** turn it left or right (Shift+R / R, or right-click it) or pick it up and move it. Delete sells it back.
       - **A room's floor:** turn the whole room or pick it up and move it.
       - **A wall:** three bars set **wall height** like The Sims: short, medium or tall. The whole run of joined walls changes together, roofs sit on top of tall walls, and a tall wall drops back to medium under an upstairs floor.
     - **Nothing vanishes while you move it:** the furniture or room stays drawn where it is, and a ghost shows where it's going until you set it down.

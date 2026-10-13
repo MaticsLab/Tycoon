@@ -2861,7 +2861,14 @@ const endPointer = (e) => {
     // A quick right-click (no drag) rotates the item you're placing.
     const g = gesture;
     if (g.button === 2 && S.mode === 'build' && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) < 6 && performance.now() - g.t < 450) {
-      if (S.held || (S.tool.kind === 'obj' && canRotate(S.tool.id))) rotateItem(); else if (S.tool.kind === 'obj') toast('That item can’t be rotated');
+      if (S.held || (S.tool.kind === 'obj' && canRotate(S.tool.id))) rotateItem(e.shiftKey ? -1 : 1);
+      else if (S.tool.kind === 'obj') toast('That item can’t be rotated');
+      else {
+        // Right-click turns placed furniture (or a selected room) where it stands.
+        const h = { cx: e.clientX, cy: e.clientY }, hit = objUnder(h);
+        if (hit && !(S.sel?.kind === 'obj' && S.sel.at[0] === hit.at[0] && S.sel.at[1] === hit.at[1])) { S.sel = { kind: 'obj', at: hit.at, level: S.level }; renderDetail(); refreshPreview(); }
+        if (S.sel && S.sel.kind !== 'wall') rotateSel(e.shiftKey ? -1 : 1);
+      }
     }
     if (!pointers.size) { gesture = null; if (staged) restoreStage(); }
     return;
