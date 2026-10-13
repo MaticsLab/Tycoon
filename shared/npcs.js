@@ -16,7 +16,7 @@ export const NPCS = {
     base: { warmth: 72, cheer: 66, trust: 62, generosity: 58, energy: 70 },
     likes: ['bouquet', 'tea', 'berry'], dislikes: ['bookgift'],
     buys: ['turnip', 'carrot', 'berry', 'pumpkin', 'jam', 'juice', 'pie', 'bread', 'soup'],
-    sells: ['bouquet', 'honeycake', 'tea', 'bookgift'],
+    sells: ['bouquet', 'honeycake', 'tea', 'bookgift', 'wateringcan'],
   },
   otto: {
     name: 'Otto',

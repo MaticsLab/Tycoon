@@ -16,6 +16,9 @@ import { PLACES, NPC_ACTS, stepAt, findPath, toneGuide } from '../../shared/vill
 
 const MOOD_HALF_LIFE = 10 * 60 * 1000;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+// What the market pays for a good right now, relative to normal (set by the game).
+let marketMult = () => 1;
+export const setMarket = (fn) => { marketMult = fn; };
 const SHIFT = { warmth: 0.9, cheer: 0.7, trust: 0.6, generosity: 0.45, energy: 0.3 };
 const ADJ = { warmth: 'warm', cheer: 'cheerful', trust: 'trusting', generosity: 'generous', energy: 'energetic' };
 
@@ -89,7 +92,7 @@ export class Npc {
     const a = this.affinity(profile) / 100;
     const g = (this.s.traits.generosity - 50) / 100;
     const f = selling ? clamp(1.1 - g * 0.5 - a * 0.2, 0.7, 1.5) : clamp(0.9 + g * 0.5 + a * 0.2, 0.5, 1.3);
-    return Math.max(1, Math.round(base * f));
+    return Math.max(1, Math.round(base * f * (selling ? 1 : marketMult(item))));
   }
 
   // Apply how an interaction made the NPC feel (-2..2). Returns sentences about

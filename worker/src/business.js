@@ -8,6 +8,7 @@ import { NPCS } from '../../shared/npcs.js';
 import { objAt, levelView, footprint } from '../../shared/plot.js';
 import { TILE, MAP_W, worldClock } from '../../shared/world.js';
 import { HOUR_MS } from '../../shared/needs.js';
+import { connected } from '../../shared/farm.js';
 import { LICENCE_FEE, RECIPES, STAFF, sellable, valueOf, slotsOf, isMachine, priceAppeal, shopOpen } from '../../shared/business.js';
 
 const clean = (s, n) => String(s ?? '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, n);
@@ -234,9 +235,12 @@ export class Business {
     const p = s.profile;
     for (const [k, n] of Object.entries(rec.needs)) if ((p.inv[k] || 0) < n) return s.send({ type: 'error', msg: `You need ${Object.entries(rec.needs).map(([kk, nn]) => `${nn} × ${GOODS[kk].name}`).join(' and ')}` });
     for (const [k, n] of Object.entries(rec.needs)) this.game.bag(s, k, -n);
-    hit.obj.job = { r: msg.recipe, ready: this.game.now() + rec.hours * HOUR_MS };
+    // Plugged in (a cable to your power box)? Twice as fast.
+    const powered = !msg.level && plot.util?.power && connected(plot, hit.key, 'power');
+    const hours = powered ? rec.hours / 2 : rec.hours;
+    hit.obj.job = { r: msg.recipe, ready: this.game.now() + hours * HOUR_MS };
     this.game.plotChanged(plot);
-    s.send({ type: 'toast', text: `⚙️ ${rec.label} will be ready in ${rec.hours} in-game hours` });
+    s.send({ type: 'toast', text: `⚙️ ${rec.label} will be ready in ${hours} in-game hours${powered ? ' (⚡ powered: 2× speed)' : ''}` });
   }
 
   collect(s, msg) {

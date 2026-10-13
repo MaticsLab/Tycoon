@@ -1217,3 +1217,132 @@ test('sleeping: when everyone online is in bed the village skips to 6 AM; rows h
   assert.equal(a.session().profile.inv.turnip, 4);
   assert.equal(plot.obj['5,10'], undefined);
 });
+
+test('farm life: drop and give, City Hall water and power, sprinklers, harvester, farmhands, tractor, bills, market', async () => {
+  const { HOUR_MS } = await import('../../shared/needs.js');
+  const { cropStage, isWet } = await import('../../shared/catalog.js');
+  const { MONTH_DAYS, UTILITIES, FARMHANDS, connected } = await import('../../shared/farm.js');
+  const { game, join, advance } = setup();
+  const a = await join({ name: 'Ana' }), b = await join({ name: 'Ben' });
+  const sa = a.session(), sb = b.session();
+  a.send({ type: 'cheat', cmd: 'testingcheats true' });
+  a.send({ type: 'cheat', cmd: 'motherlode' });
+  a.send({ type: 'cheat', cmd: 'give turnip 5' });
+  a.send({ type: 'claim', plotId: 0 });
+  const plot = game.plots[0];
+
+  // Drop two turnips; Ana can't pick them straight back up, Ben walks over them.
+  sa.x = sb.x = 60 * TILE; sa.y = 59 * TILE; sb.y = 62 * TILE;
+  a.send({ type: 'drop', item: 'turnip', n: 2 });
+  assert.equal(sa.profile.inv.turnip, 3);
+  assert.equal(game.farm.drops.length, 1);
+  game.tick();
+  assert.equal(game.farm.drops.length, 1, 'not picked straight back up');
+  sb.x = game.farm.drops[0].x; sb.y = game.farm.drops[0].y;
+  game.tick();
+  assert.equal(game.farm.drops.length, 0);
+  assert.equal(sb.profile.inv.turnip, 2);
+  // Hand things over: items and coins, only up close.
+  a.send({ type: 'giveTo', to: sb.profile.id, item: 'turnip', n: 1 });
+  assert.equal(sb.profile.inv.turnip, 3);
+  assert.match(b.last('gifted').text, /Ana gave you 1 × Turnip/);
+  const coinsB = sb.profile.coins;
+  a.send({ type: 'giveTo', to: sb.profile.id, coins: 50 });
+  assert.equal(sb.profile.coins, coinsB + 50);
+  sb.x += 20 * TILE;
+  a.send({ type: 'giveTo', to: sb.profile.id, coins: 50 });
+  assert.match(a.last('error').msg, /closer/);
+
+  // Water: only at City Hall. Then the spout is in the bag and the plot has water.
+  a.send({ type: 'utilStart', kind: 'water' });
+  assert.match(a.last('error').msg, /City Hall/);
+  sa.x = 139.5 * TILE; sa.y = 37.5 * TILE;
+  const treasury = game.city.s.treasury, coins = sa.profile.coins;
+  a.send({ type: 'utilStart', kind: 'water' });
+  a.send({ type: 'utilStart', kind: 'power' });
+  assert.equal(sa.profile.inv.spout, 1);
+  assert.equal(sa.profile.inv.powerbox, 1);
+  assert.deepEqual(plot.util, { water: 1, power: 1 });
+  const cost = UTILITIES.water.setup + UTILITIES.water.monthly + UTILITIES.power.setup + UTILITIES.power.monthly;
+  assert.equal(sa.profile.coins, coins - cost);
+  assert.equal(game.city.s.treasury, treasury + cost);
+
+  // Spout, a pipe, a sprinkler; crops around it get watered and grow twice as fast.
+  a.send({ type: 'place', plotId: 0, lx: 2, ly: 12, item: 'spout' });
+  assert.equal(sa.profile.inv.spout, undefined);
+  a.send({ type: 'place', plotId: 0, lx: 3, ly: 12, item: 'pipe' });
+  a.send({ type: 'place', plotId: 0, lx: 4, ly: 12, item: 'sprinkler' });
+  assert.ok(connected(plot, '4,12'));
+  for (const [x, y] of [[5, 12], [5, 11], [12, 12]]) { a.send({ type: 'place', plotId: 0, lx: x, ly: y, item: 'soil' }); a.send({ type: 'place', plotId: 0, lx: x, ly: y, item: 'seed_carrot' }); }
+  advance(3100); game.tick();
+  assert.ok(isWet(plot.obj['5,12'], game.now()), 'in reach: watered');
+  assert.ok(!isWet(plot.obj['12,12'], game.now()), 'out of reach: dry');
+  advance(91_000); game.tick(); // half a carrot's growing time
+  assert.equal(cropStage(plot.obj['5,12'], game.now()), 3, 'watered carrot is ripe');
+  assert.ok(cropStage(plot.obj['12,12'], game.now()) < 3, 'dry carrot is still growing');
+  // A watering can waters as you walk through.
+  a.send({ type: 'cheat', cmd: 'give wateringcan 1' });
+  a.send({ type: 'harvest', plotId: 0, tiles: [[12, 12]] });
+  assert.ok(isWet(plot.obj['12,12'], game.now()));
+
+  // The auto-harvester (power box + cable) picks and replants what's in reach.
+  a.send({ type: 'place', plotId: 0, lx: 8, ly: 11, item: 'powerbox' });
+  a.send({ type: 'place', plotId: 0, lx: 7, ly: 11, item: 'cable' });
+  a.send({ type: 'place', plotId: 0, lx: 6, ly: 11, item: 'harvester' });
+  assert.ok(connected(plot, '6,11'));
+  advance(3100); game.tick();
+  assert.equal(sa.profile.inv.carrot, 2, 'harvested both ripe carrots');
+  assert.equal(plot.obj['5,12'].t, 'seed_carrot', 'and replanted');
+
+  // A farmhand (hired at City Hall) waters and harvests on their rounds.
+  sa.x = 139.5 * TILE; sa.y = 37.5 * TILE;
+  a.send({ type: 'hireHand', id: 'clem' });
+  assert.equal(plot.hand, 'clem');
+  a.send({ type: 'place', plotId: 0, lx: 14, ly: 14, item: 'soil' });
+  a.send({ type: 'place', plotId: 0, lx: 14, ly: 14, item: 'seed_turnip' });
+  advance(HOUR_MS); game.tick();
+  assert.ok(isWet(plot.obj['14,14'], game.now()) || plot.obj['14,14'].p > 0);
+
+  // The tractor: get on, harvest a strip, plant one, park.
+  for (let x = 16; x < 19; x++) { a.send({ type: 'place', plotId: 0, lx: x, ly: 3, item: 'soil' }); }
+  a.send({ type: 'place', plotId: 0, lx: 20, ly: 2, item: 'tractor' });
+  assert.equal(plot.obj['20,2'].t, 'tractor');
+  sa.x = (plot.x + 21.3) * TILE; sa.y = (plot.y + 3) * TILE;
+  a.send({ type: 'drive', plotId: 0, lx: 20, ly: 2 });
+  assert.ok(sa.ride);
+  assert.equal(plot.obj['20,2'], undefined);
+  assert.equal(game.publicPlayer(sa).act, 'drive');
+  sa.x = (plot.x + 17.5) * TILE; sa.y = (plot.y + 3.5) * TILE;
+  a.send({ type: 'rideMode', mode: 'plant', seed: 'seed_berry' });
+  a.send({ type: 'farmWork', plotId: 0, tiles: [[16, 3], [17, 3], [18, 3]] });
+  assert.equal(plot.obj['17,3'].t, 'seed_berry');
+  a.send({ type: 'rideMode', mode: 'till' });
+  a.send({ type: 'farmWork', plotId: 0, tiles: [[17, 5]] });
+  assert.equal(plot.floor['17,5'], 'soil');
+  sa.x = (plot.x + 20.5) * TILE; sa.y = (plot.y + 8) * TILE;
+  a.send({ type: 'park' });
+  assert.equal(sa.ride, null);
+  assert.ok(Object.values(plot.obj).some((o) => o.t === 'tractor'), 'parked on the plot');
+  assert.equal(sa.profile.inv.tractor, undefined);
+
+  // Bills: paid every month; when you can't pay, the service is cut off.
+  const due = sa.profile.util.water.due;
+  a.send({ type: 'cheat', cmd: 'money 0' });
+  const days = due - game.day();
+  for (let d = 0; d <= days; d++) { advance(24 * HOUR_MS); game.tick(); }
+  assert.ok(sa.profile.util.water.off, 'cut off');
+  assert.equal(plot.util?.water, undefined);
+  assert.equal(sa.profile.hand, null, 'the farmhand quit too');
+  a.send({ type: 'cheat', cmd: 'money 1000' });
+  sa.x = 139.5 * TILE; sa.y = 37.5 * TILE;
+  a.send({ type: 'utilPay', kind: 'water' });
+  assert.equal(plot.util.water, 1);
+  assert.equal(sa.profile.util.water.due, game.day() + MONTH_DAYS);
+
+  // Market: flooding Rosa with turnips lowers what she pays.
+  const rosa = game.npcs.rosa;
+  const p0 = rosa.price(sa.profile, 'turnip', false);
+  game.farm.onSold('turnip', 40);
+  assert.ok(rosa.price(sa.profile, 'turnip', false) < p0);
+  assert.ok(FARMHANDS.clem.wage > 0);
+});

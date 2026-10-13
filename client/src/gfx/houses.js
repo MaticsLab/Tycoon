@@ -1,7 +1,7 @@
 // Builds a plot's house in 3D from its Sims-style data (see shared/plot.js):
 // floors on two levels, wall segments on tile edges with real door/window openings,
 // Sims cutaway, gable roofs, furniture models and pixel-art cards for plants/crops.
-import { ITEMS, cropStage } from '@shared/catalog.js';
+import { ITEMS, cropStage, isWet } from '@shared/catalog.js';
 import { parseEdge, levelView, footprint, LEVELS, LEVEL_H, featurePair, edgeKey, objAt } from '@shared/plot.js';
 import { wallTex, floorTex, roofTex, woodTex, signTex, doorTex, WALL_H } from './textures.js';
 import { Batch, boxAt, gableRoof } from './geom.js';
@@ -118,7 +118,8 @@ export function buildPlot(plot, opts) {
     const view = levelView(plot, l);
     const y = l * LEVEL_H;
     const byType = new Map();
-    for (const [k, t] of Object.entries(view.floor)) {
+    for (let [k, t] of Object.entries(view.floor)) {
+      if (t === 'soil' && !l && isWet(view.obj[k] || {}, opts.now)) t = 'soil_wet';
       if (!byType.has(t)) byType.set(t, []);
       byType.get(t).push(k.split(',').map(Number));
     }

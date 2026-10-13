@@ -20,6 +20,7 @@ export const CATEGORIES = [
   { id: 'kitchen', name: 'Kitchen & Bath' },
   { id: 'decor', name: 'Decor' },
   { id: 'shop', name: 'Shop & Machines' },
+  { id: 'utility', name: 'Water, Power & Automation' },
   { id: 'garden', name: 'Garden' },
   { id: 'fall', name: 'Fall & Halloween' },
   { id: 'farm', name: 'Farm' },
@@ -177,6 +178,18 @@ export const ITEMS = {
   bakeryoven:    { name: 'Bakery Oven',    cat: 'shop', layer: 'obj', price: 140, solid: true, rot: 'face', machine: true, light: true },
   soupot:        { name: 'Soup Pot',       cat: 'shop', layer: 'obj', price: 50, solid: true, machine: true },
 
+  // Utilities and automation. Spouts and power boxes come from City Hall (Mabel) when you
+  // sign up for water or electricity; they live in your bag until you place them. Pipes and cables carry
+  // them to things that need them (needs: 'water' | 'power').
+  spout:         { name: 'Ground Spout',   cat: 'utility', layer: 'obj', price: 60, solid: true, utility: 'water', shop: 'mabel' },
+  powerbox:      { name: 'Power Box',      cat: 'utility', layer: 'obj', price: 90, solid: true, rot: 'face', utility: 'power', shop: 'mabel' },
+  pipe:          { name: 'Water Pipe',     cat: 'utility', layer: 'obj', price: 3, flat: true, carries: 'water' },
+  cable:         { name: 'Power Cable',    cat: 'utility', layer: 'obj', price: 3, flat: true, carries: 'power' },
+  sprinkler:     { name: 'Sprinkler',      cat: 'utility', layer: 'obj', price: 45, needs: 'water', reach: 1 },
+  bigsprinkler:  { name: 'Big Sprinkler',  cat: 'utility', layer: 'obj', price: 120, needs: 'water', reach: 2 },
+  harvester:     { name: 'Auto-Harvester', cat: 'utility', layer: 'obj', price: 260, solid: true, needs: 'power', reach: 3 },
+  tractor:       { name: 'Tractor',        cat: 'utility', layer: 'obj', price: 650, solid: true, size: [1, 2], rot: 'turn' },
+
   // Otto's Furniture exclusives.
   piano:         { name: 'Grand Piano',  cat: 'special', layer: 'obj', price: 260, solid: true, size: [2, 1], rot: 'face', shop: 'otto' },
   fireplace:     { name: 'Fireplace',    cat: 'special', layer: 'obj', price: 180, solid: true, size: [2, 1], rot: 'face', shop: 'otto', light: true },
@@ -202,6 +215,8 @@ export const GOODS = {
   pie:       { name: 'Pumpkin Pie',    kind: 'product', value: 320, icon: '🥧' },
   bread:     { name: 'Turnip Bread',   kind: 'product', value: 60, icon: '🍞' },
   soup:      { name: 'Veggie Soup',    kind: 'product', value: 75, icon: '🍲' },
+  // Tools: kept in the bag.
+  wateringcan: { name: 'Watering Can', kind: 'tool', value: 40, icon: '🚿' },
 };
 
 export const CROPS = {
@@ -210,15 +225,21 @@ export const CROPS = {
   berry:   { name: 'Strawberry', growMs: 360_000 },
   pumpkin: { name: 'Pumpkin',    growMs: 720_000 },
 };
+// Watered crops grow twice as fast while the soil is wet: o.wf..o.wu is the current wet
+// spell, o.b the head start banked from earlier ones.
 
 export const START_COINS = 500;
 
 export const itemName = (id) => ITEMS[id]?.name || GOODS[id]?.name || id;
 
+export const isWet = (obj, now) => !!obj.wu && obj.wu > now;
+
 // 0..3, where 3 is ripe.
 export function cropStage(obj, now) {
   const crop = CROPS[ITEMS[obj.t]?.crop];
   if (!crop) return 0;
-  const f = (now - (obj.p || 0)) / crop.growMs;
+  const p = obj.p || 0;
+  const wet = obj.wu ? Math.max(0, Math.min(now, obj.wu) - Math.max(obj.wf || 0, p)) : 0;
+  const f = (now - p + (obj.b || 0) + wet) / crop.growMs;
   return f >= 1 ? 3 : Math.min(2, Math.floor(f * 3));
 }

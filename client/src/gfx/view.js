@@ -11,6 +11,7 @@ import { sanitizeLook } from '@shared/look.js';
 import { BillboardSet, texOf, blobMesh } from './billboards.js';
 import { buildTerrain, buildRocks, treeCards, buildFountain, fountainSpray, buildPlazaLamps, PLAZA_LAMPS, buildShop, buildDecor, buildCityHall } from './scenery.js';
 import { buildPlot, glassMat, LEVEL_H } from './houses.js';
+import { makeItem } from './models.js';
 import { TEXEL } from './textures.js';
 import { createScene, ctx, G, NPT, ShadowMap, TyMaterial, Vector3, Color4, Geo, toMesh, spriteGeo, disposeNode, freeze, linear, linearRGB, linearHSL } from './bjs.js';
 
@@ -78,6 +79,7 @@ export class View {
 
     this.plots = new Map(); // id -> { group, cards, lights, sig }
     this.actors = new Map(); // id -> { sprite, blob, vec }
+    this.vehicles = new Map(); // id -> { node, yaw, lx, lz }
     this.resize();
     this.applyCamera(true);
   }
@@ -315,7 +317,35 @@ export class View {
     s.isVisible = vis;
   }
 
+  // Something you ride (the tractor), centred at (x, z) and turned to face where it's
+  // going (the model's front is north, -z).
+  vehicle(id, t, x, y, z, dirWorld) {
+    let v = this.vehicles.get(id);
+    if (!v) {
+      v = { node: makeItem(t, 0, 0, 0, 0, 0, { cast: false }), yaw: null, lx: x, lz: z };
+      this.vehicles.set(id, v);
+    }
+    v.seen = true;
+    const mx = x - v.lx, mz = z - v.lz;
+    let goal = v.goal ?? Math.atan2(-DIR_VEC[dirWorld ?? 1][0], -DIR_VEC[dirWorld ?? 1][1]);
+    if (Math.hypot(mx, mz) > 0.01) goal = Math.atan2(-mx, -mz);
+    v.goal = goal;
+    v.lx = x; v.lz = z;
+    if (v.yaw == null) v.yaw = goal;
+    let d = goal - v.yaw;
+    while (d > Math.PI) d -= 2 * Math.PI;
+    while (d < -Math.PI) d += 2 * Math.PI;
+    v.yaw += d * 0.25;
+    v.node.position.set(x, y, z);
+    v.node.rotation.y = v.yaw;
+    return v.yaw;
+  }
+
   pruneActors() {
+    for (const [id, v] of this.vehicles) {
+      if (!v.seen) { disposeNode(v.node); this.vehicles.delete(id); }
+      v.seen = false;
+    }
     for (const [id, a] of this.actors) {
       if (!a.seen) { a.sprite.dispose(false, false); a.blob.dispose(false, false); a.sleep?.dispose(false, false); this.actors.delete(id); }
       a.seen = false;

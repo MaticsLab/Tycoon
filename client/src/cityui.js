@@ -1,6 +1,7 @@
 // The City Hall panel (opened from Mabel, the City Clerk): the government, elections,
 // council proposals and the city's data. Rendered into the shared modal sheet.
 import { ROAD_ROWS, ROAD_COLS, ROAD_W, MAP_W, STEP_MS, DAY_STEPS } from '@shared/world.js';
+import { UTILITIES, FARMHANDS, MONTH_DAYS } from '@shared/farm.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const ROW_NAMES = ['North Road', 'Market Road', 'South Road', 'Far South Road'];
@@ -45,6 +46,58 @@ export function renderCity(body, ctx) {
 function overview(el, ctx) {
   overviewInner(el, ctx);
   bizCard(el, ctx);
+  farmCard(el, ctx);
+}
+
+// Utilities (water, electricity: monthly bills to the city) and the farmhand job board.
+function farmCard(el, { util = {}, hand, myPlot, city, send }) {
+  const c = document.createElement('div');
+  c.className = 'city-card hl';
+  c.innerHTML = `<b>🔧 Utilities</b><div class="muted">Bills are paid to the city every ${MONTH_DAYS} days. Can’t pay? The service is cut off until you settle up here.</div>`;
+  for (const [k, u] of Object.entries(UTILITIES)) {
+    const cur = util[k];
+    const row = document.createElement('div');
+    row.className = 'util-row';
+    const info = document.createElement('div');
+    info.className = 'grow';
+    const b = document.createElement('button');
+    b.className = 'chip';
+    if (!cur) {
+      info.innerHTML = `${u.icon} <b>${u.name}</b> · 🪙${u.setup} setup + 🪙${u.monthly}/month<div class="muted small">${esc(u.line)}</div>`;
+      b.className = 'chip sel';
+      b.textContent = `Hook up (🪙${u.setup + u.monthly})`;
+      b.disabled = myPlot == null;
+      b.onclick = () => send({ type: 'utilStart', kind: k });
+    } else if (cur.off) {
+      info.innerHTML = `${u.icon} <b>${u.name}</b> · <span style="color:#c0392b">cut off: bill unpaid</span>`;
+      b.className = 'chip sel';
+      b.textContent = `Pay 🪙${u.monthly}`;
+      b.onclick = () => send({ type: 'utilPay', kind: k });
+    } else {
+      info.innerHTML = `${u.icon} <b>${u.name}</b> · on · next bill 🪙${u.monthly} on day ${cur.due}${city ? ` (in ${Math.max(0, cur.due - city.day)} days)` : ''}`;
+      b.textContent = 'Cancel';
+      b.onclick = () => { if (confirm(`Cancel ${u.name.toLowerCase()}? Sprinklers and machines on it stop working.`)) send({ type: 'utilStop', kind: k }); };
+    }
+    row.append(info, b);
+    c.appendChild(row);
+  }
+  c.insertAdjacentHTML('beforeend', `<b>🧑‍🌾 Farmhands for hire</b><div class="muted">They water, harvest and replant your crops (seeds come out of your coins). Paid every morning; harvests go in your bag.</div>`);
+  for (const [id, h] of Object.entries(FARMHANDS)) {
+    const row = document.createElement('div');
+    row.className = 'util-row';
+    const info = document.createElement('div');
+    info.className = 'grow';
+    info.innerHTML = `<b>${esc(h.name)}</b> · 🪙${h.wage}/day · ${h.rate} crops an hour<div class="muted small">${esc(h.line)}</div>`;
+    const b = document.createElement('button');
+    b.className = hand === id ? 'chip' : 'chip sel';
+    b.textContent = hand === id ? 'Let go' : 'Hire';
+    b.disabled = myPlot == null;
+    b.onclick = () => send(hand === id ? { type: 'fireHand' } : { type: 'hireHand', id });
+    row.append(info, b);
+    c.appendChild(row);
+  }
+  if (myPlot == null) c.insertAdjacentHTML('beforeend', '<div class="muted small">Claim a plot first.</div>');
+  el.insertBefore(c, el.children[2] || null);
 }
 
 // Business licences are issued here.

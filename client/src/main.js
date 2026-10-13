@@ -8,7 +8,8 @@ import {
   indexPlots, landError, contentFits, mergedRect, splitRects, hasContent, LAND_PRICE,
   stepLevel, heightAt, roadEditError, roadIn, plotEntrance, occChanged,
 } from '@shared/plot.js';
-import { ITEMS, GOODS, CATEGORIES, cropStage, itemName } from '@shared/catalog.js';
+import { ITEMS, GOODS, CATEGORIES, cropStage, isWet, itemName } from '@shared/catalog.js';
+import { FARMHANDS, TRACTOR_MODES, SEEDS, connected, networks, UTILITIES } from '@shared/farm.js';
 import { NPCS } from '@shared/npcs.js';
 import { itemIcon } from './sprites.js';
 import { View, LEVEL_H } from './gfx/view.js';
@@ -64,6 +65,11 @@ const S = {
   talk: null,
   freeBuild: false,    // bb.enablefreebuild
   freeLand: false,     // freerealestate on
+  drops: new Map(),    // things lying on the ground: id -> { item, n, x, y, level }
+  util: {},            // your water / electricity: { water: { due, off }, ... }
+  hand: null,          // your farmhand
+  market: null,        // { pick, mult: { item: x } } what Rosa pays today
+  ride: null,          // driving the tractor: { mode, seed }
 };
 const afford = (cost) => S.freeBuild || cost <= S.coins;
 const serverNow = () => Date.now() + S.timeOffset;
@@ -165,6 +171,9 @@ function onMessage(m) {
       applyRoads(world, m.roads);
       view.refreshTerrain();
       S.city = m.city;
+      S.drops = new Map((m.drops || []).map((d) => [d.id, d]));
+      S.util = m.util || {}; S.hand = m.hand || null; S.market = m.market || null; S.ride = null;
+      renderRideBar();
       S.plots = {};
       for (const p of m.plots) S.plots[p.id] = p;
       indexPlots(world, S.plots);
@@ -265,6 +274,20 @@ function onMessage(m) {
       if (modalKind === 'city') showCity();
       break;
     case 'sale': saleFx(m); break;
+    case 'farm':
+      S.util = m.util || {}; S.hand = m.hand || null; S.market = m.market || null;
+      if (modalKind === 'city') showCity();
+      break;
+    case 'drop': S.drops.set(m.drop.id, m.drop); break;
+    case 'dropGone': S.drops.delete(m.id); break;
+    case 'ride':
+      S.ride = m.ride;
+      renderRideBar();
+      break;
+    case 'gifted':
+      toast(m.text);
+      sysMsg(m.text);
+      break;
     case 'questOffer':
       if (S.talk && S.talk.npc === m.quest.npc) { S.talk.offer = m.quest; renderQuestCard(); }
       break;
@@ -326,6 +349,8 @@ function onMessage(m) {
       break;
     case 'harvested': {
       const parts = Object.entries(m.items).map(([k, n]) => `${n} ${GOODS[k].icon}`);
+      if (m.quiet) break;
+      if (m.auto) { if (performance.now() - (S.autoToast || 0) > 20_000) { S.autoToast = performance.now(); toast(`🤖 Your farm harvested ${parts.join(' ')}`); } break; }
       toast(`🌾 Harvested ${parts.join(' ')} — sell them at Rosa’s Market`);
       break;
     }
@@ -785,13 +810,15 @@ function renderExtra() {
       list.insertAdjacentHTML('beforeend', '<h4>Buying</h4>');
       for (const b of t.view.buys) {
         const have = S.inv[b.item] || 0;
-        list.appendChild(itemRow(b.item, `🪙${b.price} each · you have ${have}`, [
+        const m = S.market?.mult?.[b.item] || 1;
+        const trend = S.market?.pick === b.item ? ' · ⭐ today’s pick: +50%' : m < 0.9 ? ' · 📉 lots sold lately' : m > 1.05 ? ' · 📈 in demand' : '';
+        list.appendChild(itemRow(b.item, `🪙${b.price} each · you have ${have}${trend}`, [
           ['Sell 1', () => send({ type: 'sell', npc: t.npc, item: b.item, qty: 1 }), !have],
           ['Sell all', () => send({ type: 'sell', npc: t.npc, item: b.item, qty: have }), !have],
         ]));
       }
     }
-    list.insertAdjacentHTML('beforeend', '<p class="muted">Prices depend on how generous they feel — and how much they like you.</p>');
+    list.insertAdjacentHTML('beforeend', '<p class="muted">Prices depend on how generous they feel, how much they like you, and the market: sell lots of one crop and its price drops for a while.</p>');
   } else {
     const gifts = Object.entries(S.inv).filter(([k]) => GOODS[k]);
     if (!gifts.length) list.insertAdjacentHTML('beforeend', '<p class="muted">Your bag has nothing to give. Rosa sells gifts, and crops make nice presents too.</p>');
@@ -838,21 +865,51 @@ $('modal-close').onclick = closeModal;
 function showCity() {
   const keep = modalKind === 'city' ? $('modal-body').scrollTop : 0;
   const body = openModal('city', '🏛️ City Hall');
-  renderCity(body, { city: S.city, me: S.me, myPlot: S.homePlot ?? S.myPlot, plots: S.plots, biz: S.biz, send, rerender: showCity });
+  renderCity(body, { city: S.city, me: S.me, myPlot: S.homePlot ?? S.myPlot, plots: S.plots, biz: S.biz, util: S.util, hand: S.hand, coins: S.coins, send, rerender: showCity });
   body.scrollTop = keep;
 }
 
+// Players close enough to hand things to.
+const nearbyPlayers = () => [...S.players.values()].filter((p) => Math.hypot(p.x - S.me.x, p.y - S.me.y) < TILE * 4);
+let bagTo = null, bagN = 1;
 function showBag() {
   const body = openModal('bag', '🎒 Your bag');
   const entries = Object.entries(S.inv);
+  // Give to someone nearby, or drop things on the ground (anyone can pick them up).
+  const near = nearbyPlayers();
+  if (!near.some((p) => p.id === bagTo)) bagTo = near[0]?.id || null;
+  const bar = document.createElement('div');
+  bar.className = 'row bag-bar';
+  const amount = document.createElement('input');
+  amount.type = 'number'; amount.min = 1; amount.max = 99; amount.value = bagN; amount.className = 'qty';
+  amount.title = 'How many to drop or give';
+  amount.addEventListener('keydown', (e) => e.stopPropagation());
+  amount.oninput = () => { bagN = Math.max(1, Math.min(99, Math.floor(+amount.value) || 1)); };
+  bar.append(Object.assign(document.createElement('span'), { textContent: 'Amount', className: 'muted' }), amount);
+  if (near.length) {
+    const sel = document.createElement('select');
+    for (const p of near) sel.add(new Option(`🎁 to ${p.name}`, p.id, false, p.id === bagTo));
+    sel.onchange = () => { bagTo = sel.value; };
+    const coins = document.createElement('button');
+    coins.className = 'chip'; coins.textContent = '🪙 Give coins';
+    coins.onclick = () => {
+      const c = Math.floor(Number(prompt(`How many coins for ${S.players.get(bagTo)?.name}?`, '50')));
+      if (c > 0) send({ type: 'giveTo', to: bagTo, coins: c });
+    };
+    bar.append(sel, coins);
+  } else bar.append(Object.assign(document.createElement('span'), { textContent: '· stand near someone to give them things', className: 'muted small' }));
+  body.appendChild(bar);
   if (!entries.length) body.insertAdjacentHTML('beforeend', '<p class="muted">Empty. Harvest crops, or buy gifts and furniture in the town square.</p>');
   const list = document.createElement('div');
   list.className = 'list';
   for (const [k, n] of entries) {
-    const sub = ITEMS[k] ? 'Furniture · place it from the Bag tab in Build mode' : GOODS[k].kind === 'produce' ? 'Crop · Rosa buys these, or sell them in your shop' : GOODS[k].kind === 'product' ? 'Homemade · sell it in your shop or to Rosa' : 'Gift · give it to a villager';
+    const sub = ITEMS[k] ? 'Furniture · place it from the Bag tab in Build mode' : GOODS[k].kind === 'tool' ? 'Tool · walk through your crops to water them' : GOODS[k].kind === 'produce' ? 'Crop · Rosa buys these, or sell them in your shop' : GOODS[k].kind === 'product' ? 'Homemade · sell it in your shop or to Rosa' : 'Gift · give it to a villager';
     const food = FOODS[k];
     const gives = food ? Object.entries(food).map(([nd, v]) => `+${v} ${(NEEDS.find((x) => x.id === nd) || HEALTH).icon}`).join(' ') : '';
-    list.appendChild(itemRow(k, `×${n} · ${sub}${gives ? ` · eat: ${gives}` : ''}`, food ? [['😋 Eat', () => { send({ type: 'eat', item: k }); closeModal(); }]] : []));
+    const btns = food ? [['😋 Eat', () => { send({ type: 'eat', item: k }); closeModal(); }]] : [];
+    btns.push(['⬇️ Drop', () => send({ type: 'drop', item: k, n: Math.min(n, bagN) }), S.ride && k === 'tractor']);
+    if (bagTo) btns.push(['🎁 Give', () => send({ type: 'giveTo', to: bagTo, item: k, n: Math.min(n, bagN) }), S.ride && k === 'tractor']);
+    list.appendChild(itemRow(k, `×${n} · ${sub}${gives ? ` · eat: ${gives}` : ''}`, btns));
   }
   body.appendChild(list);
 }
@@ -2375,7 +2432,7 @@ function syncPlots(force) {
   for (let st of plots) {
     let variant = '';
     if (carried && st.id === S.myPlot) { st = liftedPlot(st, carried); variant = `lift:${carried.kind}:${carried.from || ''}:${carried.ox},${carried.oy}`; }
-    const crops = Object.values(st.obj).filter((o) => ITEMS[o.t]?.crop).map((o) => cropStage(o, sNow)).join('');
+    const crops = Object.values(st.obj).filter((o) => ITEMS[o.t]?.crop).map((o) => cropStage(o, sNow) + (isWet(o, sNow) ? 'w' : '')).join('');
     const e = st.owner ? null : plotEntrance(world, st);
     if (view.setPlot(st, { ...plotOpts(st.id), crops, variant, entrance: e && { x: e.x / TILE, z: e.y / TILE } }) && ++rebuilt >= 2 && !force) {
       plotsDirty = true;
@@ -2395,8 +2452,9 @@ function update(dt) {
     if (Math.hypot(v.x, v.y) > 0.1 && !S.stopSent) { S.stopSent = true; send({ type: 'stop' }); }
     v = { x: 0, y: 0 };
   }
-  me.act = S.act || 0;
+  me.act = S.ride ? 'drive' : S.act || 0;
   autoHarvest();
+  tractorWork();
   me.moving = Math.hypot(v.x, v.y) > 0.1;
   me.running = me.moving && !!v.run;
   if (me.moving) view.offset.multiplyScalar(Math.max(0, 1 - dt * 3));
@@ -2405,7 +2463,7 @@ function update(dt) {
     const g = view.ground();
     const wx = g.rx * v.x - g.fx * v.y, wz = g.rz * v.x - g.fz * v.y;
     const tired = S.needs && (S.needs.energy < 8 || S.needs.health < 20) ? 0.7 : 1; // exhausted or unwell: slower
-    const sp = PLAYER_SPEED * (me.running ? RUN_MULT : 1) * tired * dt;
+    const sp = PLAYER_SPEED * (S.ride ? RUN_MULT : me.running ? RUN_MULT : 1) * (S.ride ? 1 : tired) * dt;
     const nx = me.x + wx * sp, ny = me.y + wz * sp;
     // Each axis separately, so you slide along walls; stairs change your level.
     let l = stepLevel(world, S.plots, nx, me.y, me.level);
@@ -2483,6 +2541,7 @@ const SHOP_ACTS = {
   'shop:make': { icon: '⚙️', label: 'Make something' },
   'shop:collect': { icon: '✅', label: 'Collect' },
   'shop:wait': { icon: '⏳', label: 'Working…' },
+  'farm:drive': { icon: '🚜', label: 'Drive' },
 };
 const actInfo = (id) => ACTIVITIES[id] || SHOP_ACTS[id];
 function actionsFor(plot, o) {
@@ -2490,6 +2549,7 @@ function actionsFor(plot, o) {
   const out = canUseOn(plot) ? usesNow(o.t).filter((id) => !ACTIVITIES[id].shop || (mine && plot.biz)) : [];
   if (slotsOf(o.t)) { if (mine) out.push('shop:stock'); else if (plot.biz) out.push('shop:browse'); }
   if (isMachine(o.t) && mine) out.push(o.job ? (serverNow() >= o.job.ready ? 'shop:collect' : 'shop:wait') : 'shop:make');
+  if (o.t === 'tractor' && mine && !S.ride) out.push('farm:drive');
   return out;
 }
 
@@ -2545,6 +2605,7 @@ function usableAt(cx, cy) {
 }
 function useThing(u, act) {
   closeUseMenu();
+  if (act === 'farm:drive') return send({ type: 'drive', plotId: u.plot.id, lx: u.lx, ly: u.ly });
   if (act.startsWith('shop:')) return shopAction(u, act);
   const a = ACTIVITIES[act];
   if (a.cost && S.coins < a.cost) return toast('Not enough coins');
@@ -2743,13 +2804,15 @@ function actPose(p) {
 // column).
 const harvestSent = new Map();
 function autoHarvest() {
-  if (S.mode !== 'walk' || S.act || (S.me.level || 0)) return;
+  if (S.mode !== 'walk' || S.act || S.ride || (S.me.level || 0)) return;
   const id = plotIdAtPixel(world, S.me.x, S.me.y);
   const plot = id >= 0 ? S.plots[id] : null;
   if (!plot || plot.owner !== S.me.id) return;
   const fx = S.me.x / TILE - plot.x, fy = S.me.y / TILE - plot.y - 0.3;
   const now = performance.now(), sNow = serverNow();
-  const ripe = (x, y) => { const o = plot.obj[key(x, y)]; return !!o && !!ITEMS[o.t]?.crop && cropStage(o, sNow) >= 3 && now - (harvestSent.get(`${id}:${x},${y}`) || 0) > 1500; };
+  // With a watering can, dry crops count too: the row gets watered as you go.
+  const can = S.inv.wateringcan > 0;
+  const ripe = (x, y) => { const o = plot.obj[key(x, y)]; return !!o && !!ITEMS[o.t]?.crop && (cropStage(o, sNow) >= 3 || (can && !isWet(o, sNow + DAY_MS * 0.3))) && now - (harvestSent.get(`${id}:${x},${y}`) || 0) > 1500; };
   // The tile under your feet and any you brush past.
   for (const [dx, dy] of [[0, 0], [-0.35, 0], [0.35, 0], [0, -0.35], [0, 0.35]]) {
     const lx = Math.floor(fx + dx), ly = Math.floor(fy + dy);
@@ -2991,6 +3054,13 @@ function render(now) {
   if (S.mode !== 'build' || !S.me) view.setTarget(U(S.me.x), U(S.me.y), false, myH);
   const sNow = serverNow();
   const drawPerson = (p, h) => {
+    if (p.act === 'drive') {
+      // On the tractor: the driver sits on the seat, a little behind the middle.
+      const yaw = view.vehicle(`ride:${p.id}`, 'tractor', U(p.x), h, U(p.y), p.dir);
+      const bx = Math.sin(yaw) * 0.35, bz = Math.cos(yaw) * 0.35;
+      view.actor(p.id, U(p.x) + bx, U(p.y) + bz, p.dir, false, p.look, now, true, h + 0.62, null, { kind: 'sit' });
+      return;
+    }
     const pose = actPose(p);
     view.actor(p.id, U(p.x), U(p.y), p.dir, p.running ? 'run' : p.moving, p.look, now, pose?.vis ?? true, h + (pose?.y || 0), null, pose?.pose || null);
   };
@@ -3002,6 +3072,7 @@ function render(now) {
   }
   drawPerson(S.me, myH);
   drawShopPeople(now);
+  drawFarmhands(now);
   for (const [id, p] of pets) {
     const owner = id === S.me.id ? S.me : S.players.get(id);
     if (!owner) continue;
@@ -3049,6 +3120,7 @@ function drawOverlay(now) {
     const p = view.toScreen(st.x + st.w / 2, 0.9, st.y + 0.5);
     if (onScreen(p)) tag(`🏡 ${st.farm ? st.farm + ' Farm' : st.ownerName}`, p.x, p.y, 11, st.owner === S.me.id ? '#ffe08a' : '#fff');
   }
+  drawFarmOverlay(onScreen, now);
   // Goods on shelves (with price tags up close), machines at work, coins from sales.
   const cam = view.target;
   octx.textAlign = 'center';
@@ -3270,6 +3342,113 @@ if (new URLSearchParams(location.search).has('debug')) {
     plotToClient: (lx, ly, h = 0, plotId = S.myPlot) => { const d = S.plots[plotId]; return view.toScreen(d.x + lx, S.level * LEVEL_H + h, d.y + ly); },
     worldToClient: (x, z, h = 0) => view.toScreen(x, h, z),
     tileToClient: (tx, ty) => view.toScreen(tx + 0.5, 0, ty + 0.5),
-    setLevel, cycleWalls, turnCamera, setMode, send, nearestUsable, usableAt,
+    setLevel, cycleWalls, turnCamera, setMode, send, nearestUsable, usableAt, showCity: () => showCity(), showBag: () => showBag(),
   };
+}
+
+// ---------- Farm: tractor, farmhands, drops, water & power ----------
+// The tractor bar: what the tractor does as you drive, and getting off.
+function renderRideBar() {
+  const el = $('ridebar');
+  if (!el) return;
+  el.hidden = !S.ride;
+  if (!S.ride) { el.innerHTML = ''; return; }
+  el.innerHTML = '<b>🚜</b>';
+  for (const [k, m] of Object.entries(TRACTOR_MODES)) {
+    const b = document.createElement('button');
+    b.className = `chip${S.ride.mode === k ? ' sel' : ''}`;
+    b.innerHTML = `${m.icon} ${m.label}`;
+    b.onclick = () => send({ type: 'rideMode', mode: k });
+    el.appendChild(b);
+  }
+  if (S.ride.mode === 'plant') {
+    const sel = document.createElement('select');
+    for (const id of SEEDS) sel.add(new Option(`${GOODS[ITEMS[id].crop]?.icon || '🌱'} ${ITEMS[id].name} · 🪙${ITEMS[id].price}`, id, false, id === S.ride.seed));
+    sel.onchange = () => send({ type: 'rideMode', seed: sel.value });
+    el.appendChild(sel);
+  }
+  const off = document.createElement('button');
+  off.className = 'chip';
+  off.textContent = '🅿️ Park';
+  off.onclick = () => send({ type: 'park' });
+  el.appendChild(off);
+}
+
+// Driving over your plot: work a 3-wide strip across the way you're going.
+const workSent = new Map();
+let workAt = 0;
+function tractorWork() {
+  if (!S.ride || S.mode !== 'walk' || !S.me.moving || (S.me.level || 0)) return;
+  const now = performance.now();
+  if (now - workAt < 120) return;
+  const id = plotIdAtPixel(world, S.me.x, S.me.y);
+  const plot = id >= 0 ? S.plots[id] : null;
+  if (!plot || plot.owner !== S.me.id) return;
+  workAt = now;
+  const sNow = serverNow(), mode = S.ride.mode;
+  const cx = Math.floor(S.me.x / TILE) - plot.x, cy = Math.floor(S.me.y / TILE) - plot.y;
+  const [sx, sy] = S.me.dir === 2 || S.me.dir === 3 ? [0, 1] : [1, 0];
+  const wants = (x, y) => {
+    if (!inInterior(plot, x, y) || roadIn(world, plot, x, y)) return false;
+    const k = key(x, y), o = plot.obj[k], crop = o && ITEMS[o.t]?.crop;
+    if (mode === 'harvest') return !!crop && cropStage(o, sNow) >= 3;
+    if (mode === 'water') return !!crop && cropStage(o, sNow) < 3 && !isWet(o, sNow + DAY_MS * 0.3) && !!plot.util?.water;
+    if (mode === 'plant') return !o && plot.floor[k] === 'soil' && !objAt(plot, x, y);
+    return !o && !plot.floor[k] && !objAt(plot, x, y);
+  };
+  const tiles = [];
+  for (let i = -1; i <= 1; i++) {
+    const x = cx + sx * i, y = cy + sy * i;
+    if (wants(x, y) && now - (workSent.get(`${id}:${x},${y}`) || 0) > 1500) { tiles.push([x, y]); workSent.set(`${id}:${x},${y}`, now); }
+  }
+  if (tiles.length) send({ type: 'farmWork', plotId: id, tiles });
+}
+
+// Farmhands stroll from crop to crop on their owner's farm (6 AM – 9 PM).
+function drawFarmhands(now) {
+  const { hours } = worldClock(serverNow(), S.epoch);
+  if (hours < 6 || hours >= 21) return;
+  for (const plot of Object.values(S.plots)) {
+    const h = plot.hand && FARMHANDS[plot.hand];
+    if (!h) continue;
+    if (Math.abs(plot.x + plot.w / 2 - U(S.me.x)) > 50 || Math.abs(plot.y + plot.h / 2 - U(S.me.y)) > 50) continue;
+    const crops = Object.keys(plot.obj).filter((k) => ITEMS[plot.obj[k].t]?.crop).sort();
+    const spot = (i) => {
+      if (!crops.length) return [plot.w / 2 + Math.sin(i) * 2, plot.h / 2 + Math.cos(i * 1.3) * 2];
+      const [x, y] = crops[((i % crops.length) + crops.length) % crops.length].split(',').map(Number);
+      return [x + 0.5, y + 1.05];
+    };
+    const T = 5000, t = now / T + plot.id * 0.37, i = Math.floor(t), f = t - i;
+    const a = spot(i * 7), b = spot((i + 1) * 7);
+    const walk = Math.min(1, f / 0.45); // walk for a bit, then tend the crop
+    const x = a[0] + (b[0] - a[0]) * walk, y = a[1] + (b[1] - a[1]) * walk;
+    view.actor(`hand:${plot.id}`, plot.x + x, plot.y + y, 0, walk < 1, h.look, now);
+  }
+}
+
+// Things on the ground, and (in build mode) what's on the water / power network.
+function drawFarmOverlay(onScreen, now) {
+  octx.textAlign = 'center';
+  for (const d of S.drops.values()) {
+    if (Math.abs(U(d.x) - U(S.me.x)) > 30 || Math.abs(U(d.y) - U(S.me.y)) > 30) continue;
+    const h = heightAt(world, S.plots, d.x, d.y, d.level || 0);
+    const p = view.toScreen(U(d.x), h + 0.25 + Math.sin(now / 300 + d.id) * 0.06, U(d.y));
+    if (!onScreen(p)) continue;
+    octx.font = '16px sans-serif';
+    octx.fillText(GOODS[d.item]?.icon || '📦', p.x, p.y);
+    if (d.n > 1) { octx.font = 'bold 9px sans-serif'; octx.fillStyle = '#fff'; octx.fillText(`×${d.n}`, p.x + 10, p.y + 2); octx.fillStyle = '#000'; }
+  }
+  const plot = S.mode === 'build' ? S.plots[S.myPlot] : null;
+  if (!plot || S.level) return;
+  octx.font = '12px sans-serif';
+  for (const [k, o] of Object.entries(plot.obj)) {
+    const d = ITEMS[o.t];
+    if (!d?.needs) continue;
+    const [lx, ly] = k.split(',').map(Number);
+    const [w, h] = footprint(o.t, o.r || 0);
+    const p = view.toScreen(plot.x + lx + w / 2, 1.2, plot.y + ly + h / 2);
+    if (!onScreen(p)) continue;
+    const ok = connected(plot, k, d.needs);
+    octx.fillText(ok ? UTILITIES[d.needs].icon : '⚠️', p.x, p.y);
+  }
 }

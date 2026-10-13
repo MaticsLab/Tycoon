@@ -467,6 +467,13 @@ export const FLOOR = {
     r(c, x, y, TILE, 1, '#4a2e18'); r(c, x, y + 15, TILE, 1, '#8a6040');
     if ((lx + ly) % 3 === 0) px(c, x + 5, y + 6, '#9a7050');
   },
+  // Watered soil: dark and glistening.
+  soil_wet(c, x, y, lx, ly) {
+    r(c, x, y, TILE, TILE, '#45291a');
+    for (let i = 0; i < 4; i++) { r(c, x + 1, y + i * 4 + 1, 14, 2, '#382013'); r(c, x + 1, y + i * 4 + 3, 14, 1, '#56351f'); }
+    r(c, x, y, TILE, 1, '#2e1a0e'); r(c, x, y + 15, TILE, 1, '#5e3c24');
+    if ((lx + ly) % 2 === 0) px(c, x + 4 + (lx % 3) * 3, y + 6, '#8fb8d8');
+  },
 };
 function carpet(c, x, y, lx, ly, p) {
   r(c, x, y, TILE, TILE, p[2]);
@@ -1621,6 +1628,111 @@ Object.assign(FACE, {
   },
 });
 
+// ---------- utilities & farm automation ----------
+const PIPE = ['#1f4f8a', '#2c5f9a', '#3f7fc6', '#5a9ad8', '#8cc4ee'];
+const MTL = ['#4a5058', '#6f7780', '#9aa3ab', '#b9c1c8', '#dfe5ea'];
+const ORNG = ['#8a3f0c', '#c25e12', '#e8781e', '#f39a3a', '#ffc48a'];
+const TRENCH_C = ['#4a3622', '#5f4630', '#7a5c40'];
+// Light-blue water drops falling in arcs around (cx, cy).
+function spray(c, cx, cy, reach, n = 8) {
+  for (let k = 0; k < n; k++) {
+    const a = (k / n) * Math.PI * 2, dx = Math.cos(a), dy = Math.sin(a) * 0.5;
+    for (let i = 1; i <= 3; i++) {
+      const t = i / 3, x = Math.round(cx + dx * reach * t), y = Math.round(cy + dy * reach * t - 3 * Math.sin(Math.PI * t * 0.8) + t * 2);
+      px(c, x, y, i % 2 ? '#8fd3ee' : '#c5ecf8');
+    }
+  }
+}
+
+Object.assign(OBJ, {
+  spout(c) {
+    r(c, 2, 10, 12, 6, STN[2]); r(c, 2, 10, 12, 1, STN[4]); r(c, 2, 15, 12, 1, STN[1]); r(c, 3, 13, 3, 2, '#2a2d33');
+    r(c, 6, -1, 4, 12, PIPE[2]); r(c, 6, -1, 1, 12, PIPE[3]); r(c, 9, -1, 1, 12, PIPE[1]);
+    r(c, 5, 8, 6, 2, '#c9a24c'); r(c, 5, 3, 6, 1, '#c9a24c'); r(c, 5, 8, 6, 1, '#e0c070');
+    r(c, 6, 1, 4, 3, PIPE[2]); r(c, 7, 4, 2, 3, '#c9a24c'); px(c, 7, 4, '#e0c070'); px(c, 8, 8, '#8fd3ee'); px(c, 8, 11, '#c5ecf8');
+    r(c, 7, -3, 2, 2, '#c9a24c');
+    r(c, 5, -6, 6, 1, '#d9443a'); r(c, 5, -3, 6, 1, '#a8302a'); r(c, 4, -5, 1, 2, '#d9443a'); r(c, 11, -5, 1, 2, '#a8302a');
+    r(c, 5, -5, 6, 1, '#2f3542'); r(c, 5, -4, 6, 1, '#4a4d55'); r(c, 7, -6, 2, 4, '#c9a24c'); px(c, 7, -6, '#f0d890');
+  },
+  pipe(c) {
+    r(c, 4, 0, 8, 16, TRENCH_C[1]); r(c, 0, 4, 16, 8, TRENCH_C[1]); r(c, 4, 0, 1, 4, TRENCH_C[0]); r(c, 0, 4, 4, 1, TRENCH_C[0]); r(c, 11, 12, 1, 4, TRENCH_C[2]); r(c, 12, 11, 4, 1, TRENCH_C[2]);
+    r(c, 6, 0, 4, 16, '#5f86a8'); r(c, 0, 6, 16, 4, '#5f86a8'); r(c, 6, 0, 1, 16, '#8fb4d2'); r(c, 0, 6, 16, 1, '#8fb4d2'); r(c, 9, 0, 1, 16, '#43657f'); r(c, 0, 9, 16, 1, '#43657f');
+    for (const [x, y, w, h] of [[5, 0, 6, 2], [5, 14, 6, 2], [0, 5, 2, 6], [14, 5, 2, 6]]) { r(c, x, y, w, h, PIPE[1]); px(c, x, y, PIPE[3]); }
+    r(c, 5, 5, 6, 6, PIPE[1]); r(c, 5, 5, 6, 1, PIPE[3]); r(c, 7, 7, 2, 2, '#c9a24c');
+  },
+  cable(c) {
+    r(c, 5, 0, 6, 16, TRENCH_C[1]); r(c, 0, 5, 16, 6, TRENCH_C[1]); r(c, 5, 0, 1, 5, TRENCH_C[0]); r(c, 0, 5, 5, 1, TRENCH_C[0]);
+    r(c, 7, 0, 2, 16, '#23262b'); r(c, 0, 7, 16, 2, '#23262b'); r(c, 7, 0, 1, 16, '#3a3d44'); r(c, 0, 7, 16, 1, '#3a3d44');
+    for (const t of [1, 3, 12, 14]) { r(c, 7, t, 2, 1, '#f5c542'); r(c, t, 7, 1, 2, '#f5c542'); }
+    r(c, 5, 5, 6, 6, '#23262b'); r(c, 6, 6, 4, 4, '#f5c542'); r(c, 7, 7, 2, 2, '#23262b'); px(c, 5, 5, '#4a4d55');
+  },
+  sprinkler(c) {
+    r(c, 7, 5, 2, 11, W8[3]); r(c, 7, 5, 1, 11, W8[4]); r(c, 6, 14, 4, 2, W8[1]);
+    r(c, 5, 2, 6, 4, '#c9a24c'); r(c, 5, 2, 6, 1, '#e0c070'); r(c, 10, 3, 1, 3, '#a8822e'); r(c, 6, 0, 4, 2, '#dcb85e'); r(c, 7, -1, 2, 1, PIPE[2]);
+    r(c, 0, 14, 7, 1, PIPE[1]);
+    spray(c, 8, -1, 7, 10); px(c, 8, -3, '#c5ecf8'); px(c, 7, -2, '#8fd3ee');
+  },
+  bigsprinkler(c) {
+    for (let i = 0; i < 7; i++) { px(c, 6 - i, 9 + i, MTL[1]); px(c, 9 + i, 9 + i, MTL[1]); px(c, 7 - i, 9 + i, MTL[2]); px(c, 8 + i, 9 + i, MTL[0]); }
+    r(c, 7, 9, 2, 6, MTL[1]); r(c, 5, 7, 6, 3, '#2f3542'); r(c, 5, 7, 6, 1, '#4a5058');
+    r(c, 7, -6, 2, 13, PIPE[2]); r(c, 7, -6, 1, 13, PIPE[3]); r(c, 6, 2, 4, 1, '#c9a24c');
+    r(c, 5, -10, 6, 4, '#c9a24c'); r(c, 5, -10, 6, 1, '#e0c070'); r(c, 6, -11, 4, 1, '#dcb85e');
+    r(c, 10, -9, 5, 2, '#c9a24c'); r(c, 14, -10, 2, 3, PIPE[2]); r(c, 1, -11, 5, 1, '#c9d2d8'); px(c, 1, -12, '#2f3542');
+    spray(c, 8, -10, 8, 12); for (const [x, y] of [[15, -12], [16, -9], [0, -9]]) px(c, x, y, '#c5ecf8');
+  },
+  harvester(c) {
+    const O = ORNG;
+    r(c, 1, 11, 4, 5, '#23262b'); r(c, 11, 11, 4, 5, '#23262b'); for (const y of [12, 14]) { r(c, 1, y, 4, 1, '#4a4d55'); r(c, 11, y, 4, 1, '#4a4d55'); }
+    r(c, 2, 9, 12, 3, '#2f3542');
+    r(c, 2, 0, 9, 10, O[2]); r(c, 2, 0, 9, 1, O[3]); r(c, 2, 0, 1, 10, O[3]); r(c, 10, 1, 1, 9, O[1]);
+    r(c, 3, 4, 5, 4, '#2a2d33'); r(c, 4, 5, 3, 2, '#5cc0e0'); px(c, 4, 5, '#bdeeff');
+    r(c, 9, 0, 6, 7, W8[3]); r(c, 9, 0, 6, 1, W8[4]); r(c, 9, 3, 6, 1, W8[1]);
+    px(c, 10, -1, '#d9443a'); px(c, 11, -1, '#e8781e'); px(c, 12, -2, '#5aa842'); px(c, 13, -1, '#f5c542'); px(c, 12, -1, '#9b59b6'); px(c, 10, -2, '#e8781e'); px(c, 11, -2, '#d9443a');
+    r(c, 4, -8, 3, 8, O[2]); r(c, 4, -8, 1, 8, O[3]); r(c, 3, -9, 5, 2, '#2f3542');
+    r(c, 1, -10, 6, 2, O[3]); r(c, 0, -10, 2, 3, '#2f3542'); r(c, 0, -7, 1, 4, O[2]); r(c, -1, -3, 3, 1, '#c9d2d8'); px(c, -1, -2, '#c9d2d8'); px(c, 1, -2, '#c9d2d8');
+    r(c, 6, -3, 2, 2, '#2f3542'); px(c, 6, -3, '#6cff8a'); px(c, 7, -3, '#bdffcb');
+  },
+});
+
+Object.assign(FACE, {
+  powerbox: {
+    down(c) {
+      r(c, 4, 13, 8, 3, STN[2]); r(c, 4, 13, 8, 1, STN[3]); r(c, 7, 4, 2, 9, MTL[1]); r(c, 5, 6, 1, 8, '#2a2d33');
+      r(c, 2, -7, 12, 12, MTL[2]); r(c, 2, -7, 12, 1, MTL[4]); r(c, 2, -7, 1, 12, MTL[3]); r(c, 13, -6, 1, 11, MTL[1]); r(c, 1, -9, 14, 2, MTL[1]); r(c, 1, -9, 14, 1, MTL[3]);
+      disc(c, 6, -3, 3, 3, MTL[1]); disc(c, 6, -3, 2, 2, '#e8f0f4'); px(c, 6, -4, '#d9443a'); px(c, 6, -3, '#2f3542');
+      r(c, 9, 0, 4, 4, '#f5c542'); px(c, 11, 0, '#2a2d33'); px(c, 10, 1, '#2a2d33'); px(c, 11, 1, '#2a2d33'); px(c, 11, 2, '#2a2d33'); px(c, 10, 3, '#2a2d33');
+      r(c, 10, -5, 2, 2, '#ffd23a'); px(c, 10, -5, '#fff6cf'); c.fillStyle = 'rgba(255,210,58,0.35)'; c.fillRect(9, -6, 4, 4);
+    },
+    up(c) {
+      r(c, 4, 13, 8, 3, STN[2]); r(c, 7, 4, 2, 9, MTL[1]); r(c, 2, -7, 12, 12, MTL[1]); r(c, 2, -7, 12, 1, MTL[3]); r(c, 1, -9, 14, 2, MTL[1]); r(c, 1, -9, 14, 1, MTL[3]);
+      for (const y of [-4, -1, 2]) r(c, 4, y, 8, 1, MTL[0]);
+    },
+    side(c) {
+      r(c, 4, 13, 8, 3, STN[2]); r(c, 7, 4, 2, 9, MTL[1]); r(c, 5, -7, 7, 12, MTL[2]); r(c, 5, -7, 7, 1, MTL[4]); r(c, 4, -9, 9, 2, MTL[1]); r(c, 4, -9, 9, 1, MTL[3]);
+      r(c, 4, -6, 1, 11, MTL[3]); r(c, 3, -2, 1, 3, '#c9d2d8'); px(c, 3, -5, '#ffd23a');
+    },
+  },
+});
+
+Object.assign(TURN, {
+  tractor(c) {
+    const R = RED, T = '#23262b', T2 = '#3a3d44';
+    r(c, 0, 3, 3, 8, T); r(c, 13, 3, 3, 8, T); for (const y of [4, 6, 8]) { r(c, 0, y, 3, 1, T2); r(c, 13, y, 3, 1, T2); }
+    r(c, 0, 17, 4, 14, T); r(c, 12, 17, 4, 14, T); for (let y = 18; y < 31; y += 2) { r(c, 0, y, 4, 1, T2); r(c, 12, y, 4, 1, T2); }
+    r(c, 1, 22, 2, 4, '#f5c542'); r(c, 13, 22, 2, 4, '#f5c542');
+    r(c, 3, 6, 10, 2, '#2f3542');
+    r(c, 4, 0, 8, 16, R[2]); r(c, 4, 0, 8, 1, R[4]); r(c, 4, 0, 1, 16, R[3]); r(c, 11, 0, 1, 16, R[1]);
+    r(c, 5, 0, 6, 2, '#2a2d33'); r(c, 5, 1, 6, 1, '#c9d2d8'); px(c, 4, 0, '#fff2b0'); px(c, 11, 0, '#fff2b0');
+    r(c, 5, 5, 6, 1, '#f5c542'); r(c, 5, 10, 6, 1, '#f5c542');
+    r(c, 9, 3, 2, 2, '#2f3542'); px(c, 9, 3, '#c9d2d8');
+    r(c, 3, 15, 10, 13, R[2]); r(c, 3, 15, 10, 1, R[3]);
+    r(c, 0, 16, 4, 2, R[3]); r(c, 12, 16, 4, 2, R[1]); r(c, 0, 16, 4, 1, R[4]); r(c, 12, 16, 4, 1, R[3]);
+    r(c, 5, 16, 6, 2, R[1]); r(c, 6, 17, 4, 3, '#2a2d33'); r(c, 7, 18, 2, 1, R[2]); r(c, 8, 20, 1, 2, '#2f3542');
+    r(c, 5, 22, 6, 5, '#3a3d44'); r(c, 5, 22, 6, 1, '#4a4d55'); r(c, 5, 27, 6, 2, '#2a2d33');
+    r(c, 6, 29, 4, 2, '#2a2d33'); r(c, 7, 31, 2, 1, '#2f3542');
+  },
+});
+
 export function paintObject(c, t, rot, W, H, now) {
   if (TURN[t]) {
     const [w0, h0] = footprint(t, 0);
@@ -1652,11 +1764,13 @@ export function frameNow(t, now) {
   return 0;
 }
 
+const NO_LINE = new Set(['pipe', 'cable']);
 export function objectSprite(t, rot, now) {
   const [w, h] = footprint(t, rot);
   const W = w * TILE, H = h * TILE;
   const fnow = frameNow(t, now);
-  return bake(`obj|${t}|${rot}|${fnow}`, 4, 34, W + 8, H + 38, (cc) => paintObject(cc, t, rot, W, H, fnow));
+  // pipes and cables skip the outline so neighbouring runs join up seamlessly
+  return bake(`obj|${t}|${rot}|${fnow}`, 4, 34, W + 8, H + 38, (cc) => paintObject(cc, t, rot, W, H, fnow), !NO_LINE.has(t));
 }
 
 // (x, y) = top-left of the item's anchor tile.
@@ -1735,7 +1849,8 @@ export const shopSignY = (shop) => shop.y * TILE + 19;
 // How far tall items reach above their tile (px), so the icon fits them in.
 const ICON_TOP = { fireplace: 28, grandclock: 23, wardrobe: 30, shower: 22, fridge: 20, floorvase: 20,
   arcade: 24, arclamp: 21, trellis: 21, cattree: 19, easel: 19, vanity: 18, cactus: 16, pedestalsink: 13, lantern: 7,
-  shelf: 23, coolercase: 22, producestand: 25, juicer: 20, bakeryoven: 19, soupot: 19, preservesjar: 17, register: 12 };
+  shelf: 23, coolercase: 22, producestand: 25, juicer: 20, bakeryoven: 19, soupot: 19, preservesjar: 17, register: 12,
+  spout: 6, powerbox: 10, sprinkler: 7, bigsprinkler: 13, harvester: 11, pipe: 1, cable: 1 };
 export function itemIcon(itemId, size = 44) {
   const cv = document.createElement('canvas');
   cv.width = size; cv.height = size;

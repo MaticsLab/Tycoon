@@ -83,6 +83,27 @@ You can also befriend villagers whose personalities change based on how you trea
   - **TV**, **bookshelf**, **low bookcase** or **desk** (read), **piano**, **aquarium** or **fishbowl**, **fireplace** or **fire pit**, **telescope**, **arcade cabinet**, **record player** and **painting easel** fill fun.
   Moving stops what you're doing. Others see a thought bubble with what you're up to, and you can use things in a friend's house while they're home. Crops, Honey Cake and Herbal Tea can be eaten straight from the bag.
 - **Farming.** Till soil and plant seeds. Walk into a ripe crop to pick the whole row (or column) of ripe crops you're walking along, then sell them to Rosa or in your shop.
+- **Watering.** Watered crops grow twice as fast while the soil stays wet (one in-game day; wet soil looks dark). Buy a **watering can** from Rosa and walking through your rows waters them.
+- **Water and electricity.** At City Hall, hook up **💧 water** (🪙100 setup + 🪙120 a month) or **⚡ electricity** (🪙150 + 🪙200 a month). Bills go to the city treasury every 28 days. If you can't pay, the service is cut off until you settle up at City Hall.
+  - Water gives you a **ground spout** and electricity a **power box**. Place either anywhere on your plot from Build → Bag.
+  - Run **water pipes** and **power cables** from them (4-way; anything touching the network is connected).
+  - In build mode, 💧/⚡ marks connected things and ⚠️ unconnected ones.
+- **Automation** (Build → Water, Power & Automation):
+  - **Sprinkler** and **Big Sprinkler** keep the crops around them watered (3×3 and 5×5).
+  - **Auto-Harvester** (needs power) picks ripe crops in a 7×7 area into your bag and replants them; seeds come out of your coins.
+  - **Powered shop machines** (a cable to the power box) work twice as fast.
+  - **Tractor:** tap it and choose **🚜 Drive**. While you drive, it works a 3-tile strip across your path, in one of four modes:
+    - **Harvest** ripe crops;
+    - **Plant** a seed of your choice;
+    - **Till** bare ground;
+    - **Water** (needs water service).
+
+    Tap **🅿️ Park** to get off. If there's no room to park, it goes in your bag.
+- **Farmhands.** Hire Clem, Dottie or Moss at City Hall (🪙35–80 a day, paid each morning). They walk your rows, harvest and replant (into your bag), and water the dry crops, even while you're offline. If you can't pay the wage, they quit.
+- **Drop and give.** In the bag:
+  - **⬇️ Drop** puts things on the ground; anyone who walks over them picks them up.
+  - **🎁 Give** hands items, or coins, to a player standing near you.
+- **The market.** Selling lots of one crop lowers what Rosa pays for it for a while (it recovers hour by hour). Each morning she names a **⭐ pick of the day** that she pays 50% more for. Her stall shows the trends.
 - **Run a business.** Get a licence at City Hall (🪙500, paid to the treasury). Then stand on a plot that's for sale and tap **Open my shop here**; the land costs the usual price per tile.
   - **Build it** like a house. In build mode the **🏠 Home ⇄ 🏪** button switches which plot you're building.
   - **Shop & Machines** tab: shop shelves, produce stands, display tables, chilled cases, a cash register and a shop sign.

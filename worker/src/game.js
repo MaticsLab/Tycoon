@@ -2,7 +2,7 @@ import { generateWorld, applyRoads, worldClock, publicAreaAt, plotIdAtPixel, TIL
 import { City } from './city.js';
 import { roomRegion, roomTiles as roomTilesOf, extract, stockFragment, rotateTimes, removeAt, placeError as fragError, applyAt, fragmentValue, cleanFragment } from '../../shared/blueprint.js';
 import { STYLED_ROOMS } from '../../shared/rooms.js';
-import { ITEMS, GOODS, CROPS, START_COINS, cropStage, itemName } from '../../shared/catalog.js';
+import { ITEMS, GOODS, CROPS, START_COINS, cropStage, isWet, itemName } from '../../shared/catalog.js';
 import {
   key, inInterior, tilesOf, footprint, objAt, featurePair, featureWidth, occChanged, placementError, canStand, levelView, canRotate,
   edgeKey, parseEdge, wallError, wallTouchesFeet, roofError, roofAt, indexPlots, roadIn, roadEditError, plotEntrance,
@@ -11,9 +11,11 @@ import {
 import { NPCS } from '../../shared/npcs.js';
 import { HOUR_MS, NEEDS, ACTIVITIES, FOODS, PLATES, sanitizeNeeds, usesOf, advanceNeeds, activityDone, fullNeeds } from '../../shared/needs.js';
 import { sanitizeLook, randomLook, shirtColor } from '../../shared/look.js';
-import { Npc, parseAiReply, REPLY_SCHEMA } from './npc.js';
+import { Npc, parseAiReply, REPLY_SCHEMA, setMarket } from './npc.js';
 import { Life } from './life.js';
 import { Business } from './business.js';
+import { Farm } from './farm.js';
+import { waterCrop, WET_MS } from '../../shared/farm.js';
 import { NPC_ACTS, readTone, blendTone } from '../../shared/village.js';
 
 const randomHex = (n) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -74,6 +76,8 @@ export class Game {
     this.npcs = {};
     this.life = new Life(this);
     this.biz = new Business(this);
+    this.farm = new Farm(this, saved.farm);
+    setMarket((item) => this.farm.sellMult(item));
     for (const id of Object.keys(NPCS)) this.npcs[id] = new Npc(id, saved.npcs?.[id]);
     this.sessions = new Map(); // player id -> session
     this.city = new City(this, saved.city);
@@ -93,6 +97,7 @@ export class Game {
       else if (k === 'gossip') out[k] = this.gossip;
       else if (k === 'roads') out[k] = this.roads;
       else if (k === 'city') out[k] = this.city.s;
+      else if (k === 'farm') out[k] = this.farm.save();
       else if (kind === 'plot') out[k] = this.plots[id] ?? null;
       else if (kind === 'profile') out[k] = this.profiles[id] ?? null;
       else if (kind === 'npc') out[k] = this.npcs[id].s;
@@ -111,6 +116,7 @@ export class Game {
       else if (kind === 'gossip') saved.gossip = v;
       else if (kind === 'roads') saved.roads = v;
       else if (kind === 'city') saved.city = v;
+      else if (kind === 'farm') saved.farm = v;
       else if (kind === 'plot') saved.plots[id] = v;
       else if (kind === 'profile') saved.profiles[id] = v;
       else if (kind === 'npc') saved.npcs[id] = v;
@@ -126,7 +132,7 @@ export class Game {
 
   publicPlayer(s) {
     const p = s.profile;
-    return { id: p.id, name: p.name, color: p.color, look: p.look, x: s.x, y: s.y, dir: s.dir, moving: s.moving, level: s.level, act: s.act?.id || 0, carry: s.carry?.food || 0 };
+    return { id: p.id, name: p.name, color: p.color, look: p.look, x: s.x, y: s.y, dir: s.dir, moving: s.moving, level: s.level, act: s.ride ? 'drive' : s.act?.id || 0, carry: s.carry?.food || 0 };
   }
 
   // identity: { userId, name, username, isAnonymous } — verified by the host.
@@ -206,6 +212,17 @@ export class Game {
       case 'buy': return this.buy(s, msg);
       case 'sell': return this.sell(s, msg);
       case 'gift': return this.gift(s, msg);
+      case 'drop': return this.farm.drop(s, msg);
+      case 'giveTo': return this.farm.giveTo(s, msg);
+      case 'utilStart': return this.cityAction(s, () => this.farm.utilStart(s, msg));
+      case 'utilPay': return this.cityAction(s, () => this.farm.utilPay(s, msg));
+      case 'utilStop': return this.cityAction(s, () => this.farm.utilStop(s, msg));
+      case 'hireHand': return this.cityAction(s, () => this.farm.hireHand(s, msg));
+      case 'fireHand': return this.cityAction(s, () => this.farm.fireHand(s));
+      case 'drive': return this.farm.mount(s, msg);
+      case 'park': return this.farm.park(s);
+      case 'rideMode': return this.farm.rideMode(s, msg);
+      case 'farmWork': return this.farm.work(s, msg);
     }
   }
 
@@ -313,16 +330,21 @@ export class Game {
       plots: Object.values(this.plots),
       roads: this.roads,
       city: this.city.view(this.day(), profile),
+      drops: this.farm.drops,
+      market: this.farm.marketView(),
+      util: profile.util || {}, hand: profile.hand || null,
     });
     this.broadcast({ type: 'join', player: this.publicPlayer(s) }, s);
     this.life.send(s);
     this.biz.send(s);
+    this.farm.syncUtil(profile);
     if (profile.plotId != null) this.broadcast({ type: 'plot', plot: this.plots[profile.plotId] });
   }
 
   leave(s) {
     if (!s.profile || this.sessions.get(s.profile.id) !== s) return;
     if (s.act) this.stopActivity(s, false);
+    if (s.ride) this.farm.park(s, true);
     this.sessions.delete(s.profile.id);
     s.profile.x = s.x; s.profile.y = s.y; s.profile.level = s.level;
     this.markProfile(s.profile);
@@ -1024,14 +1046,21 @@ export class Game {
     const keys = Array.isArray(tiles) ? tiles.slice(0, 64).filter((t) => Array.isArray(t) && t.every(Number.isInteger)).map(([x, y]) => key(x, y))
       : Number.isInteger(lx) ? [key(lx, ly)] : Object.keys(plot.obj);
     const got = {};
+    const can = s.profile.inv.wateringcan > 0;
+    let watered = 0;
     for (const k of keys) {
       const o = plot.obj[k];
-      if (!o || !ITEMS[o.t]?.crop || cropStage(o, now) < 3) continue;
+      if (!o || !ITEMS[o.t]?.crop) continue;
+      if (cropStage(o, now) < 3) {
+        // With a watering can, walking through your crops waters the dry ones.
+        if (can && Array.isArray(tiles) && !isWet(o, now + WET_MS * 0.3)) { waterCrop(o, now); watered++; }
+        continue;
+      }
       const crop = ITEMS[o.t].crop;
       got[crop] = (got[crop] || 0) + 1;
       delete plot.obj[k];
     }
-    if (!Object.keys(got).length) return;
+    if (!Object.keys(got).length) { if (watered) this.plotChanged(plot); return; }
     for (const [crop, n] of Object.entries(got)) this.bag(s, crop, n);
     s.send({ type: 'harvested', items: got });
     this.plotChanged(plot);
@@ -1172,6 +1201,7 @@ export class Game {
     if (!qty) return s.send({ type: 'error', msg: `You don't have any ${itemName(item)}` });
     const price = n.price(s.profile, item, false) * qty;
     this.bag(s, item, -qty);
+    this.farm.onSold(item, qty);
     this.coins(s, price);
     this.trade(s, n, 0.3, `${s.profile.name} sold me good produce`, `${qty} ${itemName(item)}${qty > 1 ? 's' : ''}? Lovely — here's ${price} coins.`);
   }
@@ -1241,6 +1271,7 @@ export class Game {
   use(s, { plotId, level = 0, lx, ly, act }) {
     const a = ACTIVITIES[act];
     if (!a) return;
+    if (s.ride) return s.send({ type: 'error', msg: 'Park the tractor first' });
     if (a.carry && !s.carry) return s.send({ type: 'error', msg: 'Get some food first: grab a snack or cook at the fridge' });
     if (a.makes && s.carry) return s.send({ type: 'error', msg: `You’re already holding ${PLATES[s.carry.food].name.toLowerCase()}: eat it first` });
     if (act === 'eatHere') {
@@ -1348,7 +1379,7 @@ export class Game {
     for (const plot of Object.values(this.plots)) {
       let changed = false;
       for (const v of [plot, plot.l1]) for (const o of Object.values(v?.obj || {})) {
-        if (ITEMS[o.t]?.crop && o.p) { o.p -= delta; changed = true; }
+        if (ITEMS[o.t]?.crop && o.p) { o.p -= delta; if (isWet(o, now)) o.b = (o.b || 0) + Math.min(delta, o.wu - now); changed = true; }
         if (o.job) { o.job.ready -= delta; changed = true; }
       }
       if (changed) this.plotChanged(plot);
@@ -1375,6 +1406,7 @@ export class Game {
     if (this.city.dirtyView && now - (this.lastCitySend || 0) > 1000) { this.lastCitySend = now; this.sendCity(); }
     if (this.city.statsDirty && now - (this.lastCitySave || 0) > 30_000) { this.lastCitySave = now; this.city.statsDirty = false; this.mark('city'); }
     this.biz.tick(now);
+    this.farm.tick(now);
     if (!this.sessions.size) return;
     // Drop players we haven't heard from for 450 ticks, about 45 s (a phone that went to
     // sleep mid-game). Counted in ticks so a stalled server never drops everyone at once.
@@ -1410,7 +1442,7 @@ export class Game {
     const rows = [], changed = new Set();
     this.lastRows ||= new Map();
     for (const o of this.sessions.values()) {
-      const row = [o.profile.id, round(o.x), round(o.y), o.dir, o.moving || 0, o.level || 0, o.act?.id || 0, o.carry?.food || 0];
+      const row = [o.profile.id, round(o.x), round(o.y), o.dir, o.moving || 0, o.level || 0, o.ride ? 'drive' : o.act?.id || 0, o.carry?.food || 0];
       const k = row.join(',');
       if (this.lastRows.get(o.profile.id) !== k) { changed.add(o.profile.id); this.lastRows.set(o.profile.id, k); }
       rows.push([o, row]);
