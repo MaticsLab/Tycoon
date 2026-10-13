@@ -703,7 +703,7 @@ export class Game {
   // Short, medium or tall walls (free): the whole run of joined walls changes together.
   wallHeight(s, { plotId, d, x, y, h, level = 0 }) {
     const plot = this.ownPlot(s, plotId);
-    if (!plot || ![1, 2, 3].includes(h) || !['h', 'v'].includes(d)) return;
+    if (!plot || ![1, 2, 3, 4, 5].includes(h) || !['h', 'v'].includes(d)) return;
     level = this.lvl(level);
     const run = wallRun(plot, level, d, x, y);
     if (!run.length) return;

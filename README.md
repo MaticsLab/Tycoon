@@ -61,7 +61,8 @@ You can also befriend villagers whose personalities change based on how you trea
     - **Click with Select** to select what's under the pointer. The game tests each piece of furniture's real 3D shape (and the walls in front of it), so clicking the top of a fridge or the back of a sofa inside a house picks that, not the floor or the room behind it. A popup appears above the selection:
       - **Furniture:** turn it left or right (Shift+R / R, or right-click it) or pick it up and move it. Delete sells it back.
       - **A room's floor:** turn the whole room or pick it up and move it.
-      - **A wall:** three bars set **wall height** like The Sims: short, medium or tall. The whole run of joined walls changes together, roofs sit on top of tall walls, and a tall wall drops back to medium under an upstairs floor.
+      - **A wall:** selects the whole straight line of wall, with an arrow at each end: drag one to lengthen the line (new walls in the same material) or shorten it (knocked down, refunded). Five bars set **wall height** like The Sims: low, half, short, medium or tall. The whole run of joined walls changes together, roofs sit on top of tall walls, a tall wall drops back to medium under an upstairs floor, and a wall with a door or window is never lower than short.
+      - Hovering a room's floor doesn't outline the room; it's only outlined once you click its floor.
     - **Nothing vanishes while you move it:** the furniture or room stays drawn where it is, and a ghost shows where it's going until you set it down.
     - **After you place a piece of furniture** it drops from your hand and becomes selected, so you can turn or nudge it straight away. Seeds, pipes and cables stay in hand.
   - **The build tools:**

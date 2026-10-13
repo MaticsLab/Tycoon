@@ -529,3 +529,9 @@ body.building #topbar, body.building #side, body.building #needs, body.building 
 #catalog, #buildbar { transition: opacity .2s; }
 body.touching #catalog, body.touching #buildbar { opacity: .18; pointer-events: none; }
 #heldghost .hg-box { display: none; }
+/* Arrows at the ends of a selected wall line: drag to lengthen or shorten it. */
+.wlh { position: fixed; left: 0; top: 0; z-index: 13; width: 44px; height: 44px; margin: -22px 0 0 -22px; padding: 6px; border: 0; border-radius: 50%; background: rgba(20, 22, 26, .45); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); cursor: grab; touch-action: none; }
+.wlh[hidden] { display: none; }
+.wlh:hover { background: rgba(63, 169, 245, .6); }
+.wlh svg { width: 32px; height: 32px; fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.7)); }
+body.walldrag, body.walldrag .wlh { cursor: grabbing; }

@@ -243,7 +243,7 @@ export function buildPlot(plot, opts) {
     }
     const base = e.l * LEVEL_H;
     const low = lowered(plot, e, e.l, opts.cut);
-    const H = low ? LOW_H : wallHeight(plot, e.l, e.d, e.x, e.y, w);
+    const full = wallHeight(plot, e.l, e.d, e.x, e.y, w), H = low ? Math.min(LOW_H, full) : full;
     const m0 = wallMat(w.m), m1 = wallMat(w.o || w.m);
     const piece = (a, b, y0, y1) => wallPiece2(batch, m0, m1, e, ox, oz, base, a, b, y0, y1);
     const f = w.f, fc = w.fc || 0;

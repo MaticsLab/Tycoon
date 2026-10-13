@@ -202,12 +202,16 @@ export function plotEntrance(world, plot) {
 
 export const wallAt = (plot, level, d, x, y) => plot.walls?.[edgeKey(level, d, x, y)] || null;
 
-// Wall heights, like The Sims: short, medium (the default) and tall (w.ht = 1 | 2 | 3).
-// A tall wall can't poke through an upstairs floor, and shopfront glass needs medium.
-export const WALL_HEIGHTS = [0, 2.1, 2.5, 3.3];
+// Wall heights, like The Sims (w.ht): 5 low, 4 half, 1 short, 2 medium (the default),
+// 3 tall. HEIGHT_ORDER lists them lowest first. A tall wall can't poke through an
+// upstairs floor; doors and windows need at least a short wall, shopfront glass medium.
+export const WALL_HEIGHTS = [0, 2.1, 2.5, 3.3, 1.2, 0.6];
+export const HEIGHT_ORDER = [5, 4, 1, 2, 3];
+export const HEIGHT_NAMES = { 5: 'Low', 4: 'Half', 1: 'Short', 2: 'Medium', 3: 'Tall' };
 const NEEDS_MEDIUM = new Set(['window_shop', 'door_shop', 'door_shopdouble']);
 export function wallHeight(plot, level, d, x, y, w = wallAt(plot, level, d, x, y)) {
   let ht = w?.ht || 2;
+  if ((ht === 4 || ht === 5) && w?.f) ht = 1;
   if (ht === 1 && NEEDS_MEDIUM.has(w?.f)) ht = 2;
   if (ht === 3 && level + 1 < LEVELS) {
     const up = levelView(plot, level + 1).floor;
@@ -216,6 +220,17 @@ export function wallHeight(plot, level, d, x, y, w = wallAt(plot, level, d, x, y
   }
   return WALL_HEIGHTS[ht];
 }
+// The straight line of walls this one is part of (same direction, end to end).
+export function wallLine(plot, level, d, x, y) {
+  const has = (i) => { const w = plot.walls?.[d === 'h' ? edgeKey(level, d, i, y) : edgeKey(level, d, x, i)]; return w && !ITEMS[w.m]?.fence; };
+  const at = d === 'h' ? x : y;
+  if (!has(at)) return null;
+  let a = at, b = at + 1;
+  while (has(a - 1)) a--;
+  while (has(b)) b++;
+  return { d, fixed: d === 'h' ? y : x, a, b }; // edges a..b-1 along the line
+}
+export const lineEdges2 = (L) => Array.from({ length: L.b - L.a }, (_, i) => (L.d === 'h' ? ['h', L.a + i, L.fixed] : ['v', L.fixed, L.a + i]));
 // Every wall joined to this one (end to end, on the same floor): what a height change sets.
 export function wallRun(plot, level, d, x, y) {
   const out = new Set(), todo = [[d, x, y]];

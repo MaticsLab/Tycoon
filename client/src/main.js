@@ -6,7 +6,7 @@ import {
   canStand, crossesWall, inInterior, key, placementError, objAt, footprint, canRotate, levelView, wallSideAt,
   LEVELS, wallError, lineEdges, rectEdges, roofError, roofAt, edgeKey,
   indexPlots, landError, contentFits, mergedRect, splitRects, hasContent, LAND_PRICE,
-  stepLevel, heightAt, roadEditError, roadIn, plotEntrance, occChanged, wallRun, parseEdge, wallHeight,
+  stepLevel, heightAt, roadEditError, roadIn, plotEntrance, occChanged, wallRun, parseEdge, wallHeight, wallLine, lineEdges2, HEIGHT_ORDER, HEIGHT_NAMES,
 } from '@shared/plot.js';
 import { ITEMS, GOODS, CATEGORIES, cropStage, isWet, itemName } from '@shared/catalog.js';
 import { FARMHANDS, TRACTOR_MODES, SEEDS, connected, networks, UTILITIES, QUALITY, ANIMALS, seasonOf, seasonDay, inSeason, growsAt, seasonsLabel } from '@shared/farm.js';
@@ -1576,7 +1576,7 @@ function markSel() {
   if (!s) return;
   const def = myDef(), l = S.sel.level;
   if (s.kind === 'obj') { const [w, h] = footprint(s.o.t, s.o.r || 0); ghost.box(def.x + S.sel.at[0], def.y + S.sel.at[1], w, h, l * LEVEL_H, Math.min(2.2, itemHeight(s.o.t) + 0.1)); }
-  else if (s.kind === 'wall') ghost.walls([S.sel.edge], def, l, true, true);
+  else if (s.kind === 'wall') { if (!wallDrag) ghost.walls(lineEdges2(s.L), def, l, true, true); }
   else ghost.tiles([...s.tiles].map((k) => k.split(',').map(Number)), def, l, true, 0.03);
 }
 function previewInner() {
@@ -1630,7 +1630,14 @@ function previewInner() {
     if (!q) return;
     const [lx, ly] = tileOf(q);
     const v = levelView(plot, S.level);
-    const hit = (t.kind !== 'saveRoom' && objUnder(hover)) || objAt(v, lx, ly);
+    const under = t.kind !== 'saveRoom' ? pickUnder(hover) : null;
+    if (under?.wall && t.kind === 'select') {
+      const L = wallLine(plot, S.level, ...under.wall);
+      if (L) ghost.walls(lineEdges2(L), def, S.level, true, true);
+      tip(`👆 Wall · ${L ? L.b - L.a : 1} long · click to select`);
+      return;
+    }
+    const hit = under?.obj || (!under?.wall && objAt(v, lx, ly));
     if (hit && t.kind !== 'saveRoom') {
       const [ax, ay] = hit.key.split(',').map(Number);
       const [w, h] = footprint(hit.obj.t, hit.obj.r || 0);
@@ -1640,6 +1647,8 @@ function previewInner() {
       return;
     }
     const tiles = roomTiles(plot, S.level, lx, ly);
+    // Select: just a hint over a room's floor (the room isn't outlined until you click it).
+    if (tiles && t.kind === 'select') { tip(`👆 Room · ${tiles.size} tiles · click to select`); return; }
     if (tiles && t.kind !== 'eyedrop') {
       const xs = [...tiles].map((k) => +k.split(',')[0]), ys = [...tiles].map((k) => +k.split(',')[1]);
       const x0 = Math.min(...xs), y0 = Math.min(...ys);
@@ -1923,7 +1932,7 @@ function selNow() {
   if (!S.sel || S.mode !== 'build') return null;
   const plot = S.plots[S.myPlot];
   if (!plot) return null;
-  if (S.sel.kind === 'wall') { const w = plot.walls?.[edgeKey(S.sel.level, ...S.sel.edge)]; return w ? { kind: 'wall', plot, w } : null; }
+  if (S.sel.kind === 'wall') { const w = plot.walls?.[edgeKey(S.sel.level, ...S.sel.edge)]; const L = w && wallLine(plot, S.sel.level, ...S.sel.edge); return L ? { kind: 'wall', plot, w, L } : null; }
   if (S.sel.kind === 'room') { const tiles = roomTiles(plot, S.sel.level, ...S.sel.at); return tiles ? { kind: 'room', plot, tiles } : null; }
   const so = selObj();
   return so && { kind: 'obj', ...so };
@@ -1985,19 +1994,97 @@ function setWallHeight(h) {
   const before = wallRun(plot, S.sel.level, d, x, y).map((k) => [k, plot.walls[k]?.ht || 2]);
   send({ type: 'wallHeight', ...base0(), d, x, y, h });
   // Undo puts each wall back (they may have differed).
-  pushUndo(`${['', 'short', 'medium', 'tall'][h]} walls`, before.map(([k, ht]) => { const e = parseEdge(k); return { type: 'wallHeight', ...base0(), d: e.d, x: e.x, y: e.y, h: ht }; }));
+  pushUndo(`${HEIGHT_NAMES[h].toLowerCase()} walls`, before.map(([k, ht]) => { const e = parseEdge(k); return { type: 'wallHeight', ...base0(), d: e.d, x: e.x, y: e.y, h: ht }; }));
 }
+// ---- Wall lines: arrows at both ends of a selected line drag it longer or shorter. ----
+let wallDrag = null; // { end: 'a' | 'b', L, m, level, na, nb }
+const lineSpan = () => ({ ...wallDrag.L, a: wallDrag.na, b: wallDrag.nb });
+function placeWallArrows(s) {
+  for (const id of ['wl-a', 'wl-b']) if (!s || s.kind !== 'wall') $(id).hidden = true;
+  if (!s || s.kind !== 'wall') return;
+  const L = wallDrag ? lineSpan() : s.L, p = s.plot, y = S.sel.level * LEVEL_H + 0.6;
+  const pt = (t) => view.toScreen(p.x + (L.d === 'h' ? t : L.fixed), y, p.y + (L.d === 'h' ? L.fixed : t));
+  const A = pt(L.a), B = pt(L.b), ang = Math.atan2(B.y - A.y, B.x - A.x);
+  const ux = Math.cos(ang), uy = Math.sin(ang);
+  for (const [id, P, dir] of [['wl-a', A, -1], ['wl-b', B, 1]]) {
+    const el = $(id);
+    el.hidden = false;
+    // Just past the end, pointing outwards along the wall.
+    el.style.transform = `translate(${Math.round(P.x + ux * dir * 26)}px, ${Math.round(P.y + uy * dir * 26)}px) rotate(${ang + (dir > 0 ? Math.PI : 0)}rad)`;
+  }
+}
+function startWallDrag(end, e) {
+  const s = selNow();
+  if (s?.kind !== 'wall') return;
+  e.preventDefault(); e.stopPropagation();
+  wallDrag = { end, L: s.L, m: s.w.m, level: S.sel.level, na: s.L.a, nb: s.L.b };
+  document.body.classList.add('walldrag');
+  try { e.target.setPointerCapture(e.pointerId); } catch { /* gone */ }
+}
+function moveWallDrag(e) {
+  if (!wallDrag) return;
+  const q = pickLocal(e.clientX, e.clientY);
+  if (!q) return;
+  const plot = S.plots[S.myPlot], L = wallDrag.L;
+  const v = Math.round(L.d === 'h' ? q.fx : q.fz), max = L.d === 'h' ? plot.w : plot.h;
+  if (wallDrag.end === 'b') wallDrag.nb = Math.max(L.a + 1, Math.min(max, v));
+  else wallDrag.na = Math.min(L.b - 1, Math.max(0, v));
+  // Preview: new lengths in the wall's own material, the part to knock down in red.
+  ghost.clear();
+  const span = lineSpan(), def = myDef();
+  const edge = (i) => (L.d === 'h' ? ['h', i, L.fixed] : ['v', L.fixed, i]);
+  const add = [], cut = [];
+  for (let i = Math.min(span.a, L.a); i < Math.max(span.b, L.b); i++) {
+    const inNew = i >= span.a && i < span.b, inOld = i >= L.a && i < L.b;
+    if (inNew && !inOld) add.push(edge(i)); else if (!inNew && inOld) cut.push(edge(i));
+  }
+  const bad = add.map((ed) => wallError(plot, wallDrag.level, ...ed, world)).find(Boolean) || coinsErr(S.freeBuild ? 0 : add.length * ITEMS[wallDrag.m].price);
+  ghost.walls(lineEdges2(span).filter((ed) => !add.some((a) => a[1] === ed[1] && a[2] === ed[2])), def, wallDrag.level, true, true);
+  if (add.length) ghost.walls(add, def, wallDrag.level, !bad, false, bad ? null : wallDrag.m);
+  if (cut.length) ghost.walls(cut, def, wallDrag.level, false, false);
+  wallDrag.add = add; wallDrag.cut = cut; wallDrag.bad = bad;
+  tip(add.length ? `+${add.length} wall${add.length > 1 ? 's' : ''} · 🪙${add.length * ITEMS[wallDrag.m].price}` : cut.length ? `Knock down ${cut.length} wall${cut.length > 1 ? 's' : ''} (refunded)` : `${span.b - span.a} long`, bad);
+  hover = { cx: e.clientX, cy: e.clientY };
+  drawTip();
+}
+function endWallDrag() {
+  if (!wallDrag) return;
+  const W = wallDrag, base = { plotId: S.myPlot, level: W.level };
+  wallDrag = null;
+  document.body.classList.remove('walldrag');
+  if (W.add?.length && !W.bad) {
+    send({ type: 'walls', ...base, m: W.m, segs: W.add });
+    pushUndo(`${W.add.length} wall${W.add.length > 1 ? 's' : ''}`, W.add.map((edge) => ({ type: 'remove', ...base, edge })));
+  } else if (W.add?.length) toast(W.bad);
+  if (W.cut?.length) {
+    for (const edge of W.cut) send({ type: 'remove', ...base, edge });
+    pushUndo(`knocking down ${W.cut.length} wall${W.cut.length > 1 ? 's' : ''}`, [{ type: 'walls', ...base, m: W.m, segs: W.cut }]);
+    // Keep the selection on a wall that's still standing.
+    const keep = W.end === 'b' ? W.L.a : W.L.b - 1;
+    S.sel.edge = W.L.d === 'h' ? ['h', keep, W.L.fixed] : ['v', W.L.fixed, keep];
+  }
+  tipState = null; drawTip();
+  refreshPreview();
+}
+for (const [id, end] of [['wl-a', 'a'], ['wl-b', 'b']]) {
+  $(id).addEventListener('pointerdown', (e) => startWallDrag(end, e));
+  $(id).addEventListener('pointermove', moveWallDrag);
+  $(id).addEventListener('pointerup', endWallDrag);
+  $(id).addEventListener('pointercancel', endWallDrag);
+}
+
 // Keep the popup 60px above the selection, whatever the camera does.
 function placeObjPop() {
   const pop = $('objpop'), s = selNow();
-  if (!s || S.held) { pop.hidden = true; return; }
+  if (!s || S.held) { pop.hidden = true; placeWallArrows(null); return; }
   let wx, wz, top, title;
   if (s.kind === 'obj') {
     const [w, hh] = footprint(s.o.t, s.o.r || 0);
     wx = s.plot.x + S.sel.at[0] + w / 2; wz = s.plot.y + S.sel.at[1] + hh / 2; top = Math.min(1.6, itemHeight(s.o.t)) + 0.2; title = ITEMS[s.o.t].name;
   } else if (s.kind === 'wall') {
-    const [d, x, y] = S.sel.edge;
-    wx = s.plot.x + x + (d === 'h' ? 0.5 : 0); wz = s.plot.y + y + (d === 'v' ? 0.5 : 0); top = wallHeight(s.plot, S.sel.level, d, x, y) * (S.wallMode === 'up' ? 1 : 0.3); title = `wall:${s.w.ht || 2}`;
+    const L = s.L, mid = (L.a + L.b) / 2, [d, x, y] = S.sel.edge;
+    wx = s.plot.x + (L.d === 'h' ? mid : L.fixed); wz = s.plot.y + (L.d === 'h' ? L.fixed : mid);
+    top = wallHeight(s.plot, S.sel.level, d, x, y) * (S.wallMode === 'up' ? 1 : 0.3); title = `wall:${s.w.ht || 2}`;
   } else {
     let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
     for (const k of s.tiles) { const [x, y] = k.split(',').map(Number); x0 = Math.min(x0, x); x1 = Math.max(x1, x + 1); y0 = Math.min(y0, y); y1 = Math.max(y1, y + 1); }
@@ -2011,11 +2098,13 @@ function placeObjPop() {
     head.replaceChildren();
     if (s.kind === 'wall') {
       head.className = 'op-top bars';
-      [1, 2, 3].forEach((h) => {
+      // Five bars, lowest to tallest; the ones up to this wall's height are lit.
+      const cur = HEIGHT_ORDER.indexOf(s.w.ht || 2);
+      HEIGHT_ORDER.forEach((h, i) => {
         const b = document.createElement('button');
-        b.className = 'hbar' + (h <= (s.w.ht || 2) ? ' on' : '');
-        b.style.height = `${[0, 13, 18, 23][h]}px`;
-        b.title = ['', 'Short walls', 'Medium walls', 'Tall walls'][h];
+        b.className = 'hbar' + (i <= cur ? ' on' : '');
+        b.style.height = `${8 + i * 4.5}px`;
+        b.title = `${HEIGHT_NAMES[h]} walls`;
         b.onclick = () => setWallHeight(h);
         head.appendChild(b);
       });
@@ -2024,6 +2113,7 @@ function placeObjPop() {
   const turn = s.kind === 'room' || (s.kind === 'obj' && canRotate(s.o.t));
   const move = s.kind !== 'wall' && !(s.kind === 'obj' && ITEMS[s.o.t].stairs);
   for (const [id, ok] of [['op-rotl', turn], ['op-rotr', turn], ['op-move', move]]) { $(id).disabled = !ok; $(id).style.opacity = ok ? '' : '.35'; }
+  placeWallArrows(s);
   pop.style.transform = `translate(${Math.round(p.x - 88)}px, ${Math.round(p.y - 60 - pop.offsetHeight - 8)}px)`;
 }
 
