@@ -23,7 +23,7 @@ import { modelIcon } from './modelicon.js';
 import { Minimap } from './minimap.js';
 import { roomTiles, roomRegion, extract, rotateTimes, fragmentValue, removeAt, stockFragment, placeError as fragError } from '@shared/blueprint.js';
 import { STYLED_ROOMS } from '@shared/rooms.js';
-import { NEEDS, HEALTH, ACTIVITIES, FOODS, PLATES, usesOf, mood } from '@shared/needs.js';
+import { NEEDS, HEALTH, ACTIVITIES, FOODS, PLATES, usesOf, HOUR_MS } from '@shared/needs.js';
 import { NPC_ACTS } from '@shared/village.js';
 import { questProgress, favourToday, MAX_QUESTS } from '@shared/quests.js';
 import { RECIPES, STAFF, OPEN_HOURS, recipesFor, sellable, valueOf, slotsOf, isMachine, shopOpen } from '@shared/business.js';
@@ -267,7 +267,7 @@ function onMessage(m) {
       S.needs = m.needs;
       S.carry = m.carry || null;
       S.me.carry = S.carry?.food || 0;
-      if (S.act !== m.act) { S.act = m.act; S.stopSent = false; closeUseMenu(); }
+      if (S.act !== m.act) { if (S.act && !m.act) S.actEnded = performance.now(); S.act = m.act; S.stopSent = false; closeUseMenu(); }
       renderNeeds();
       break;
     case 'chat': {
@@ -3108,10 +3108,9 @@ function onTap(cx, cy) {
   // Tap furniture to use it (Sims-style menu).
   const u = usableAt(cx, cy);
   if (u) {
-    if (S.act) { toast(`You’re busy: ${ACTIVITIES[S.act].verb.toLowerCase()}`); return; }
     if (!u.uses.length) { toast('You can only use things in someone’s home while they’re in'); return; }
-    if (u.d > TILE * 1.5) {
-      // Too far: walk over, then open its menu.
+    if (u.d > TILE * 1.5 && !S.act && !S.queue.length) {
+      // Too far: walk over, then open its menu (busy: just open it, to queue something).
       const [w, h] = footprint(u.t, (u.level ? u.plot.l1 : u.plot).obj[u.key]?.r || 0);
       return walkTo((u.plot.x + u.lx + w / 2) * TILE, (u.plot.y + u.ly + h + 0.4) * TILE, () => { const v = nearestUsable(TILE * 1.6); if (v) { const p = view.toScreen(v.plot.x + v.lx + 0.5, 1, v.plot.y + v.ly + 0.5); openUseMenu(v, p.x, p.y - 10); } }, TILE * 1.2);
     }
@@ -3320,10 +3319,12 @@ function update(dt) {
   me.act = S.ride ? 'drive' : ui.fish.state ? 'fish' : S.act || 0;
   autoHarvest();
   tractorWork();
+  runQueue(performance.now());
+  if (S.queue.length) tickQueue(performance.now());
   checkViewKey();
   // Steering: the stick / keys, or a tap-to-walk path.
   let wdir = null;
-  if (Math.hypot(v.x, v.y) > 0.1) { S.walk = null; const g = view.ground(); wdir = [g.rx * v.x - g.fx * v.y, g.rz * v.x - g.fz * v.y]; }
+  if (Math.hypot(v.x, v.y) > 0.1) { S.walk = null; clearQueue(); const g = view.ground(); wdir = [g.rx * v.x - g.fx * v.y, g.rz * v.x - g.fz * v.y]; }
   else if (S.walk && S.mode === 'walk' && !S.act) wdir = walkStep(dt);
   me.moving = !!wdir;
   me.running = me.moving && (!!v.run || (!!S.walk && S.walk.tiles > 8));
@@ -3380,24 +3381,191 @@ function update(dt) {
 }
 
 // ---------- Needs & using furniture ----------
-const needCol = (v) => (v >= 60 ? '#5fc44a' : v >= 30 ? '#e8c23a' : v >= 15 ? '#ec8a2c' : '#e0453a');
-let needsOpen = store.get('needsOpen') !== '0';
+// The needs card: a 2×3 grid of bars coloured by how low they are, arrows for how fast
+// each drops, and a plumbob/mood from the lowest need. Tap a need for a tip and a quick
+// action, which goes in the queue.
+const needCol = (v) => (v >= 65 ? '#6cbf4a' : v >= 40 ? '#e9c23b' : v >= 20 ? '#e98a2b' : '#d9463a');
+const MOODS = [[65, 'Happy', '#6cbf4a', '#3f8a2a'], [40, 'Fine', '#e9c23b', '#a8851a'], [20, 'Uncomfortable', '#e9a23b', '#a8651a'], [-1, 'Miserable', '#d9463a', '#8f2a22']];
+const NEED_TIPS = {
+  hunger: { tip: 'Eat something from your bag, or make a snack at a fridge.', label: 'Eat' },
+  energy: { tip: 'Sleep in a bed, or sit down for a rest.', label: 'Go to bed' },
+  bladder: { tip: 'Find a toilet.', label: 'Use toilet' },
+  hygiene: { tip: 'Take a shower or a bath, or wash your hands.', label: 'Wash' },
+  fun: { tip: 'Play, read, watch TV or chat with a villager.', label: 'Have fun' },
+  health: { tip: 'Rest, and keep your other needs up to recover.', label: 'Rest' },
+};
+let openNeed = null;
 function renderNeeds() {
-  const el = $('needs');
+  const el = $('status');
   if (!S.needs) { el.hidden = true; return; }
   el.hidden = false;
-  el.classList.toggle('open', needsOpen);
-  const m = mood(S.needs);
-  // The plumbob: green when you're happy, yellow, then red.
-  $('plumbob').style.background = `hsl(${Math.round(60 + m * 60)}, 75%, 50%)`;
-  $('needs-mood').textContent = m > 0.5 ? 'Happy' : m > 0 ? 'Fine' : m > -0.5 ? 'Uncomfortable' : 'Miserable';
-  const fill = S.act && ACTIVITIES[S.act]?.gain || {};
+  const low = NEEDS.reduce((a, n) => (S.needs[n.id] < S.needs[a.id] ? n : a), NEEDS[0]);
+  const lv = S.needs[low.id];
+  const [, label, fillC, strokeC] = MOODS.find(([at]) => lv >= at);
+  const pb = $('plumbob').querySelector('.pb');
+  pb.setAttribute('fill', fillC); pb.setAttribute('stroke', strokeC);
+  $('needs-mood').textContent = label;
+  $('needs-why').textContent = lv < 40 ? `${low.name} is low` : 'All needs okay';
+  const fill = (S.act && ACTIVITIES[S.act]?.gain) || {};
   $('needs-bars').innerHTML = [...NEEDS, HEALTH].map((n) => {
     const v = Math.round(S.needs[n.id] ?? 0);
-    return `<div class="need${v < 15 ? ' low' : ''}${fill[n.id] ? ' up' : ''}" title="${n.name} ${v}%"><span>${n.icon}</span><i><b style="width:${v}%;background:${needCol(v)}"></b></i><small>${n.name}</small></div>`;
+    const trend = fill[n.id] ? '<em class="rise">▲</em>' : n.decay ? `<em class="${n.decay >= 3.5 ? 'fast' : ''}">${n.decay >= 3.5 ? '▼▼' : '▼'}</em>` : '<em></em>';
+    return `<button type="button" class="st-need${v < 20 ? ' low' : ''}${fill[n.id] ? ' up' : ''}${openNeed === n.id ? ' open' : ''}" data-need="${n.id}" title="${n.name} ${v}%" aria-label="${n.name} ${v}%"><span>${n.icon}</span><i><b style="width:${v}%;background:${needCol(v)}"></b></i>${trend}</button>`;
   }).join('');
+  renderTip();
 }
-$('needs-head').onclick = () => { needsOpen = !needsOpen; store.set('needsOpen', needsOpen ? '1' : '0'); renderNeeds(); };
+function renderTip() {
+  const box = $('needs-tip');
+  if (!openNeed || !S.needs) { box.hidden = true; return; }
+  const n = [...NEEDS, HEALTH].find((x) => x.id === openNeed), t = NEED_TIPS[openNeed];
+  box.hidden = false;
+  box.innerHTML = `<span>${n.icon}</span><b>${n.name} · ${Math.round(S.needs[n.id])}%</b><p>${esc(t.tip)}</p><button type="button">${esc(t.label)}</button>`;
+  box.querySelector('button').onclick = () => { const ok = queueForNeed(openNeed); if (ok) { openNeed = null; renderNeeds(); } };
+}
+$('needs-bars').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-need]');
+  if (!b) return;
+  openNeed = openNeed === b.dataset.need ? null : b.dataset.need;
+  renderNeeds();
+});
+
+// ---------- the action queue (Sims-style) ----------
+// Things you've asked to do, in order: the first is happening now (walk over, then use
+// the thing), the rest wait their turn. Moving yourself clears it. Up to 6.
+S.queue = [];
+let queueUid = 0;
+const QUEUE_MAX = 6;
+// What satisfies each need, best first.
+const NEED_ACTS = {
+  energy: ['sleep', 'nap', 'sit'], bladder: ['toilet'], hygiene: ['shower', 'bath', 'wash'],
+  fun: ['game', 'piano', 'tv', 'music', 'paint', 'read', 'fish', 'stars'], health: ['sleep', 'nap', 'sit'],
+};
+// The nearest thing (on your floor, on land you can use) that offers one of `acts`,
+// preferring earlier acts when they're about as close.
+function findUse(acts) {
+  const level = S.me.level || 0;
+  let best = null;
+  for (const plot of Object.values(S.plots)) {
+    if (!(canUseOn(plot) || plot.town)) continue;
+    if (Math.abs(plot.x + plot.w / 2 - S.me.x / TILE) > 40 || Math.abs(plot.y + plot.h / 2 - S.me.y / TILE) > 40) continue;
+    const v = level ? plot.l1 : plot;
+    if (!v) continue;
+    for (const [k, o] of Object.entries(v.obj)) {
+      const uses = actionsFor(plot, o);
+      const i = acts.findIndex((a) => uses.includes(a));
+      if (i < 0) continue;
+      const [ax, ay] = k.split(',').map(Number);
+      const d = distTo(plot, ax, ay, o.t, o.r) / TILE + i * 6;
+      if (!best || d < best.score) best = { score: d, act: acts[i], u: { plot, level, key: k, lx: ax, ly: ay, t: o.t, uses } };
+    }
+  }
+  return best;
+}
+function queueForNeed(id) {
+  if (id === 'hunger') {
+    if (S.carry?.food) return enqueue({ act: 'eatHere' });
+    // Food in the bag: the most filling thing you have.
+    const food = Object.keys(S.inv).filter((k) => S.inv[k] > 0 && FOODS[k]?.hunger).sort((a, b) => FOODS[b].hunger - FOODS[a].hunger)[0];
+    if (food) return enqueue({ eat: food, icon: GOODS[food]?.icon || '🍽️', label: `Eating ${GOODS[food]?.name.toLowerCase() || 'a snack'}` });
+    const f = findUse(['snack']);
+    if (!f) { toast('Nothing to eat: buy food at Rosa’s, or put a fridge in your home'); return false; }
+    return enqueue({ act: 'snack', u: f.u, then: 'eatHere' });
+  }
+  const f = findUse(NEED_ACTS[id]);
+  if (!f) { toast({ energy: 'No bed or seat nearby', bladder: 'No toilet nearby: put one in your home', hygiene: 'No shower, bath or sink nearby', fun: 'Nothing fun nearby: try a TV, books or games', health: 'Nowhere to rest nearby' }[id]); return false; }
+  return enqueue({ act: f.act, u: f.u });
+}
+function enqueue(t) {
+  if (S.queue.length >= QUEUE_MAX) { toast('Your queue is full'); return false; }
+  const a = ACTIVITIES[t.act];
+  S.queue.push({ uid: ++queueUid, state: 'wait', icon: t.icon || a?.icon || '❔', label: t.label || a?.verb || 'Busy', ...t });
+  renderQueue();
+  runQueue(performance.now());
+  return true;
+}
+function cancelTask(uid) {
+  const i = S.queue.findIndex((t) => t.uid === uid);
+  if (i < 0) return;
+  const [t] = S.queue.splice(i, 1);
+  if (i === 0) {
+    if (t.state === 'walk') S.walk = null;
+    if (S.act && (t.state === 'do' || t.sent)) send({ type: 'stop' });
+  }
+  renderQueue();
+}
+function clearQueue() {
+  if (!S.queue.length) return;
+  S.queue = [];
+  renderQueue();
+}
+function finishTask() {
+  const t = S.queue.shift();
+  if (t?.then) S.queue.unshift({ uid: ++queueUid, state: 'wait', act: t.then, icon: ACTIVITIES[t.then].icon, label: ACTIVITIES[t.then].verb });
+  renderQueue();
+}
+// How long an activity should take from here (in real ms).
+function taskLength(act) {
+  const a = ACTIVITIES[act];
+  let hours = a.max;
+  if (a.until && a.gain[a.until] && S.needs) hours = Math.min(hours, Math.max(0.05, (100 - S.needs[a.until]) / a.gain[a.until]));
+  return hours * HOUR_MS;
+}
+function sendUse(t, now) {
+  const a = ACTIVITIES[t.act];
+  if (a.cost && S.coins < a.cost) { toast('Not enough coins'); S.queue.shift(); renderQueue(); return; }
+  t.sent = true; t.sentAt = now;
+  if (t.u) send({ type: 'use', plotId: t.u.plot.id, level: t.u.level, lx: t.u.lx, ly: t.u.ly, act: t.act });
+  else send({ type: 'use', act: t.act });
+}
+function runQueue(now) {
+  const t = S.queue[0];
+  if (!t) return;
+  if (t.state === 'do') {
+    if (S.act !== t.act) finishTask();
+    return;
+  }
+  if (t.sent) {
+    if (S.act === t.act) { t.state = 'do'; t.t0 = now; t.dur = taskLength(t.act); renderQueue(); }
+    else if (now - t.sentAt > 4000) { S.queue.shift(); renderQueue(); } // refused (the server said why)
+    return;
+  }
+  if (t.state === 'walk') {
+    if (!S.walk) { S.queue.shift(); renderQueue(); toast('Couldn’t get there'); }
+    return;
+  }
+  // (Just got up from something? Wait for the server to put you back beside it.)
+  if (S.act || S.walk || S.mode !== 'walk' || S.talk || S.ride || now - (S.actEnded || 0) < 600) return;
+  if (t.eat) { send({ type: 'eat', item: t.eat }); S.queue.shift(); renderQueue(); return; }
+  if (!t.u || distTo(t.u.plot, t.u.lx, t.u.ly, t.u.t, (t.u.level ? t.u.plot.l1 : t.u.plot).obj[t.u.key]?.r) <= TILE * 0.9) return sendUse(t, now);
+  const [w, h] = footprint(t.u.t, (t.u.level ? t.u.plot.l1 : t.u.plot).obj[t.u.key]?.r || 0);
+  t.state = 'walk';
+  walkTo((t.u.plot.x + t.u.lx + w / 2) * TILE, (t.u.plot.y + t.u.ly + h + 0.4) * TILE, () => { t.state = 'wait'; sendUse(t, performance.now()); }, TILE * 0.4);
+  if (!S.walk && t.state === 'walk') { S.queue.shift(); renderQueue(); }
+  renderQueue();
+}
+const RING = 2 * Math.PI * 22;
+function renderQueue() {
+  const el = $('queue');
+  const q = S.queue;
+  el.innerHTML = q.map((t, i) => `<div class="st-task${i ? '' : ' cur'}" data-uid="${t.uid}" title="${i ? `Next: ${esc(t.label)}` : esc(t.label)}">
+      ${i ? '' : `<svg viewBox="0 0 52 52" aria-hidden="true"><circle cx="26" cy="26" r="22" stroke="#e2d6bb"/><circle class="prog" cx="26" cy="26" r="22" stroke="#4f9e3a" stroke-dasharray="${RING}" stroke-dashoffset="${RING}"/></svg>`}
+      <span class="emo">${t.icon}</span>
+      <button type="button" class="x" aria-label="Cancel ${esc(t.label)}">✕</button>
+      ${i ? '' : `<div class="st-label"><b>${esc(t.state === 'walk' ? `Walking to the ${ITEMS[t.u?.t]?.name.toLowerCase() || 'spot'}` : t.label)}</b><small class="sub"></small></div>`}
+    </div>`).join('');
+  tickQueue(performance.now());
+}
+$('queue').addEventListener('click', (e) => { const x = e.target.closest('.x'); if (x) cancelTask(+x.closest('[data-uid]').dataset.uid); });
+// Every frame: the current task's ring and time left.
+function tickQueue(now) {
+  const t = S.queue[0], el = $('queue').firstElementChild;
+  if (!t || !el) return;
+  const p = t.state === 'do' && t.dur ? Math.min(0.99, (now - t.t0) / t.dur) : 0;
+  el.querySelector('.prog')?.setAttribute('stroke-dashoffset', String(RING * (1 - p)));
+  el.title = `${t.label} · ${Math.round(p * 100)}%`;
+  const sub = el.querySelector('.sub');
+  if (sub) sub.textContent = S.queue[1] ? `Then ${S.queue[1].label.toLowerCase()}` : t.state === 'do' ? `${Math.max(1, Math.ceil((t.dur - (now - t.t0)) / 1000))}s left` : 'Up next';
+}
 
 // What you can do with an item right now: eating needs a plate in your hands, and
 // you can't fetch more food while you're holding some.
@@ -3532,7 +3700,7 @@ function openUseMenu(u, x, y) {
     if (id === 'shop:wait') label = `${RECIPES[o.job.r].label}: ready in ${Math.max(1, Math.ceil((o.job.ready - serverNow()) / (DAY_MS / 24 / 6))) * 10} min`;
     b.innerHTML = `<span>${a.icon}</span>${esc(label)}${a.cost ? ` <small>🪙${a.cost}</small>` : ''}${a.stove && !hasStove ? ' <small>(needs a stove)</small>' : ''}`;
     b.disabled = off;
-    b.onclick = (e) => { e.stopPropagation(); useThing(u, id); };
+    b.onclick = (e) => { e.stopPropagation(); if (ACTIVITIES[id] && S.mode === 'walk') { closeUseMenu(); enqueue({ act: id, u }); } else useThing(u, id); };
     el.appendChild(b);
   }
   el.hidden = false;
@@ -3721,6 +3889,7 @@ const ACT_ARMS = {
   piano: 'type', game: 'game', cashier: 'type', paint: 'paint', wash: 'wash', warm: 'warm', music: 'lap', fish: 'lap', stars: 'warm',
 };
 const NPC_ARMS = { lunch: 'eat', coffee: 'drink', read: 'read', nap: 'lap', whittle: 'whittle', chat: 'talk', garden: 'stir', fish: 'warm', paint: 'paint', music: 'type', post: 'carry', play: 'wave' };
+const SEAT_DIR = [0, 2, 1, 3]; // item rotation -> the way a person faces (0 down, 1 up, 2 left, 3 right)
 function actPose(p) {
   const a = p.act;
   if (!a && p.carry) return { pose: { arms: 'carry' } };
@@ -3739,7 +3908,8 @@ function actPose(p) {
     // then lie back, head at one end and feet at the other.
     return { y: 0, at: { x: it.cx, z: it.cz }, pose: { kind: 'lieDown', ...liePoints(it) } };
   }
-  return { y: SEAT_Y[it?.t] ?? 0.08, pose: { kind: 'sit', arms: ACT_ARMS[a] || 'lap' } };
+  // Sit facing the seat's front (however you walked up to it). r: 0 south, 1 west, 2 north, 3 east.
+  return { y: SEAT_Y[it?.t] ?? 0.08, dir: it ? SEAT_DIR[it.r] : undefined, pose: { kind: 'sit', arms: ACT_ARMS[a] || 'lap' } };
 }
 
 // Walk into a ripe crop on your plot and you pick the whole row it's in: the unbroken
@@ -4011,7 +4181,7 @@ function render(now) {
     let pose = actPose(p);
     // Petting your pet: kneel down facing it and stroke it.
     const pet = pets.get(p.id);
-    let facing = p.dir;
+    let facing = pose?.dir ?? p.dir;
     if (!pose && pet && pet.heartUntil > now && !p.moving && Math.hypot(pet.x - p.x, pet.y - p.y) < TILE * 3) {
       pose = { pose: { kind: 'kneel', arms: 'pet' } };
       const dx = pet.x - p.x, dz = pet.y - p.y;

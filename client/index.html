@@ -107,9 +107,16 @@
       <button id="btn-chat" title="Chat (Enter)">💬<small>Chat</small></button>
     </div>
     <button id="action" hidden></button>
-    <div id="needs" hidden>
-      <button id="needs-head" title="Your needs"><span id="plumbob"></span><b id="needs-mood">Fine</b><small>▾</small></button>
-      <div id="needs-bars"></div>
+    <div id="status" hidden>
+      <div id="needs" class="st-card">
+        <div class="st-head">
+          <svg id="plumbob" viewBox="0 0 26 36" width="18" height="26" aria-hidden="true"><path class="pb" d="M13 1 25 18 13 35 1 18z" stroke-width="2"/><path d="M13 1v34M1 18h24" stroke="rgba(255,255,255,.35)" stroke-width="1.2"/></svg>
+          <b id="needs-mood">Fine</b><small id="needs-why"></small>
+        </div>
+        <div id="needs-bars" class="st-grid"></div>
+        <div id="needs-tip" class="st-tip" hidden></div>
+      </div>
+      <div id="queue" class="st-queue" aria-label="What you’re doing"></div>
     </div>
     <div id="usemenu" hidden></div>
     <div id="ridebar" hidden></div>
