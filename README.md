@@ -25,6 +25,13 @@ You can also befriend villagers whose personalities change based on how you trea
   In build mode your plot gets a Sims-style build grid: crisp white lines over grass and floors alike, with a dashed white border round the lot. Nearby plots show faintly, and public road tiles on your land are shaded. The wall and fence tools show a tall white pole with a pointer that snaps to the grid corners, so you can see exactly where a wall will start and end (it turns red where you can't build).
   Everything you place is previewed in its real colours (red if it can't go there), with a label at the cursor giving the price and the reason.
 - **Public places:** the Town Square, City Hall, Willow Park (a lake, a gazebo and benches) and the Harvest Fair (a pumpkin patch, corn rows and market stalls).
+- **The countryside.** The map is more than twice the size: the old village sits in the north-west, and round it the land is wild and winding.
+  - A **river** runs down from the north to the sea, crossed by wooden **bridges**.
+  - **Seashell Beach** runs along the south coast, with parasols, towels, rowboats and a **pier** with lamps.
+  - East of the river the land rises into **the Highlands**: cliffs of layered rock, rock formations and boulders, and **stone stairs** up to the moor and on up to **Eagle Lookout** (with a telescope). Cliffs block the way; the stairs are the way up.
+  - **Pine Hollow Campsite** in the pinewoods: tents round a campfire, log seats and lanterns.
+  - Also the **Duck Pond**, the **Standing Stones**, **Riverside Green** and **Gull Point** on its headland.
+  - Winding lanes link it all, with **dozens of new lots for sale** of all shapes along them. Existing homes keep their place when a world upgrades to the new map.
 - **Seasons follow the real calendar.** From September to November the trees turn red and gold, leaves cover the ground and pumpkins fill the fair.
   In October the village decorates for Halloween with jack-o'-lanterns, hay bales, bubbling cauldrons and a spooky graveyard. Fall decorations are also for sale in build mode.
 - **City Hall and elections.** Talk to **Mabel, the City Clerk** (an AI villager) at City Hall, then tap **🏛️ City Hall business**. City Hall opens as a wide window with a sidebar: Overview, Election, Council and Public projects; Utilities, Farmhands, Business and Bank & taxes; and Data. Each section fits on one screen. You can withdraw from a race while filing is still open.
@@ -83,7 +90,7 @@ You can also befriend villagers whose personalities change based on how you trea
   - Ivy the painter, Sam the postie, Nell the retired teacher and Fern the beekeeper;
   - Rowan who farms East Field, Lila the baker (Rosa's niece), Felix the astronomer and Bea the teenage skater.
 
-  Each has their own cottage on **Maple Lane**, a street through the woods south of the village (reached from the avenue or from the Harvest Fair). The cottages are real walk-in houses with interiors to match their owner: Hazel's aquarium, Willa's wall of books, Theo's piano, Felix's telescopes under a glass roof, the bar at Gus's Saloon. Villagers walk home through the front door at night. Each also has their own look, sense of humour, daily routine (fishing, painting, playing music, delivering the post, playing in the square…), likes and dislikes, and friendship gifts.
+  Each has their own cottage out in the countryside, somewhere that suits them: Hazel on the riverbank, Ivy in the woods past the campsite, Felix's observatory up north under dark skies, Gus's saloon on the coast road, Bea by the pier. The cottages are real walk-in houses with interiors to match their owner (Hazel's aquarium, Willa's wall of books, Theo's piano, Felix's telescopes under a glass roof). Villagers walk home through the front door at night, hurrying on long trips, and spend days out at the beach, the campfire, the lookout and the duck pond. Each also has their own look, sense of humour, daily routine (fishing, painting, playing music, delivering the post, playing in the square…), likes and dislikes, and friendship gifts.
 - **Requests (quests).** Favours are rare and on purpose: each day only a few villagers (about one in five, picked at random for you) have something to ask, and they show a bobbing **!** over their head. Talk to one of them to hear it; everyone else just chats. Up to 3 at a time:
   - bring them crops or gifts;
   - put a particular piece of furniture in your home;

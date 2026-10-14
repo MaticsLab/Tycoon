@@ -70,7 +70,13 @@ export class Game {
     this.admins = admins;
     this.ai = ai; // async (messages, schema, parse) => parsed reply or null; null ai = scripted NPCs
     this.world = generateWorld(undefined, { date: new Date(this.now()) });
-    this.roads = { add: saved.roads?.add || [], del: saved.roads?.del || [] };
+    // v6 widened the map (168 -> 256 tiles): tile indices saved before then move.
+    const oldW = (saved.meta?.version || 0) < 6 && saved.meta ? 168 : 0;
+    const remap = (i) => (oldW ? (Math.floor(+i / oldW) * MAP_W + (+i % oldW)) : +i);
+    if (oldW && saved.nature) {
+      for (const k of ['cut', 'grown']) if (saved.nature[k]) saved.nature[k] = Object.fromEntries(Object.entries(saved.nature[k]).map(([i, v]) => [remap(i), v]));
+    }
+    this.roads = { add: (saved.roads?.add || []).map(remap), del: (saved.roads?.del || []).map(remap) };
     applyRoads(this.world, this.roads);
     this.epoch = saved.meta?.epoch || this.now();
     this.profiles = saved.profiles || {}; // user id -> profile
@@ -82,13 +88,20 @@ export class Game {
       for (const s of Object.values(saved.plots)) if (s) this.plots[s.id] = normalizePlot(s);
       this.nextPlotId = saved.meta.nextPlotId ?? Math.max(...Object.keys(this.plots).map(Number).filter((n) => n < TOWN_PLOT_BASE)) + 1;
     } else {
-      STARTER_PLOTS.forEach((r, i) => { this.plots[i] = blankPlot(i, r); });
-      this.nextPlotId = STARTER_PLOTS.length;
+      [...STARTER_PLOTS, ...this.world.lots].forEach((r, i) => { this.plots[i] = blankPlot(i, r); });
+      this.nextPlotId = STARTER_PLOTS.length + this.world.lots.length;
       if (saved.meta) {
         for (const prof of Object.values(this.profiles)) { prof.plotId = null; prof.x = prof.y = null; }
         for (const uid of Object.keys(this.profiles)) this.dirtyLater = [...(this.dirtyLater || []), `profile:${uid}`];
       }
       this.freshLand = true;
+    }
+    // v6: the countryside's lots go on the market (wherever nobody has built already).
+    if (oldW && !this.freshLand) {
+      const mine = Object.values(this.plots).filter((p) => p && Number(p.id) < TOWN_PLOT_BASE);
+      const clear = (r) => !mine.some((p) => r.x < p.x + p.w && p.x < r.x + r.w && r.y < p.y + p.h && p.y < r.y + r.h);
+      for (const r of this.world.lots) if (clear(r)) { const p = blankPlot(this.nextPlotId++, r); this.plots[p.id] = p; this.dirtyLater = [...(this.dirtyLater || []), `plot:${p.id}`]; }
+      this.dirtyLater = [...(this.dirtyLater || []), 'meta', 'roads', 'nature'];
     }
     // The village shops (walk-in buildings) are rebuilt from their layout every start.
     for (const id of Object.keys(this.plots)) if (Number(id) >= TOWN_PLOT_BASE) delete this.plots[id];

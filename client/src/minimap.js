@@ -9,8 +9,9 @@ const TILE_COL = {
   [T.PATH]: '#c99559', [T.WATER]: '#4aa2d6', [T.SAND]: '#e7cb8c', [T.TREE]: '#2c6029',
   [T.PLAZA]: '#c2baa9', [T.FOUNTAIN]: '#8cd0ec', [T.ROCK]: '#8d939b', [T.SHOP]: '#a3463a',
   [T.FIELD]: '#704626', [T.HALL]: '#3f5f86', [T.CORN]: '#c9a24c', [T.FENCE]: '#5aa63b', [T.GATE]: '#c99559',
+  [T.STEPS]: '#bcb4a5', [T.BRIDGE]: '#9b6a3a',
 };
-const AREA_ICON = { 'Town Square': '⛲', 'City Hall': '🏛️', 'Willow Park': '🌳', 'Harvest Fair': '🎃' };
+const AREA_ICON = { 'Town Square': '⛲', 'City Hall': '🏛️', 'Willow Park': '🌳', 'Harvest Fair': '🎃', 'Seashell Beach': '🏖️', 'Pine Hollow Campsite': '⛺', 'Eagle Lookout': '🔭', 'The Highlands': '⛰️', 'Duck Pond': '🦆', 'Standing Stones': '🗿', 'Riverside Green': '🌿', 'Gull Point': '🪨' };
 
 // Paint the ground and plots into a canvas at `s` pixels per tile.
 function paintStatic(world, plots, myPlot, s) {
@@ -21,6 +22,10 @@ function paintStatic(world, plots, myPlot, s) {
     const t = world.tiles[y * MAP_W + x];
     g.fillStyle = TILE_COL[t] || '#5aa63b';
     g.fillRect(x * s, y * s, s, s);
+    // High ground is lighter, with a dark line along the foot of each cliff.
+    const e = world.elev?.[y * MAP_W + x];
+    if (e) { g.fillStyle = `rgba(255,245,210,${0.12 * e})`; g.fillRect(x * s, y * s, s, s); }
+    if (world.elev && y + 1 < MAP_H && world.elev[(y + 1) * MAP_W + x] < e && t !== T.STEPS) { g.fillStyle = 'rgba(40,30,20,.55)'; g.fillRect(x * s, (y + 1) * s - Math.max(1, s / 3), s, Math.max(1, s / 3)); }
   }
   // Houses: floors, then roofs on top.
   for (const p of Object.values(plots)) {

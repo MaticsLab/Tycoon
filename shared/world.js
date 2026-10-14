@@ -8,10 +8,12 @@
 // reroute them through their own land (the live road layout is generated here and then
 // edited at runtime with applyRoads).
 
-export const WORLD_VERSION = 5;
+import { CORE, AREAS as COUNTRY_AREAS, paintLandscape, placeLots } from './landscape.js';
+
+export const WORLD_VERSION = 6;
 export const TILE = 16;
-export const MAP_W = 168;
-export const MAP_H = 108; // the village (rows 0-87) plus Maple Lane to the south
+export const MAP_W = 256; // the old village (168 × 88) in the north-west, countryside all round
+export const MAP_H = 176;
 export const PLOT_W = 24; // default plot size
 export const PLOT_H = 16;
 export const PLAYER_SPEED = 76; // world px per second
@@ -20,12 +22,12 @@ export const RUN_MULT = 1.75;   // holding Shift (or pushing the joystick far) r
 export const T = {
   GRASS: 0, PATH: 1, WATER: 2, TREE: 3, LAWN: 4, FENCE: 5, GATE: 6,
   FLOWERS: 7, SAND: 8, PLAZA: 9, FOUNTAIN: 10, ROCK: 11, TALLGRASS: 12, SHOP: 13,
-  FIELD: 14, HALL: 15, CORN: 16,
+  FIELD: 14, HALL: 15, CORN: 16, STEPS: 17, BRIDGE: 18,
 };
 export const SOLID_TILES = new Set([T.WATER, T.TREE, T.FENCE, T.FOUNTAIN, T.ROCK, T.SHOP, T.HALL, T.CORN]);
 
 // Everything inside the forest border.
-export const LAND = { x: 3, y: 3, w: MAP_W - 6, h: 82 };
+export const LAND = { x: 3, y: 3, w: MAP_W - 6, h: MAP_H - 6 };
 export const ROAD_W = 4;
 // Horizontal roads (y of their top row) and vertical roads (x of their left column).
 export const ROAD_ROWS = [21, 41, 61];
@@ -43,26 +45,13 @@ export const SQUARE = { x: 32, y: 45, w: 56, h: 16, name: 'Town Square' };
 export const CIVIC = { x: 117, y: 25, w: 44, h: 16, name: 'City Hall' };
 export const PARK = { x: 117, y: 45, w: 44, h: 16, name: 'Willow Park' };
 export const FAIR = { x: 117, y: 65, w: 44, h: 16, name: 'Harvest Fair' };
-// Maple Lane: the villagers' own street, through the woods south of the village. Two
-// paths lead down to it: one off the avenue (x 58) and one from the Harvest Fair.
-export const MAPLE = { x: 8, y: 88, w: 152, h: 17, name: 'Maple Lane' };
-export const LANE = { y: 95, h: 3 };
-export const LANE_LINKS = [{ x: 58, w: 4, y: 65 }, { x: 138, w: 2, y: FAIR.y + FAIR.h }];
-// The villagers' cottages: houses on the north side face south onto the lane, those on
-// the south side face north. Built as village plots in townshops.js.
-export const HOMES = [
-  ...[['hazel', 12, 'Hazel’s Cabin'], ['bram', 26, 'The Forge'], ['willa', 40, 'Willa’s Cottage'], ['ellis', 66, 'The Clinic'],
-    ['pip', 80, 'Pip’s House'], ['marigold', 94, 'The Flower Cottage'], ['gus', 108, 'The Saloon', 8, 6], ['theo', 124, 'Theo’s Place'], ['ivy', 144, 'Ivy’s Studio']]
-    .map(([id, x, name, w = 6, h = 5]) => ({ id, name, x, y: LANE.y - 1 - h, w, h, face: 's' })),
-  ...[['sam', 14, 'The Post Office'], ['nell', 30, 'Nell’s Cottage'], ['fern', 46, 'The Apiary'], ['rowan', 68, 'Rowan’s Farmhouse'],
-    ['lila', 86, 'Lila’s Cottage'], ['bea', 104, 'Bea’s House'], ['felix', 148, 'The Observatory']]
-    .map(([id, x, name, w = 6, h = 5]) => ({ id, name, x, y: LANE.y + LANE.h + 1, w, h, face: 'n' })),
-];
+// The villagers' cottages, out in the countryside (see landscape.js).
+export { HOMES, AREAS, CORE } from './landscape.js';
 // The tile just outside each cottage's front door.
 export const homeDoor = (H) => ({ x: H.x + Math.floor(H.w / 2) - 1, y: H.face === 's' ? H.y + H.h : H.y - 1 });
 // Just inside the front door (where a villager is "home").
 export const homeSpot = (H) => ({ x: homeDoor(H).x + 0.5, y: H.face === 's' ? H.y + H.h - 0.6 : H.y + 0.6 });
-export const PUBLIC_AREAS = [SQUARE, CIVIC, PARK, FAIR, MAPLE];
+export const PUBLIC_AREAS = [SQUARE, CIVIC, PARK, FAIR, ...COUNTRY_AREAS];
 export const HALL = { x: 132, y: 26, w: 14, h: 7, name: 'City Hall' };
 export const FOUNTAIN = { x: 58, y: 51, cx: 60, cz: 53 }; // 4x4 tiles
 export const PLAZA_LAMPS = [[57.5, 51.5], [61.5, 51.5], [57.5, 55.5], [62.5, 55.5]];
@@ -142,18 +131,6 @@ function publicDecor(season) {
       if (tileHash(x, y) < 0.62 && !(x === 133 && y === 71) && !(x === 140 && y === 76)) add('pumpkin_deco', x + (y % 4 === 0 ? 1 : 0), y);
     }
   }
-  // Maple Lane: lamps along the lane, flowers by the front paths, a bench and a well.
-  const doorNear = (x, north) => HOMES.some((H) => (H.face === 's') === north && Math.abs(homeDoor(H).x - x) < 3);
-  for (let x = MAPLE.x + 6; x < MAPLE.x + MAPLE.w - 4; x += 12) {
-    if (LANE_LINKS.some((L) => x >= L.x - 1 && x <= L.x + L.w)) continue;
-    if (!doorNear(x, true)) add('lamppost', x, LANE.y - 1);
-    if (!doorNear(x + 6, false)) add('lamppost', x + 6, LANE.y + LANE.h);
-  }
-  for (const H of HOMES) {
-    const dd = homeDoor(H), y = H.face === 's' ? H.y + H.h : H.y - 1;
-    add('flowerbed', dd.x - 1, y); add('flowerbed', dd.x + 1, y);
-  }
-  add('bench', 60, LANE.y + LANE.h + 1);
   if (!season.halloween) return out;
   // Halloween: jack-o'-lanterns, hay bales, cauldrons and a little graveyard.
   for (const [x, y] of [[56, 52], [63, 52], [59, 60], [60, 60]]) add('jackolantern', x, y);
@@ -181,12 +158,12 @@ export function generateWorld(seed = 20261012, { date } = {}) {
 
   // Forest border.
   for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
-    if (x < LAND.x || y < LAND.y || x >= LAND.x + LAND.w || y >= LAND.y + LAND.h) set(x, y, T.TREE);
+    if (x < CORE.x || y < CORE.y || x >= CORE.x + CORE.w || y >= CORE.y + CORE.h) set(x, y, T.TREE);
   }
 
   // Roads. The avenue (x 58) stops at the town square, which is walkable plaza.
   const top = ROAD_ROWS[0], bottom = ROAD_ROWS[ROAD_ROWS.length - 1] + ROAD_W;
-  for (const ry of ROAD_ROWS) fill(LAND.x, ry, LAND.w, ROAD_W, T.PATH);
+  for (const ry of ROAD_ROWS) fill(CORE.x, ry, CORE.w, ROAD_W, T.PATH);
   for (const rx of ROAD_COLS) fill(rx, top, ROAD_W, bottom - top, T.PATH);
   fill(58, SQUARE.y, ROAD_W, SQUARE.h, T.GRASS);
 
@@ -243,7 +220,7 @@ export function generateWorld(seed = 20261012, { date } = {}) {
   for (const [x, y] of [[119, 79], [158, 70], [145, 67]]) set(x, y, T.TREE);
 
   // Scatter decoration on open grass (no rocks on claimable land).
-  for (let y = LAND.y; y < LAND.y + LAND.h; y++) for (let x = LAND.x; x < LAND.x + LAND.w; x++) {
+  for (let y = CORE.y; y < CORE.y + CORE.h; y++) for (let x = CORE.x; x < CORE.x + CORE.w; x++) {
     if (get(x, y) !== T.GRASS) continue;
     let nearPath = false;
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (get(x + dx, y + dy) === T.PATH) nearPath = true;
@@ -258,10 +235,10 @@ export function generateWorld(seed = 20261012, { date } = {}) {
   // land clears it, the wood and stone going to the new owner); they grow back.
   const nearRoad = (x, y, m) => { for (let dy = -m; dy <= m; dy++) for (let dx = -m; dx <= m; dx++) if (get(x + dx, y + dy) === T.PATH) return true; return false; };
   const inPlan = (x, y) => Object.values(ROAD_PLANS).some((p) => x >= p.x - 1 && x < p.x + p.w + 1 && y >= p.y - 1 && y < p.y + p.h + 1);
-  const wild = (x, y) => { const t = get(x, y); return (t === T.GRASS || t === T.TALLGRASS || t === T.FLOWERS) && x >= LAND.x + 1 && y >= LAND.y + 1 && x < LAND.x + LAND.w - 1 && y < LAND.y + LAND.h - 1 && !publicAreaAt(x, y) && !inPlan(x, y) && !nearRoad(x, y, 2); };
+  const wild = (x, y) => { const t = get(x, y); return (t === T.GRASS || t === T.TALLGRASS || t === T.FLOWERS) && x >= CORE.x + 1 && y >= CORE.y + 1 && x < CORE.x + CORE.w - 1 && y < CORE.y + CORE.h - 1 && !publicAreaAt(x, y) && !inPlan(x, y) && !nearRoad(x, y, 2); };
   const clump = (n, rMin, rMax, p, t) => {
     for (let g = 0; g < n; g++) {
-      const cx = LAND.x + rand() * LAND.w, cy = LAND.y + rand() * LAND.h, r = rMin + rand() * (rMax - rMin);
+      const cx = CORE.x + rand() * CORE.w, cy = CORE.y + rand() * CORE.h, r = rMin + rand() * (rMax - rMin);
       for (let y = Math.floor(cy - r); y <= cy + r; y++) for (let x = Math.floor(cx - r); x <= cx + r; x++) {
         if (Math.hypot((x + 0.5 - cx) / r, (y + 0.5 - cy) / (r * 0.8)) < 1 && rand() < p && wild(x, y)) set(x, y, t);
       }
@@ -269,37 +246,14 @@ export function generateWorld(seed = 20261012, { date } = {}) {
   };
   clump(55, 1.4, 3.8, 0.55, T.TREE);
   clump(16, 0.8, 1.7, 0.5, T.ROCK);
-  for (let y = LAND.y; y < LAND.y + LAND.h; y++) for (let x = LAND.x; x < LAND.x + LAND.w; x++) if (rand() < 0.02 && wild(x, y)) set(x, y, rand() < 0.85 ? T.TREE : T.ROCK);
+  for (let y = CORE.y; y < CORE.y + CORE.h; y++) for (let x = CORE.x; x < CORE.x + CORE.w; x++) if (rand() < 0.02 && wild(x, y)) set(x, y, rand() < 0.85 ? T.TREE : T.ROCK);
 
-  // Maple Lane (after the woods, so the village's own trees come out the same): a
-  // clearing in the forest with the lane down the middle, cottages either side, and
-  // paths up through the trees to the avenue and the fair.
-  const M = MAPLE;
-  fill(M.x, M.y, M.w, M.h, T.GRASS);
-  for (let y = M.y; y < M.y + M.h; y++) for (let x = M.x; x < M.x + M.w; x++) {
-    const r = tileHash(x, y);
-    if (r < 0.05) set(x, y, T.FLOWERS); else if (r < 0.12) set(x, y, T.TALLGRASS);
-  }
-  fill(M.x + 2, LANE.y, M.w - 4, LANE.h, T.PATH);
-  for (const L of LANE_LINKS) fill(L.x, L.y, L.w, LANE.y - L.y, T.PATH);
-  for (const H of HOMES) {
-    fill(H.x, H.y, H.w, H.h, T.GRASS); // under the cottage (a village plot)
-    const d = homeDoor(H);
-    for (let y = Math.min(d.y, H.face === 's' ? LANE.y - 1 : LANE.y + LANE.h); y <= Math.max(d.y, H.face === 's' ? LANE.y - 1 : LANE.y + LANE.h); y++) set(d.x, y, T.PLAZA);
-    // A tree or two in the back garden.
-    const by = H.face === 's' ? H.y - 1 : H.y + H.h;
-    if (inb(H.x - 1, by)) set(H.x - 1, by, T.TREE);
-    set(H.x + H.w, by, T.TREE);
-  }
-  // Woods between the gardens.
-  for (let x = M.x; x < M.x + M.w; x++) for (const y of [M.y, M.y + M.h - 1]) {
-    if (get(x, y) === T.GRASS || get(x, y) === T.FLOWERS || get(x, y) === T.TALLGRASS) {
-      if (tileHash(x * 7, y) < 0.45 && !LANE_LINKS.some((L) => x >= L.x - 1 && x < L.x + L.w + 1)) set(x, y, T.TREE);
-    }
-  }
+  // The countryside all round (after the village's own woods, so they come out the same).
+  const country = { tiles };
+  const countryDecor = paintLandscape(country);
 
   // Props and the tiles they block.
-  const decor = publicDecor(season);
+  const decor = [...publicDecor(season), ...countryDecor];
   const block = new Uint8Array(MAP_W * MAP_H);
   for (const d of decor) {
     if (!PROP_SIZE[d.t]?.solid) continue;
@@ -312,8 +266,9 @@ export function generateWorld(seed = 20261012, { date } = {}) {
   for (let i = 0; i < tiles.length; i++) baseRoads[i] = tiles[i] === T.PATH ? 1 : 0;
   const spawn = { x: 60 * TILE, y: 59.5 * TILE };
   // plotAt is filled at runtime from the live plots (see indexPlots in plot.js).
+  const lots = placeLots({ tiles, elev: country.elev });
   return {
-    tiles, baseRoads, block, decor, season,
+    tiles, baseRoads, block, decor, season, lots, elev: country.elev, stepDir: country.stepDir,
     plotAt: new Int32Array(MAP_W * MAP_H).fill(-1),
     shops: SHOPS, spawn, w: MAP_W, h: MAP_H, roadsVersion: 0,
   };
@@ -329,6 +284,8 @@ const PROP_SIZE = {
   barreldisplay: { solid: true }, marketstall: { solid: true, size: [2, 1] }, producecart: { solid: true, size: [2, 1] }, cratestack: { solid: true },
   chalkboard: { solid: true }, flowerbuckets: { solid: true }, bunting: { solid: false, size: [2, 1] }, opensign: { solid: true },
   basketstack: { solid: true }, parasol: { solid: true }, fishstall: { solid: true, size: [2, 1] },
+  boulder: { solid: true, size: [2, 2] }, tent: { solid: true, size: [2, 2] }, logseat: { solid: true, size: [2, 1] }, beachtowel: { solid: false, size: [1, 2] },
+  rowboat: { solid: true, size: [2, 1] }, telescope: { solid: true }, picnic: { solid: true, size: [2, 1] }, firepit: { solid: true }, stonelantern: { solid: true }, birdbath: { solid: true }, lantern: { solid: false },
 };
 
 // The live road layout = generated roads, plus tiles players have paved, minus tiles

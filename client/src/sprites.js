@@ -65,7 +65,8 @@ export function bake(id, left, top, w, h, paint, line = true) {
   if (!s) {
     const cv = document.createElement('canvas');
     cv.width = w + 2; cv.height = h + 2;
-    const c = cv.getContext('2d');
+    // (Read back for the outline: keep it in memory, not on the GPU.)
+    const c = cv.getContext('2d', { willReadFrequently: !!line });
     c.translate(left + 1, top + 1);
     paint(c);
     if (line) outline(cv);
@@ -88,13 +89,14 @@ function vnoise(x, y) {
 const fbm = (x, y) => vnoise(x / 9, y / 9) * 0.6 + vnoise(x / 4, y / 4) * 0.28 + vnoise(x / 2, y / 2) * 0.12;
 
 // ---------- ground ----------
-const C = { GRASS: 0, DIRT: 1, SAND: 2, WATER: 3, STONE: 4, LAWN: 5, FIELD: 6 };
+const C = { GRASS: 0, DIRT: 1, SAND: 2, WATER: 3, STONE: 4, LAWN: 5, FIELD: 6, WOOD: 7 };
 function tileClass(t) {
   switch (t) {
     case T.PATH: case T.GATE: return C.DIRT;
     case T.SAND: return C.SAND;
     case T.WATER: return C.WATER;
-    case T.PLAZA: case T.FOUNTAIN: case T.SHOP: case T.HALL: return C.STONE;
+    case T.PLAZA: case T.FOUNTAIN: case T.SHOP: case T.HALL: case T.STEPS: return C.STONE;
+    case T.BRIDGE: return C.WOOD;
     case T.FIELD: case T.CORN: return C.FIELD;
     case T.LAWN: case T.FENCE: return C.LAWN;
     default: return C.GRASS;
@@ -124,10 +126,10 @@ export function renderGround(world, opts = {}) {
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const base = clsAtTile(x >> 4, y >> 4);
     let k = base;
-    if (base !== C.LAWN && base !== C.STONE && base !== C.FIELD) {
+    if (base !== C.LAWN && base !== C.STONE && base !== C.FIELD && base !== C.WOOD) {
       const wx = x + (vnoise(x / 5, y / 5) - 0.5) * 8, wy = y + (vnoise(x / 5 + 40, y / 5 + 40) - 0.5) * 8;
       const w = clsAtTile(Math.floor(wx / TILE), Math.floor(wy / TILE));
-      if (w !== C.LAWN && w !== C.STONE && w !== C.FIELD) k = w;
+      if (w !== C.LAWN && w !== C.STONE && w !== C.FIELD && w !== C.WOOD) k = w;
     }
     cls[y * W + x] = k;
   }
@@ -180,6 +182,16 @@ export function renderGround(world, opts = {}) {
       // Shadow cast by the grass lip above.
       if (green(at(x, y - 1)) || green(at(x, y - 2))) col = dk(col, 0.28);
       else if (green(at(x, y - 3))) col = dk(col, 0.12);
+    } else if (k === C.WOOD) {
+      // Bridge boards: planks across the way, with dark gaps and nail heads.
+      const tx = x >> 4, ty = y >> 4;
+      const across = world.tiles[ty * MAP_W + tx - 1] === T.BRIDGE || world.tiles[ty * MAP_W + tx + 1] === T.BRIDGE;
+      const a = across ? x : y, b = across ? y : x;
+      const plank = Math.floor(a / 4);
+      col = ['#9b6a3a', '#a8763f', '#8f5f32', '#b0804a'][Math.floor(hash(plank, Math.floor(b / 16)) * 4)];
+      if (a % 4 === 3) col = '#5a3a1e';
+      else if ((b % 16 === 2 || b % 16 === 13) && a % 4 === 1) col = '#3a2a1a';
+      else if (n > 0.66) col = lt(col, 0.08);
     } else if (k === C.WATER) {
       let shore = 99;
       for (const d of [1, 2, 3, 5, 8]) {
@@ -207,14 +219,14 @@ export function renderGround(world, opts = {}) {
   }
   const cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
-  const c = cv.getContext('2d');
+  const c = cv.getContext('2d', { willReadFrequently: true });
   c.putImageData(img, 0, 0);
   if (opts.deco === false) return cv;
 
   // 3. Low decorations (outlined), composited on top.
   const deco = document.createElement('canvas');
   deco.width = W; deco.height = H;
-  const d = deco.getContext('2d');
+  const d = deco.getContext('2d', { willReadFrequently: true });
   const tile = (tx, ty) => (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H ? -1 : world.tiles[ty * MAP_W + tx]);
   for (let ty = 0; ty < MAP_H; ty++) for (let tx = 0; tx < MAP_W; tx++) {
     const t = tile(tx, ty), x = tx * TILE, y = ty * TILE, hv = tileHash(tx, ty);

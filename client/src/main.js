@@ -1,6 +1,6 @@
 import {
   generateWorld, applyRoads, plotIdAtPixel, worldClock, darkness, publicAreaAt,
-  TILE, MAP_W, MAP_H, LANE, PLAYER_SPEED, RUN_MULT, WORLD_VERSION, DAY_MS, T,
+  TILE, MAP_W, MAP_H, PLAYER_SPEED, RUN_MULT, WORLD_VERSION, DAY_MS, T,
 } from '@shared/world.js';
 import {
   canStand, crossesWall, inInterior, key, placementError, objAt, footprint, canRotate, levelView, wallSideAt,
@@ -33,6 +33,7 @@ import { renderCity, cityOpen, closeCity } from './cityui.js';
 import { socialUI } from './social-ui.js';
 import { makeWeather, makeTreeLeaves } from './weather.js';
 import { makeObjectFx } from './objfx.js';
+import { groundAt } from '@shared/landscape.js';
 import { LEAF } from './sprites.js';
 import { treeKindAt } from './gfx/scenery.js';
 import { createAudio } from './audio.js';
@@ -4166,7 +4167,8 @@ function updateOutline() {
 
 // ---------- Render ----------
 function render(now) {
-  const hOf = (p) => heightAt(world, S.plots, p.x, p.y, p.level || 0);
+  // How high someone stands: upstairs, on stairs, or up on high ground.
+  const hOf = (p) => heightAt(world, S.plots, p.x, p.y, p.level || 0) + groundAt(world, p.x, p.y);
   const myH = hOf(S.me);
   if (S.mode !== 'build' || !S.me) view.setTarget(U(S.me.x), U(S.me.y), false, myH);
   const sNow = serverNow();
@@ -4195,7 +4197,7 @@ function render(now) {
     const d = NPCS[n.id];
     const a = NPC_ACTS[n.act];
     const arms = n.moving ? null : NPC_ARMS[n.act] === 'talk' ? (Math.floor(now / 2600 + n.id.length) % 3 === 0 ? 'wave' : null) : NPC_ARMS[n.act] || null;
-    view.actor(`npc:${n.id}`, U(n.x), U(n.y), n.dir, n.moving, d.look, now, !a?.hidden, a?.pose === 'sit' ? 0.12 : 0, null, a?.pose === 'sit' ? { kind: 'sit', arms: arms || 'lap' } : arms ? { arms } : null);
+    view.actor(`npc:${n.id}`, U(n.x), U(n.y), n.dir, n.moving, d.look, now, !a?.hidden, (a?.pose === 'sit' ? 0.12 : 0) + groundAt(world, n.x, n.y), null, a?.pose === 'sit' ? { kind: 'sit', arms: arms || 'lap' } : arms ? { arms } : null);
   }
   drawPerson(S.me, myH);
   drawShopPeople(now);
@@ -4205,7 +4207,7 @@ function render(now) {
     const owner = id === S.me.id ? S.me : S.players.get(id);
     if (!owner) continue;
     const pose = p.sleeping ? 'sleep' : !p.moving && (p.idle > 1.2 || p.heartUntil > now) ? 'sit' : false;
-    view.actor(`pet:${id}`, U(p.x), U(p.y), p.dir, p.moving, null, now, true, heightAt(world, S.plots, p.x, p.y, p.level), { idx: petOf(owner), sit: pose });
+    view.actor(`pet:${id}`, U(p.x), U(p.y), p.dir, p.moving, null, now, true, heightAt(world, S.plots, p.x, p.y, p.level) + groundAt(world, p.x, p.y), { idx: petOf(owner), sit: pose });
   }
   view.pruneActors();
   updateOutline();
@@ -4247,7 +4249,7 @@ function drawOverlay(now) {
     if (st.home) {
       // Villagers' cottages: their name over the door, when you're on the lane nearby.
       if (Math.hypot(st.x + st.w / 2 - S.me.x / TILE, st.y + st.h / 2 - S.me.y / TILE) > 12) continue;
-      const p = view.toScreen(st.x + st.w / 2, 3.2, st.y + (st.y > LANE.y ? 0 : st.h));
+      const p = view.toScreen(st.x + st.w / 2, 3.2, st.y + (st.face === 'n' ? 0 : st.h));
       if (onScreen(p)) tag(`🏡 ${st.name}`, p.x, p.y, 11, '#fff3d6');
       continue;
     }

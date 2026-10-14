@@ -1,6 +1,7 @@
 // The static village in 3D: terrain (the pixel-art ground painted in sprites.js),
 // fences, rocks, trees, the fountain, plaza lamps and the two shops.
 import { T, MAP_W, MAP_H, SHOPS, SQUARE, FOUNTAIN, PLAZA_LAMPS, HALL, tileHash } from '@shared/world.js';
+import { ELEV_H, STEP_UP, BRIDGE_Y, tileGround } from '@shared/landscape.js';
 import { ITEMS } from '@shared/catalog.js';
 import { renderGround, treeSprite, treeKind, objectSprite, r, px, disc } from '../sprites.js';
 import { canvasTex, paintTex, wallTex, roofTex, woodTex, stoneTex, signTex, WALL_H } from './textures.js';
@@ -18,13 +19,79 @@ export function buildTerrain(world) {
   if (world.season?.winter) snowGround(cv);
   const grp = node('terrain');
   const g = planeGeo(MAP_W, MAP_H).rotateX(-Math.PI / 2).translate(MAP_W / 2, 0, MAP_H / 2);
-  toMesh(g, lambert({ map: canvasTex(cv) }), { parent: grp });
+  const groundMat = lambert({ map: canvasTex(cv) });
+  toMesh(g, groundMat, { parent: grp });
+  buildRelief(world, groundMat, grp);
   // A dark forest floor beyond the map edge.
   const skirt = planeGeo(MAP_W + 80, MAP_H + 80).rotateX(-Math.PI / 2).translate(MAP_W / 2, -0.02, MAP_H / 2);
   toMesh(skirt, lambert({ color: '#2f5a2a', receive: false }), { parent: grp });
   return freeze(grp);
 }
 
+// High ground: the painted ground lifted up on cliffs of layered rock, stone stairs set
+// into the cliff, and bridges with wooden decks and rails over the water.
+function buildRelief(world, groundMat, grp) {
+  const E = world.elev;
+  if (!E) return;
+  const at = (x, y) => (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H ? 0 : E[y * MAP_W + x]);
+  const tile = (x, y) => (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H ? -1 : world.tiles[y * MAP_W + x]);
+  const top = { pos: [], nrm: [], uv: [], idx: [] };
+  const quadTop = (x, z, y) => {
+    const o = top.pos.length / 3;
+    top.pos.push(x, y, z, x + 1, y, z, x + 1, y, z + 1, x, y, z + 1);
+    top.nrm.push(0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0);
+    top.uv.push(x / MAP_W, 1 - z / MAP_H, (x + 1) / MAP_W, 1 - z / MAP_H, (x + 1) / MAP_W, 1 - (z + 1) / MAP_H, x / MAP_W, 1 - (z + 1) / MAP_H);
+    top.idx.push(o, o + 2, o + 1, o, o + 3, o + 2);
+  };
+  const rock = new Batch(), stone = new Batch(), wood = new Batch();
+  // (Flat colours: rock in bands, a grassy lip on top.)
+  const ROCK = ['#8a7f6c', '#9a8f7b', '#7c7262', '#a39884', '#857a68'].map((c) => lambert({ color: c }));
+  const lipMat = lambert({ color: '#4f8a33' }), stoneMat = lambert({ color: '#b6af9f' }), treadMat = lambert({ color: '#d3cdbf' }), railMat = lambert({ color: '#6e4826' });
+  const stairTop = (x, y, nx, ny) => { const d = world.stepDir[ny * MAP_W + nx]; return d >= 0 && nx + STEP_UP[d][0] === x && ny + STEP_UP[d][1] === y; };
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
+    const e = at(x, y), t = tile(x, y);
+    if (e && t !== T.STEPS) quadTop(x, y, e * ELEV_H);
+    // Cliff faces down to each lower neighbour (not where stairs come up).
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const ne = at(x + dx, y + dy);
+      if (ne >= e || (t === T.STEPS) || stairTop(x, y, x + dx, y + dy)) continue;
+      const y0 = ne * ELEV_H, h = (e - ne) * ELEV_H;
+      // A slightly bumpy rock face, in two layers.
+      // Layered rock: bands of slightly different stone, each jutting a little, with
+      // a grassy lip along the top.
+      const bands = Math.max(2, Math.round(h / 0.28));
+      for (let i = 0; i < bands; i++) {
+        const hb = h / bands, j = (tileHash(x * 3 + dx + i * 7, y * 5 + dy - i * 3) - 0.5) * 0.08;
+        const m = ROCK[Math.floor(tileHash(x + i * 11, y * 7 + i) * ROCK.length)];
+        if (dx) rock.add(m, boxAt(dx > 0 ? x + 1 - 0.03 + j : x - 0.07 + j, y0 + i * hb, y, 0.1, hb, 1));
+        else rock.add(m, boxAt(x, y0 + i * hb, dy > 0 ? y + 1 - 0.03 + j : y - 0.07 + j, 1, hb, 0.1));
+      }
+      if (dx) rock.add(lipMat, boxAt(dx > 0 ? x + 1 - 0.05 : x - 0.05, y0 + h - 0.04, y, 0.1, 0.06, 1));
+      else rock.add(lipMat, boxAt(x, y0 + h - 0.04, dy > 0 ? y + 1 - 0.05 : y - 0.05, 1, 0.06, 0.1));
+    }
+    // Stone stairs: four steps rising toward the top.
+    if (t === T.STEPS) {
+      const d = world.stepDir[y * MAP_W + x], base = e * ELEV_H;
+      for (let i = 0; i < 4; i++) {
+        const hh = ((i + 1) / 4) * ELEV_H, a = i / 4;
+        const [bx, bz, bw, bd] = [[x, y + 1 - a - 0.25, 1, 0.25], [x + a, y, 0.25, 1], [x, y + a, 1, 0.25], [x + 1 - a - 0.25, y, 0.25, 1]][d];
+        stone.add(stoneMat, boxAt(bx, base, bz, bw, hh - 0.04, bd));
+        stone.add(treadMat, boxAt(bx, base + hh - 0.04, bz, bw, 0.04, bd));
+      }
+    }
+    // Bridges: rails along the water (the boards are painted on the ground).
+    if (t === T.BRIDGE) {
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        if (tile(x + dx, y + dy) !== T.WATER) continue;
+        const ex = dx > 0 ? x + 0.92 : x, ez = dy > 0 ? y + 0.92 : y;
+        if (dx) { wood.add(railMat, boxAt(ex, BRIDGE_Y + 0.5, y, 0.08, 0.06, 1)); wood.add(railMat, boxAt(ex, BRIDGE_Y, y + 0.04, 0.08, 0.56, 0.1)); }
+        else { wood.add(railMat, boxAt(x, BRIDGE_Y + 0.5, ez, 1, 0.06, 0.08)); wood.add(railMat, boxAt(x + 0.04, BRIDGE_Y, ez, 0.1, 0.56, 0.08)); }
+      }
+    }
+  }
+  if (top.pos.length) toMesh(new Geo(top.pos, top.nrm, top.uv, top.idx), groundMat, { parent: grp });
+  for (const b of [rock, stone, wood]) b.build(grp);
+}
 // three.js DodecahedronGeometry(0.34): 20 vertices on the sphere, 36 flat triangles.
 const DT = (1 + Math.sqrt(5)) / 2, DR = 1 / DT;
 const DODECA_V = [-1, -1, -1, -1, -1, 1, -1, 1, -1, -1, 1, 1, 1, -1, -1, 1, -1, 1, 1, 1, -1, 1, 1, 1,
@@ -45,7 +112,7 @@ export function buildRocks(world) {
     const tv = [];
     for (let i = 0; i < unit.length; i += 3) {
       const vx = unit[i] * S[0], vy = unit[i + 1] * S[1], vz = unit[i + 2] * S[2];
-      tv.push(R[0] * vx + R[1] * vy + R[2] * vz + x + 0.5, R[3] * vx + R[4] * vy + R[5] * vz + 0.16, R[6] * vx + R[7] * vy + R[8] * vz + y + 0.55);
+      tv.push(R[0] * vx + R[1] * vy + R[2] * vz + x + 0.5, R[3] * vx + R[4] * vy + R[5] * vz + 0.16 + tileGround(world, x, y), R[6] * vx + R[7] * vy + R[8] * vz + y + 0.55);
     }
     for (let i = 0; i < DODECA_I.length; i += 3) {
       const [p, q, r] = [DODECA_I[i], DODECA_I[i + 1], DODECA_I[i + 2]].map((k) => tv.slice(k * 3, k * 3 + 3));
@@ -83,7 +150,7 @@ function snowy(spr) {
   if (out) return out;
   const cv = document.createElement('canvas');
   cv.width = spr.cv.width; cv.height = spr.cv.height;
-  const g = cv.getContext('2d');
+  const g = cv.getContext('2d', { willReadFrequently: true });
   g.drawImage(spr.cv, 0, 0);
   const img = g.getImageData(0, 0, cv.width, cv.height), d = img.data, W = cv.width;
   const solid = (x, y) => y >= 0 && d[(y * W + x) * 4 + 3] > 0;
@@ -123,7 +190,7 @@ export function treeCards(world, set) {
     const kind = treeKindAt(world, x, y);
     const spr = world.season?.winter ? snowy(treeSprite(v, kind)) : treeSprite(v, kind);
     // Trees are drawn 1.5x so they tower over houses and villagers.
-    set.add(spr, 8, 14, x + 0.5, 0, y + 0.55, { shadow: 1.5, scale: 1.5 });
+    set.add(spr, 8, 14, x + 0.5, tileGround(world, x, y), y + 0.55, { shadow: 1.5, scale: 1.5 });
   }
 }
 
@@ -243,12 +310,14 @@ export function buildDecor(world, cards) {
   for (const d of world.decor) {
     const [w, h] = ITEMS[d.t]?.size || [1, 1];
     const [fw, fh] = d.r % 2 ? [h, w] : [w, h];
-    if (d.t === 'scarecrow' || !hasModel(d.t)) cards.add(objectSprite(d.t, 0, 0), 8, 14, d.x + fw / 2, 0, d.y + fh - 0.35, { shadow: 0.5 });
+    const gy = tileGround(world, d.x, d.y);
+    if (d.t === 'scarecrow' || !hasModel(d.t)) cards.add(objectSprite(d.t, 0, 0), 8, 14, d.x + fw / 2, gy, d.y + fh - 0.35, { shadow: 0.5 });
     else {
-      itemInto(chunk(d.x, d.y), d.t, d.r || 0, d.x, 0, d.y);
-      if (d.stock) itemInto(chunk(d.x, d.y), d.t, d.r || 0, d.x, 0, d.y, 0, goodsBoxes(d.t, d.stock));
+      itemInto(chunk(d.x, d.y), d.t, d.r || 0, d.x, gy, d.y);
+      if (d.stock) itemInto(chunk(d.x, d.y), d.t, d.r || 0, d.x, gy, d.y, 0, goodsBoxes(d.t, d.stock));
     }
-    if (d.t === 'lamppost') lights.push({ x: d.x + 0.5, y: 2.2, z: d.y + 0.5, kind: 'post' });
+    if (d.t === 'lamppost') lights.push({ x: d.x + 0.5, y: 2.2 + gy, z: d.y + 0.5, kind: 'post' });
+    else if (d.t === 'firepit' || d.t === 'lantern' || d.t === 'stonelantern') lights.push({ x: d.x + 0.5, y: 0.5 + gy, z: d.y + 0.5, kind: d.t === 'firepit' ? 'fire' : 'pumpkin' });
     else if (d.t === 'jackolantern') lights.push({ x: d.x + 0.5, y: 0.5, z: d.y + fh / 2 + 0.3, kind: 'pumpkin' });
     else if (d.t === 'cauldron') lights.push({ x: d.x + 0.5, y: 0.9, z: d.y + 0.5, kind: 'cauldron' });
   }

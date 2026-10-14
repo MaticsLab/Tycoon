@@ -271,7 +271,8 @@ export class Npc {
     const act = NPC_ACTS[this.step.act];
     if (this.act !== this.step.act) {
       this.act = this.step.act;
-      if (act?.pose === 'sit' && place?.seat) { this.x = place.seat[0] * TILE; this.y = place.seat[1] * TILE; this.dir = 0; }
+      // Sit facing the way the seat faces (benches face south unless they say otherwise).
+      if (act?.pose === 'sit' && place?.seat) { this.x = place.seat[0] * TILE; this.y = place.seat[1] * TILE; this.dir = place.seatDir ?? 0; }
     }
     if (act?.pose === 'sit' || act?.hidden) return;
     // Pottering: small walks around the spot (wider for gardening and strolls).
@@ -295,7 +296,10 @@ export class Npc {
     const [tx, ty] = this.path[0];
     const dx = tx - this.x, dy = ty - this.y, dist = Math.hypot(dx, dy);
     const left = this.path.length;
-    const speed = left > 12 ? 64 : left > 6 ? 48 : 34; // hurry on long trips
+    // Hurry on long trips (across the countryside it's a brisk trot), stroll near the end.
+    const [ex, ey] = this.path[this.path.length - 1];
+    const far = Math.hypot(ex - this.x, ey - this.y) / 16;
+    const speed = far > 40 ? 112 : far > 16 ? 80 : left > 12 ? 64 : left > 6 ? 48 : 34;
     const step = speed * dt;
     if (dist <= step) {
       this.x = tx; this.y = ty;

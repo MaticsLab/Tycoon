@@ -2,6 +2,7 @@
 // them on public land, and a reader for how a player writes (so villagers can match it).
 import { TILE, MAP_W, MAP_H, plotIdAtPixel } from './world.js';
 import { canStand, crossesWall } from './plot.js';
+import { cliffBetween } from './landscape.js';
 import { MORE_PLACES, MORE_ACTS, MORE_VILLAGERS } from './villagers.js';
 
 // Named spots, in tiles. `seat` = where they sit (a bench) if the activity sits.
@@ -112,7 +113,7 @@ export function stepAt(plan, hours) {
 // ---------- path finding ----------
 // A* over tiles that are walkable public land (not inside anyone's plot). Returns a
 // list of world-pixel waypoints (tile centres) ending at the target, or null.
-export function findPath(world, plots, fx, fy, tx, ty, maxNodes = 20000) {
+export function findPath(world, plots, fx, fy, tx, ty, maxNodes = 60000) {
   const sx = Math.floor(fx / TILE), sy = Math.floor(fy / TILE), gx = Math.floor(tx / TILE), gy = Math.floor(ty / TILE);
   const base = walkable(world, plots);
   const walk = (x, y) => (x === gx && y === gy) || (x === sx && y === sy) || base(x, y);
@@ -135,7 +136,7 @@ export function findPath(world, plots, fx, fy, tx, ty, maxNodes = 20000) {
     }
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, ny = y + dy;
-      if (!walk(nx, ny)) continue;
+      if (!walk(nx, ny) || cliffBetween(world, x, y, nx, ny)) continue;
       // In and out of the village shops: only through the doors.
       if ((inPlot(world, x, y) || inPlot(world, nx, ny)) && crossesWall(world, plots, (x + 0.5) * TILE, (y + 0.5) * TILE, (nx + 0.5) * TILE, (ny + 0.5) * TILE)) continue;
       const k = key(nx, ny), ng = g.get(key(x, y)) + 1;
@@ -204,7 +205,9 @@ function smooth(walk, fx, fy, pts, world, plots) {
     for (let s = 1; s <= steps; s++) {
       const x = x0 + ((x1 - x0) * s) / steps, y = y0 + ((y1 - y0) * s) / steps;
       if (!walk(Math.floor(x / TILE), Math.floor(y / TILE))) return false;
-      if (nearPlot(world, Math.floor(x / TILE), Math.floor(y / TILE)) && crossesWall(world, plots, px, py, x, y)) return false;
+      const [ax, ay, bx, by] = [Math.floor(px / TILE), Math.floor(py / TILE), Math.floor(x / TILE), Math.floor(y / TILE)];
+      if ((ax !== bx || ay !== by) && (cliffBetween(world, ax, ay, bx, ay) || cliffBetween(world, bx, ay, bx, by) || cliffBetween(world, ax, ay, ax, by) || cliffBetween(world, ax, by, bx, by))) return false;
+      if (nearPlot(world, bx, by) && crossesWall(world, plots, px, py, x, y)) return false;
       px = x; py = y;
     }
     return true;

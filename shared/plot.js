@@ -13,6 +13,7 @@
 // Objects are stored once at their anchor (top-left) tile: obj["x,y"] = { t, r }.
 import { ITEMS, isSoil } from './catalog.js';
 import { TILE, MAP_W, MAP_H, SOLID_TILES, LAND, PUBLIC_AREAS, isRoad } from './world.js';
+import { cliffBetween } from './landscape.js';
 
 export const LEVELS = 2;
 export const LEVEL_H = 2.65; // floor-to-floor height in tiles (the 3D view uses the same)
@@ -531,6 +532,7 @@ function pointOK(world, plots, px, py, level) {
 
 // Is the horizontal edge on top of world tile (tx, ty) closed on this level?
 function hClosed(world, plots, tx, ty, level) {
+  if (cliffBetween(world, tx, ty - 1, tx, ty)) return true; // the edge of high ground
   const st = stairEdge(world, plots, tx, ty - 1, tx, ty, level);
   if (st !== null) return st;
   return edgeClosed(plots, 'h', tx, ty, level, plotAtTile(world, tx, ty - 1), plotAtTile(world, tx, ty));
@@ -548,6 +550,7 @@ function edgeClosed(plots, d, tx, ty, level, a, b) {
 }
 
 function vClosed(world, plots, tx, ty, level) {
+  if (cliffBetween(world, tx - 1, ty, tx, ty)) return true;
   const st = stairEdge(world, plots, tx - 1, ty, tx, ty, level);
   if (st !== null) return st;
   return edgeClosed(plots, 'v', tx, ty, level, plotAtTile(world, tx - 1, ty), plotAtTile(world, tx, ty));

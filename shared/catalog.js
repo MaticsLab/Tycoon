@@ -177,6 +177,11 @@ export const ITEMS = {
   noticeboard:   { name: 'Notice Board',  cat: 'public', layer: 'obj', price: 0, solid: true, size: [2, 1] },
   ballotbox:     { name: 'Ballot Box',    cat: 'public', layer: 'obj', price: 0, solid: true },
   gazebo:        { name: 'Gazebo',        cat: 'public', layer: 'obj', price: 0, solid: true, size: [4, 4] },
+  boulder:       { name: 'Boulder',       cat: 'public', layer: 'obj', price: 0, solid: true, size: [2, 2] },
+  tent:          { name: 'Tent',          cat: 'public', layer: 'obj', price: 0, solid: true, size: [2, 2], rot: 'face' },
+  logseat:       { name: 'Log Seat',      cat: 'public', layer: 'obj', price: 0, solid: true, size: [2, 1], rot: 'turn' },
+  beachtowel:    { name: 'Beach Towel',   cat: 'public', layer: 'obj', price: 0, flat: true, size: [1, 2] },
+  rowboat:       { name: 'Rowboat',       cat: 'public', layer: 'obj', price: 0, solid: true, size: [2, 1], rot: 'turn' },
   stall:         { name: 'Market Stall',  cat: 'public', layer: 'obj', price: 0, solid: true, size: [3, 2] },
 
   soil:          { name: 'Tilled Soil',  cat: 'farm', layer: 'floor', price: 2 },

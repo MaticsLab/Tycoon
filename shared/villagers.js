@@ -6,8 +6,8 @@ import { TILE, HOMES, homeSpot } from './world.js';
 
 // Homes (indoors: they vanish there) and new spots around the village, in tiles.
 export const MORE_PLACES = {
-  // Everyone's own cottage on Maple Lane.
-  ...Object.fromEntries(HOMES.map((H) => [`${H.id}_home`, { name: `${H.name.replace(/^The /, 'the ')} on Maple Lane`, ...homeSpot(H), inside: true }])),
+  // Everyone's own cottage, out in the countryside.
+  ...Object.fromEntries(HOMES.map((H) => [`${H.id}_home`, { name: H.name.replace(/^The /, 'the '), ...homeSpot(H), inside: true }])),
   pond:          { name: 'the pond', x: 46.2, y: 53.5 },
   square_n:      { name: 'the north side of the square', x: 60, y: 47.5 },
   square_bench_w:{ name: 'a bench by the fountain', x: 51, y: 58.6, seat: [51, 57.6] },
@@ -18,6 +18,20 @@ export const MORE_PLACES = {
   park_bench_sw: { name: 'a bench in Willow Park', x: 125, y: 56.6, seat: [125, 55.6] },
   park_bench_se: { name: 'a bench in Willow Park', x: 153, y: 56.6, seat: [153, 55.6] },
   fair_stall2:   { name: 'the fair stalls', x: 129.5, y: 69 },
+  // Out in the countryside.
+  beach:         { name: 'Seashell Beach', x: 186.5, y: 151.5 },
+  pier_end:      { name: 'the end of the pier', x: 200.5, y: 168 },
+  pier_bench:    { name: 'a bench by the pier', x: 197, y: 157.6, seat: [197, 156.6] },
+  campfire:      { name: 'the campfire at Pine Hollow', x: 222, y: 101.6, seat: [222, 100.6] },
+  camp:          { name: 'Pine Hollow Campsite', x: 225.5, y: 99.5 },
+  lookout:       { name: 'Eagle Lookout', x: 236, y: 39 },
+  lookout_bench: { name: 'a bench at Eagle Lookout', x: 232, y: 37.6, seat: [232, 36.6] },
+  duckpond:      { name: 'the Duck Pond', x: 110, y: 112.5 },
+  duckpond_bench:{ name: 'a bench by the Duck Pond', x: 107, y: 114.6, seat: [107, 113.6] },
+  riverside:     { name: 'Riverside Green', x: 174, y: 126 },
+  riverside_bench:{ name: 'a bench by the river', x: 171.6, y: 125, seat: [170.6, 125], seatDir: 3 },
+  stones:        { name: 'the Standing Stones', x: 21.5, y: 118.5 },
+  gullpoint:     { name: 'Gull Point', x: 16, y: 137 },
 };
 
 // New things villagers do (see NPC_ACTS in village.js).
@@ -63,7 +77,7 @@ export const MORE_VILLAGERS = {
     humor: 'Loud, hearty and literal: hammer and anvil metaphors for everything, booming laughter at his own jokes, and an endless feud with a stubborn horseshoe.',
     look: L(0, 16, 3, 7, 4, [10, 60, 35], [5, 70, 25], [5, 30, 25]),
     home: at(100.5, 22.5), wander: 1 * TILE,
-    bio: 'You are Bram, the village blacksmith. You make tools and fix everyone’s broken things at the forge on Maple Lane. You are big, loud and kind, and you love a good meal and a better story.',
+    bio: 'You are Bram, the village blacksmith. You make tools and fix everyone’s broken things at the forge below the highlands. You are big, loud and kind, and you love a good meal and a better story.',
     base: { warmth: 66, cheer: 72, trust: 60, generosity: 64, energy: 82 },
     likes: ['pie', 'stone', 'soup'], dislikes: ['bouquet'],
     routine: [
@@ -402,5 +416,34 @@ export const MORE_VILLAGERS = {
   },
 };
 
-// They live in their cottages on Maple Lane.
+// They live in their cottages out in the countryside.
 for (const H of HOMES) if (MORE_VILLAGERS[H.id]) { const p = homeSpot(H); MORE_VILLAGERS[H.id].home = at(p.x, p.y); }
+
+// Days out in the countryside: extra choices in their afternoons and evenings.
+const OUTINGS = {
+  hazel: [[15, ['pier_end', 'fish']], [18, ['riverside_bench', 'nap']]],
+  theo: [[19, ['campfire', 'music']]],
+  bea: [[14, ['beach', 'play']], [17, ['pier_end', 'chat', 'theo']]],
+  ivy: [[10, ['lookout', 'paint']], [15, ['stones', 'paint']]],
+  felix: [[19, ['lookout', 'stargaze']]],
+  pip: [[14, ['duckpond', 'play']], [10, ['beach', 'play']]],
+  fern: [[15, ['stones', 'stroll']]],
+  marigold: [[15, ['riverside', 'garden']]],
+  gus: [[19, ['campfire', 'chat', 'theo']]],
+  nell: [[14, ['duckpond_bench', 'read']]],
+  willa: [[15, ['riverside_bench', 'read']]],
+  sam: [[16, ['gullpoint', 'stroll']]],
+  rowan: [[18, ['lookout_bench', 'nap']]],
+  lila: [[15, ['pier_bench', 'lunch']]],
+  bram: [[19, ['campfire', 'chat', 'gus']]],
+  ellis: [[17, ['beach', 'stroll']]],
+};
+for (const [id, list] of Object.entries(OUTINGS)) {
+  const r = MORE_VILLAGERS[id]?.routine;
+  if (!r) continue;
+  // Add the outing as one more option at the step closest to that hour.
+  for (const [at, opt] of list) {
+    const step = r.reduce((best, s) => (Math.abs(s.at - at) < Math.abs(best.at - at) && !s.opts.some((o) => o[1] === 'sleep') ? s : best), r.find((s) => !s.opts.some((o) => o[1] === 'sleep')));
+    if (step && (opt[2] ? MORE_VILLAGERS[opt[2]] || ['rosa', 'otto', 'juniper', 'mabel'].includes(opt[2]) : true)) step.opts.push(opt);
+  }
+}

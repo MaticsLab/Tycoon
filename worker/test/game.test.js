@@ -32,10 +32,12 @@ function standBy(game, a, npc) {
   s.x = n.x; s.y = n.y + 12;
 }
 
-test('a new world has 16 roadside plots, two shops and a walkable spawn', async () => {
+test('a new world has its village plots and countryside lots, two shops and a walkable spawn', async () => {
   const game = new Game({});
   const w = game.world;
-  assert.equal(Object.values(game.plots).filter((p) => !p.town).length, STARTER_PLOTS.length);
+  // The village's plots, plus lots out in the countryside.
+  assert.equal(Object.values(game.plots).filter((p) => !p.town).length, STARTER_PLOTS.length + w.lots.length);
+  assert.ok(w.lots.length >= 20);
   assert.equal(w.shops.length, 2);
   // The shops are walk-in buildings: in through the front door to the keeper's counter.
   const { findPath } = await import('../../shared/village.js');
@@ -491,7 +493,7 @@ test('land: grow into open land, shrink, merge with the empty plot next door, sp
 
   // Split off the empty east side: it becomes a new plot for sale.
   a.send({ type: 'splitPlot', plotId: 0, at: plot.x + 20 });
-  const fresh = Object.values(game.plots).find((p) => p.id >= STARTER_PLOTS.length);
+  const fresh = Object.values(game.plots).find((p) => p.id >= STARTER_PLOTS.length + game.world.lots.length);
   assert.equal(plot.w, 20);
   assert.equal(fresh.x, plot.x + 20);
   assert.equal(fresh.owner, null);
@@ -1824,4 +1826,37 @@ test('old saves: pipes and cables placed as objects are buried on load', async (
   assert.deepEqual(plot.under, { pipe: { '1,1': 1 }, cable: { '2,1': 1 } });
   assert.deepEqual(Object.keys(plot.obj), ['3,1']);
   assert.ok(!buryPipes(plot));
+});
+
+test('countryside: cliffs block, stairs climb, bridges cross the river, the beach is reachable', async () => {
+  const game = new Game({});
+  const w = game.world;
+  const { STAIRS, STEP_UP, groundAt, ELEV_H } = await import('../../shared/landscape.js');
+  const { findPath } = await import('../../shared/village.js');
+  const { crossesWall } = await import('../../shared/plot.js');
+  const c = (x, y) => [(x + 0.5) * TILE, (y + 0.5) * TILE];
+  // Straight up a cliff face: no.
+  const s = STAIRS[0], [ux, uy] = STEP_UP[s.dir];
+  const top = [s.x + ux, s.y + uy];
+  assert.ok(w.elev[top[1] * MAP_W + top[0]] > 0, 'top of the stairs is high ground');
+  let cliff = null;
+  for (let x = 207; x < 250 && !cliff; x++) for (let y = 50; y < 66; y++) if (w.elev[y * MAP_W + x] && !w.elev[(y + 1) * MAP_W + x] && w.stepDir[(y + 1) * MAP_W + x] < 0) { cliff = [x, y]; break; }
+  assert.ok(crossesWall(w, game.plots, ...c(cliff[0], cliff[1] + 1), ...c(cliff[0], cliff[1])), 'a cliff blocks');
+  // Up the stairs: yes, and the ground rises as you climb.
+  assert.ok(!crossesWall(w, game.plots, ...c(s.x, s.y + 1), ...c(s.x, s.y)), 'onto the bottom step');
+  assert.ok(!crossesWall(w, game.plots, ...c(s.x, s.y), ...c(top[0], top[1])), 'off the top step');
+  assert.ok(groundAt(w, ...c(top[0], top[1])) === ELEV_H && groundAt(w, ...c(s.x, s.y)) > 0 && groundAt(w, ...c(s.x, s.y)) < ELEV_H);
+  // Villagers find their way up to the lookout, over the river and down to the pier.
+  for (const to of [[236, 38], [210, 23], [200, 162]]) assert.ok(findPath(w, game.plots, ...c(60, 58), ...c(...to), 80000), `a way to ${to}`);
+});
+
+test('v6 migration: saved tile indices move to the wider map and new lots avoid existing homes', () => {
+  const old = 168, i = 30 * old + 40;
+  const saved = { meta: { version: 5, epoch: 1, nextPlotId: 16 }, roads: { add: [i], del: [] }, nature: { cut: { [i]: [0, 'tree'] }, grown: {} }, plots: {} };
+  for (const [k, r] of STARTER_PLOTS.entries()) saved.plots[k] = { id: k, ...r, owner: null, floor: {}, obj: {}, walls: {}, roofs: [] };
+  const game = new Game(saved);
+  assert.deepEqual(game.roads.add, [30 * MAP_W + 40]);
+  assert.ok(game.nature.s.cut[30 * MAP_W + 40]);
+  const lots = Object.values(game.plots).filter((p) => !p.town && p.id >= 16);
+  assert.equal(lots.length, game.world.lots.length);
 });

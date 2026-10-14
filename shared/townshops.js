@@ -116,7 +116,7 @@ function shopPlot(shop, i, L = LAYOUTS[shop.id], keeper = true) {
   return plot;
 }
 
-// The villagers' cottages on Maple Lane. Laid out as if the door is in the south wall
+// The villagers' cottages, out in the countryside. Laid out as if the door is in the south wall
 // (x = 2, or 3-4 for the saloon's double doors); houses facing north are mirrored.
 // Furniture: [item, x, y, r] (r: 0 faces south, 1 west, 2 north, 3 east).
 const BED = [['bed', 0, 0], ['nightstand', 1, 0]];
@@ -161,6 +161,7 @@ function homePlot(H, i) {
   const L = HOME_LAYOUTS[H.id], { w, h } = H, north = H.face === 'n';
   const plot = blank({ id: TOWN_PLOT_BASE + 30 + i, x: H.x, y: H.y, w, h }, 'home', H.name, null);
   plot.home = H.id;
+  plot.face = H.face;
   plot.roofs = [{ x: 0, y: 0, w, h, l: 0, m: L.roof }];
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) plot.floor[`${x},${y}`] = L.floor;
   const out = L.outside, inn = L.inside;
