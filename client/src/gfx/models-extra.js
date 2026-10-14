@@ -47,16 +47,6 @@ const flame = (cx, cz, y, s, h) => [
 // ---------- utilities & farm automation ----------
 const PIPE_B = '#3f7fc6', PIPE_D = '#2c5f9a', IRON = '#2a2d33', GREY = '#9aa3ab', GREY_D = '#6f7780', CONC = '#b9b4aa', CONC_D = '#9a958b';
 const TYRE = '#23262b', TRENCH = '#5f4630', SPARK = '#ffd23a', LAMP_G = '#6cff8a', LAMP_A = '#ffc23a';
-// Water drops: a little arc of light-blue boxes leaving (cx, y, cz) towards (dx, dz).
-function splash(cx, cz, y, dx, dz, len, rise = 0.08, s = 0.05) {
-  const out = [], n = 5;
-  for (let i = 1; i <= n; i++) {
-    const t = i / n, h = y + rise * 4 * t * (1 - t) - (len * 0.55) * t * t;
-    const x = cx + dx * len * t, z = cz + dz * len * t, ss = s * (1 - t * 0.35);
-    out.push([x - ss / 2, Math.max(0.01, h), z - ss / 2, ss, ss, ss, i % 2 ? WATER : WATER_L]);
-  }
-  return out;
-}
 // A plus of something running N-S and E-W through the tile centre (flat: ≤ 0.03 tall).
 const plus = (t, y, h, col) => [[0.5 - t / 2, y, 0, t, h, 1, col], [0, y, 0.5 - t / 2, 1, h, t, col]];
 
@@ -1300,8 +1290,7 @@ export const EXTRA_MODELS = {
       [0.46, 0, 0.46, 0.08, 0.36, 0.08, WOOD], [0.44, 0, 0.44, 0.12, 0.04, 0.12, WOOD_D],
       [0.42, 0.34, 0.42, 0.16, 0.08, 0.16, BRASS], [0.44, 0.42, 0.44, 0.12, 0.06, 0.12, '#dcb85e'], [0.47, 0.48, 0.47, 0.06, 0.04, 0.06, PIPE_B],
     ];
-    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]]) out.push(...splash(0.5, 0.5, 0.52, dx, dz, 0.4, 0.14));
-    out.push([0.46, 0.54, 0.46, 0.08, 0.06, 0.08, WATER_L]);
+    // (The spray is animated when it's on: see objfx.js.)
     return out;
   },
   bigsprinkler: () => {
@@ -1321,7 +1310,6 @@ export const EXTRA_MODELS = {
         out.push([x - 0.03, 0.03 + t * 0.48, z - 0.03, 0.06, 0.11, 0.06, GREY_D]);
       }
     }
-    for (const [dx, dz, l] of [[1, 0, 0.46], [0.8, 0.55, 0.52], [0.8, -0.55, 0.52], [-1, 0, 0.42], [0, 1, 0.42], [0, -1, 0.4], [-0.7, 0.7, 0.5], [-0.7, -0.7, 0.5]]) out.push(...splash(0.5, 0.5, 1.12, dx, dz, l, 0.18, 0.07));
     return out;
   },
   harvester: () => {

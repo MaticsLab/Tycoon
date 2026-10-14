@@ -27,7 +27,7 @@ You can also befriend villagers whose personalities change based on how you trea
 - **Public places:** the Town Square, City Hall, Willow Park (a lake, a gazebo and benches) and the Harvest Fair (a pumpkin patch, corn rows and market stalls).
 - **Seasons follow the real calendar.** From September to November the trees turn red and gold, leaves cover the ground and pumpkins fill the fair.
   In October the village decorates for Halloween with jack-o'-lanterns, hay bales, bubbling cauldrons and a spooky graveyard. Fall decorations are also for sale in build mode.
-- **City Hall and elections.** Talk to **Mabel, the City Clerk** (an AI villager) at City Hall, then tap **🏛️ City Hall business**.
+- **City Hall and elections.** Talk to **Mabel, the City Clerk** (an AI villager) at City Hall, then tap **🏛️ City Hall business**. City Hall opens as a wide window with a sidebar: Overview, Election, Council and Public projects; Utilities, Farmhands, Business and Bank & taxes; and Data. Each section fits on one screen. You can withdraw from a race while filing is still open.
   - **Elections** every 4 village years (about 4½ real days) for a **mayor** and a **50-seat council**. Players file a platform and vote in person at City Hall.
     A new village holds a founding election straight away. Seats nobody wins go to **AI caretakers**, and **Mayor Bramble (AI)** serves if nobody runs for mayor.
   - **Proposals**: close the road across your plot, set the price of land, or pass a resolution. The council votes for two village days.
@@ -83,7 +83,7 @@ You can also befriend villagers whose personalities change based on how you trea
   - Ivy the painter, Sam the postie, Nell the retired teacher and Fern the beekeeper;
   - Rowan who farms East Field, Lila the baker (Rosa's niece), Felix the astronomer and Bea the teenage skater.
 
-  Each has their own home, look, sense of humour, daily routine (fishing, painting, playing music, delivering the post, playing in the square…), likes and dislikes, and friendship gifts.
+  Each has their own cottage on **Maple Lane**, a street through the woods south of the village (reached from the avenue or from the Harvest Fair). The cottages are real walk-in houses with interiors to match their owner: Hazel's aquarium, Willa's wall of books, Theo's piano, Felix's telescopes under a glass roof, the bar at Gus's Saloon. Villagers walk home through the front door at night. Each also has their own look, sense of humour, daily routine (fishing, painting, playing music, delivering the post, playing in the square…), likes and dislikes, and friendship gifts.
 - **Requests (quests).** Favours are rare and on purpose: each day only a few villagers (about one in five, picked at random for you) have something to ask, and they show a bobbing **!** over their head. Talk to one of them to hear it; everyone else just chats. Up to 3 at a time:
   - bring them crops or gifts;
   - put a particular piece of furniture in your home;
@@ -163,6 +163,7 @@ You can also befriend villagers whose personalities change based on how you trea
 
   Enter before 6 PM. Entries are judged on value × quality, and the top three win 🪙500 / 🪙250 / 🪙100, with a **Festival Trophy** for first place.
 - **Bag, Quests and Journal** share one popup: the 🎒 Bag button opens it, with a tab for each (red badges show open requests and a new paper).
+- **Talking to villagers:** the talk window shows their portrait, friendship hearts (filling part-way as you get closer), how close you are, their mood and where they are. Their personality and loves sit behind the ⓘ About button. The conversation scrolls, with dots while they're typing. Pick a gift from your bag right in the window (loved ones are tagged once you know them).
 - **Chat** (💬): a chat panel with the whole conversation, your own messages on the right, colour-coded names, quick replies and emoji, and an unread count on the button. New lines also float up over the corner for a few seconds.
 - **Settings** is the ⚙️ gear in the top-left corner.
 - **Journal** (📖):
@@ -200,7 +201,8 @@ You can also befriend villagers whose personalities change based on how you trea
   - **Rain** darkens the sky and waters every outdoor crop (not the ones in greenhouses).
   - **By season:** petals and leaves fall from the actual trees around you, in each tree's own colours (pink petals from blossom trees in spring, red, orange and gold leaves from autumn maples, the odd green leaf in summer), flutter down, rest on the ground and fade. Fireflies glow on summer nights.
   - **Cloud shadows** drift slowly over the land.
-- **Music and sound** are all synthesized in the browser, with no audio files.
+- **Things come alive.** Live sprinklers spray arcs of water that splash down (the big one sweeps back and forth), fireplaces and fire pits flicker with embers and smoke, candles and lanterns glow at night, busy machines puff steam, the cauldron bubbles and the harvester's light blinks while it's powered.
+- **Music and sound** are all synthesized in the browser, with no audio files. Things near you make their own sounds, louder the closer you are: sprinklers hiss and tick, fires crackle, machines hum, a grandfather clock ticks, the cauldron bubbles. **Settings → 🔊 Sounds** has a volume for everything, music, weather & nature, things around you and actions.
   - **Music:** four calm, looping pieces, one per season, that crossfade when the season turns:
     - **Spring:** flute over electric piano, in C major.
     - **Summer:** marimba, in D major.
@@ -223,7 +225,7 @@ You can also befriend villagers whose personalities change based on how you trea
 - **Watering.** Watered crops grow twice as fast while the soil stays wet (one in-game day; wet soil looks dark). Buy a **watering can** from Rosa and walking through your rows waters them.
 - **Water and electricity.** At City Hall, hook up **💧 water** (🪙100 setup + 🪙120 a month) or **⚡ electricity** (🪙150 + 🪙200 a month). Bills go to the city treasury every 28 days. If you can't pay, the service is cut off until you settle up at City Hall.
   - Water gives you a **ground spout** and electricity a **power box**. Place either anywhere on your plot from Build → Bag.
-  - Run **water pipes** and **power cables** from them (4-way; anything touching the network is connected).
+  - Run **water pipes** and **power cables** from them. They're buried: drag to lay a run (an L from where you press to where you let go), and crops, floors and furniture can go on top. Tap a pipe with the pipe tool, or use the sledgehammer, to dig it up. In build mode they show as thin joined lines (bright when connected to the spout or power box, grey when not); otherwise you only see the stub where a line comes up into a sprinkler or machine. Anything on or next to a live line is connected.
   - In build mode, 💧/⚡ marks connected things and ⚠️ unconnected ones.
 - **Automation** (Build → Water, Power & Automation):
   - **Sprinkler** and **Big Sprinkler** keep the crops around them watered (3×3 and 5×5).

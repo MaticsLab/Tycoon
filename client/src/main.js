@@ -32,6 +32,7 @@ import { openCreator, closeCreator } from './creator.js';
 import { renderCity, cityOpen, closeCity } from './cityui.js';
 import { socialUI } from './social-ui.js';
 import { makeWeather, makeTreeLeaves } from './weather.js';
+import { makeObjectFx } from './objfx.js';
 import { LEAF } from './sprites.js';
 import { treeKindAt } from './gfx/scenery.js';
 import { createAudio } from './audio.js';
@@ -2748,14 +2749,41 @@ const consoleInput = $('console-input');
 consoleForm.remove();
 const CHEAT_CHIPS = ['testingcheats true', 'motherlode', 'kaching', 'freerealestate on', 'bb.enablefreebuild', 'tp cityhall', 'help'];
 
-// Settings has two tabs: 👤 Me (your character and account) and ⚙️ Game (cheats, controls).
+// Settings has three tabs: 👤 Me (your character and account), 🔊 Sounds (volumes) and
+// ⚙️ Game (cheats, controls).
 let settingsTab = 'me';
+// Each kind of sound has its own volume (saved on this device).
+const SOUND_KINDS = [
+  ['master', '🔊 Everything', 'All sound in the game'],
+  ['music', '🎵 Music', 'The seasonal songs'],
+  ['ambience', '🌧️ Weather & nature', 'Rain, wind, birds, crickets, water'],
+  ['objects', '💦 Things around you', 'Sprinklers, fires, machines, clocks'],
+  ['sfx', '🪓 Actions', 'Chopping, mining, placing, coins'],
+];
+function renderSounds(body) {
+  body.classList.add('sounds');
+  for (const [k, label, sub] of SOUND_KINDS) {
+    const row = document.createElement('label');
+    row.className = 'vol2';
+    const v = audio.vol[k] ?? 1;
+    row.innerHTML = `<span><b>${label}</b><small>${sub}</small></span><output>${Math.round(v * 100)}%</output>`;
+    const r = Object.assign(document.createElement('input'), { type: 'range', min: 0, max: 1, step: 0.05, value: v });
+    r.setAttribute('aria-label', label.replace(/^\S+ /, ''));
+    r.oninput = () => { audio.start(); audio.setVolume(k, +r.value); row.querySelector('output').textContent = `${Math.round(r.value * 100)}%`; };
+    row.appendChild(r);
+    body.appendChild(row);
+  }
+  const mute = document.createElement('button');
+  mute.className = 'chip'; mute.textContent = audio.vol.muted ? '🔇 Sound off: tap to turn on' : '🔊 Sound on: tap to mute';
+  mute.onclick = () => { audio.start(); audio.setVolume('muted', !audio.vol.muted); showSettings('sound'); };
+  body.appendChild(mute);
+}
 function showSettings(tab = settingsTab) {
   settingsTab = tab;
   const root = openModal('settings', '⚙️ Settings');
   const tabs = document.createElement('div');
   tabs.className = 'seg';
-  for (const [k, label] of [['me', `👤 ${S.me?.name || 'Me'}`], ['game', '⚙️ Game']]) {
+  for (const [k, label] of [['me', `👤 ${S.me?.name || 'Me'}`], ['sound', '🔊 Sounds'], ['game', '⚙️ Game']]) {
     const b = document.createElement('button');
     b.textContent = label;
     b.className = k === tab ? 'sel' : '';
@@ -2766,21 +2794,7 @@ function showSettings(tab = settingsTab) {
   const body = document.createElement('div');
   root.appendChild(body);
   if (tab === 'me') return renderMe(body);
-  // Sound: music, ambience and effects volumes.
-  body.insertAdjacentHTML('beforeend', '<h3>🔊 Sound</h3>');
-  for (const [k, label] of [['music', '🎵 Music'], ['ambience', '🌧️ Ambience'], ['sfx', '🪓 Effects']]) {
-    const row = document.createElement('label');
-    row.className = 'row vol';
-    row.innerHTML = `<span>${label}</span>`;
-    const r = Object.assign(document.createElement('input'), { type: 'range', min: 0, max: 1, step: 0.05, value: audio.vol[k] });
-    r.oninput = () => { audio.start(); audio.setVolume(k, +r.value); };
-    row.appendChild(r);
-    body.appendChild(row);
-  }
-  const mute = document.createElement('button');
-  mute.className = 'chip'; mute.textContent = audio.vol.muted ? '🔇 Sound off: tap to turn on' : '🔊 Sound on: tap to mute';
-  mute.onclick = () => { audio.start(); audio.setVolume('muted', !audio.vol.muted); showSettings('game'); };
-  body.appendChild(mute);
+  if (tab === 'sound') return renderSounds(body);
   body.insertAdjacentHTML('beforeend', `
     <h3>🧪 Cheats</h3>
     <p class="muted">Type <b>testingcheats true</b> first, then <b>money 5000</b>, <b>motherlode</b> (+50,000), <b>kaching</b> or <b>rosebud</b> (+1,000), <b>freerealestate on</b> or <b>bb.enablefreebuild</b>.</p>`);
@@ -4094,6 +4108,7 @@ function drawOverlay(now) {
     const { day, hours } = worldClock(serverNow(), S.epoch);
     const wx = S.weather ?? weatherAt(day, hours);
     view.overcast = wx === 'storm' ? 1 : wx ? 0.6 : 0;
+    audio.objects(objFx.draw(octx, now, { dark: darkness(serverNow(), S.epoch) }));
     updateAudio(now, wx, day);
     treeLeaves.draw(octx, now, Math.min(0.05, (now - (lastWeather || now)) / 1000), S.seasonOverride || seasonOf(day).id);
     weather.draw(octx, innerWidth, innerHeight, now, Math.min(0.05, (now - (lastWeather || now)) / 1000), { kind: wx, season: seasonOf(day).id, dark: darkness(serverNow(), S.epoch) });
@@ -4353,7 +4368,7 @@ if (new URLSearchParams(location.search).has('debug')) {
     plotToClient: (lx, ly, h = 0, plotId = S.myPlot) => { const d = S.plots[plotId]; return view.toScreen(d.x + lx, S.level * LEVEL_H + h, d.y + ly); },
     worldToClient: (x, z, h = 0) => view.toScreen(x, h, z),
     tileToClient: (tx, ty) => view.toScreen(tx + 0.5, 0, ty + 0.5),
-    setLevel, cycleWalls, turnCamera, setMode, send, nearestUsable, usableAt, showCity: () => showCity(), showBag: () => showBag(), audio: () => audio, season: (id) => { S.seasonOverride = id; },
+    setLevel, cycleWalls, turnCamera, setMode, send, nearestUsable, usableAt, showCity: () => showCity(), showBag: () => showBag(), showSettings: (t) => showSettings(t), audio: () => audio, season: (id) => { S.seasonOverride = id; },
   };
 }
 
@@ -4609,6 +4624,16 @@ const treeLeaves = makeTreeLeaves({
   view, world, palette: LEAF,
   isTree: (x, y) => x >= 0 && y >= 0 && x < world.w && y < world.h && world.tiles[y * world.w + x] === T.TREE,
   kindAt: (x, y) => treeKindAt(world, x, y),
+});
+// Sprinkler spray, flames, steam... drawn where they can be seen (not under a roof).
+const objFx = makeObjectFx({
+  view,
+  plots: () => Object.values(S.plots),
+  me: () => S.me && { x: S.me.x / TILE, z: S.me.y / TILE },
+  shown: (plot, lx, ly, level) => {
+    const o = plotOpts(plot.id);
+    return level <= o.maxLevel && !(o.roofs && roofAt(plot, lx, ly, level) >= 0);
+  },
 });
 // Sound can only start after the player touches the page.
 for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, () => audio.start(), { passive: true });

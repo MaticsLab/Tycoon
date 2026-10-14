@@ -5,6 +5,9 @@
 //   - Ambience: rain (with droplets), storms (rumble and thunder), wind, birdsong by
 //     day, crickets on summer and fall nights, owls in fall and winter, babbling water
 //     near the pond and fountain. Muffled when you're indoors.
+//   - Objects: things near you making their own noise: sprinklers hissing and ticking,
+//     fires crackling, busy machines humming, a cauldron bubbling, a clock ticking.
+//     Louder the closer you are (see objfx.js).
 //   - Effects: chopping, mining, splashing, placing, picking up.
 // The browser only allows sound after the player touches the page, so start() waits
 // for that.
@@ -63,8 +66,11 @@ function parseMelody(str) {
 }
 
 export function createAudio({ store } = {}) {
-  let ctx = null, master, musicBus, ambBus, sfxBus, reverb, ambFilter;
-  const vol = { music: 0.6, ambience: 0.7, sfx: 0.8, muted: false };
+  let ctx = null, master, musicBus, ambBus, sfxBus, objBus, reverb, ambFilter;
+  const vol = { master: 1, music: 0.6, ambience: 0.7, objects: 0.7, sfx: 0.8, muted: false };
+  const near = { sprinkler: 0, fire: 0, machine: 0, clock: 0, bubble: 0 };
+  let nextTick = 0, nextPop = 0, nextSprTick = 0;
+  const obj = {};
   try { Object.assign(vol, JSON.parse(store?.get('audio') || '{}')); } catch { /* defaults */ }
   const state = { season: 'spring', night: false, weather: null, indoor: false, water: 0, fountain: 0 };
   let song = null, loopEnd = 0, loopGain = null, nextChirp = 0, nextOwl = 0;
@@ -86,23 +92,25 @@ export function createAudio({ store } = {}) {
     const comp = c.createDynamicsCompressor();
     comp.threshold.value = -16; comp.ratio.value = 3; comp.attack.value = 0.01; comp.release.value = 0.3;
     master.connect(comp).connect(c.destination);
-    musicBus = c.createGain(); ambBus = c.createGain(); sfxBus = c.createGain();
+    musicBus = c.createGain(); ambBus = c.createGain(); sfxBus = c.createGain(); objBus = c.createGain();
     reverb = c.createConvolver();
     reverb.buffer = impulse(c, 3.2, 2.4);
     const wet = c.createGain(); wet.gain.value = 0.32;
     reverb.connect(wet).connect(master);
     ambFilter = c.createBiquadFilter(); ambFilter.type = 'lowpass'; ambFilter.frequency.value = 18000;
     ambBus.connect(ambFilter).connect(master);
-    musicBus.connect(master); sfxBus.connect(master);
+    musicBus.connect(master); sfxBus.connect(master); objBus.connect(master);
     applyVolumes();
     buildAmbience(c);
+    buildObjects(c);
   }
   function applyVolumes() {
     if (!ctx) return;
-    const t = ctx.currentTime, m = vol.muted ? 0 : 1;
+    const t = ctx.currentTime, m = vol.muted ? 0 : vol.master ?? 1;
     musicBus.gain.setTargetAtTime(0.42 * vol.music * m, t, 0.3);
     ambBus.gain.setTargetAtTime(0.9 * vol.ambience * m, t, 0.3);
     sfxBus.gain.setTargetAtTime(0.7 * vol.sfx * m, t, 0.1);
+    objBus.gain.setTargetAtTime(0.8 * (vol.objects ?? 0.7) * m, t, 0.2);
   }
   function setVolume(k, v) {
     vol[k] = v;
@@ -330,16 +338,64 @@ export function createAudio({ store } = {}) {
     else if (kind === 'coin') { tone(1320, 0.09, 0.08); tone(1760, 0.16, 0.08, 'sine', 0.07); }
   }
 
+  // ---------- things near you ----------
+  function buildObjects(c) {
+    const loop = (buf, nodes, gain = 0) => { const s = loopSrc(c, buf); const g = c.createGain(); g.gain.value = gain; let n = s; for (const x of nodes) { n.connect(x); n = x; } n.connect(g).connect(objBus); return g; };
+    const bp = (f, q) => { const n = c.createBiquadFilter(); n.type = 'bandpass'; n.frequency.value = f; n.Q.value = q; return n; };
+    const lp = (f) => { const n = c.createBiquadFilter(); n.type = 'lowpass'; n.frequency.value = f; return n; };
+    // Sprinkler: a soft hiss of spray, fluttering as the head turns.
+    const flutter = c.createGain(); flutter.gain.value = 0.7;
+    const fl = c.createOscillator(), fg = c.createGain(); fl.frequency.value = 2.3; fg.gain.value = 0.3; fl.connect(fg).connect(flutter.gain); fl.start();
+    obj.sprinkler = loop(noise(c, 2, 'white'), [bp(3800, 0.7), flutter]);
+    // Fire: a low roar under the crackles (scheduled in objects()).
+    obj.fire = loop(noise(c, 3, 'brown'), [lp(420)]);
+    // Machines: a gentle electric hum with a slow chug.
+    const hum = c.createOscillator(); hum.type = 'sawtooth'; hum.frequency.value = 58;
+    const hf = lp(260), chug = c.createGain(); chug.gain.value = 0.6;
+    const cl = c.createOscillator(), cg = c.createGain(); cl.frequency.value = 1.6; cg.gain.value = 0.35; cl.connect(cg).connect(chug.gain); cl.start();
+    obj.machine = c.createGain(); obj.machine.gain.value = 0;
+    hum.connect(hf).connect(chug).connect(obj.machine).connect(objBus); hum.start();
+  }
+  function objects(now) {
+    const lvl = (node, v) => node?.gain.setTargetAtTime(v, now, 0.4);
+    lvl(obj.sprinkler, 0.05 * near.sprinkler);
+    lvl(obj.fire, 0.16 * near.fire);
+    lvl(obj.machine, 0.035 * near.machine);
+    const c = ctx;
+    const click = (t, f, q, peak, dur) => {
+      const s = c.createBufferSource(); s.buffer = amb.white;
+      const fi = c.createBiquadFilter(); fi.type = 'bandpass'; fi.frequency.value = f; fi.Q.value = q;
+      const g = c.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(peak, t + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      s.connect(fi).connect(g).connect(objBus); s.start(t, Math.random() * 1.5, dur + 0.05);
+    };
+    // Crackles and pops from the fire.
+    if (near.fire > 0.02) while (nextPop < now + 0.3) { nextPop = Math.max(nextPop, now) + 0.05 + Math.random() * 0.35; click(nextPop, 1500 + Math.random() * 3500, 3, (0.04 + Math.random() * 0.12) * near.fire, 0.03 + Math.random() * 0.05); }
+    // An impact sprinkler's tick-tick-tick.
+    if (near.sprinkler > 0.02) while (nextSprTick < now + 0.3) { nextSprTick = Math.max(nextSprTick, now) + 0.16; click(nextSprTick, 2600, 8, 0.05 * near.sprinkler, 0.025); }
+    // A clock: tick... tock.
+    if (near.clock > 0.02) while (nextTick < now + 0.3) { nextTick = Math.max(nextTick, now) + 1; const tock = Math.round(nextTick) % 2; click(nextTick, tock ? 1700 : 2300, 12, 0.08 * near.clock, 0.04); }
+    // Bubbles in the cauldron: little rising blips.
+    if (near.bubble > 0.02 && Math.random() < 0.6) {
+      const t = now + Math.random() * 0.25, o = c.createOscillator(), g = c.createGain();
+      o.frequency.setValueAtTime(220 + Math.random() * 200, t); o.frequency.exponentialRampToValueAtTime(700 + Math.random() * 300, t + 0.07);
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.05 * near.bubble, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+      o.connect(g).connect(objBus); o.start(t); o.stop(t + 0.12);
+    }
+  }
+
   function tick() {
     if (!ctx || ctx.state !== 'running') return;
     const now = ctx.currentTime;
     music(now);
     ambience(now);
+    objects(now);
   }
 
   return {
     start, sfx, thunder, setVolume, vol,
     update(s) { Object.assign(state, s); },
+    // How near the closest sprinkler, fire, busy machine, clock and cauldron are (0..1).
+    objects(levels) { if (levels) Object.assign(near, levels); },
     get running() { return ctx?.state === 'running'; },
     // Tests: render a loop of a season's music offline.
     async renderSong(name, night = false, secs = 12) {

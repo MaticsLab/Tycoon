@@ -724,3 +724,10 @@ body.walldrag, body.walldrag .wlh { cursor: grabbing; }
   .nc-log { height: auto; min-height: 120px; max-height: 32dvh; flex: 1 1 auto; padding: 12px; }
   .nc-input { padding: 10px 12px 12px; }
 }
+/* Settings → Sounds */
+#modal-body .sounds { display: flex; flex-direction: column; gap: 12px; padding-top: 6px; }
+.vol2 { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; }
+.vol2 span { display: flex; flex-direction: column; }
+.vol2 small { font-size: 12px; color: #8f6a45; }
+.vol2 output { font-size: 13px; font-weight: bold; color: var(--wood); font-variant-numeric: tabular-nums; }
+.vol2 input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--wood-light); }
