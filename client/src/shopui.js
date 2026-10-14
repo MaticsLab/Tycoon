@@ -6,7 +6,7 @@
 import { NPCS } from '@shared/npcs.js';
 import { ITEMS, GOODS, itemName } from '@shared/catalog.js';
 import { slotsOf, valueOf, sellable, shopOpen, STAFF, OPEN_HOURS } from '@shared/business.js';
-import { worldClock, plotIdAtPixel } from '@shared/world.js';
+import { worldClock, plotIdAtPixel, TILE } from '@shared/world.js';
 import { drawLook } from './people.js';
 
 const $ = (id) => document.getElementById(id);
@@ -298,7 +298,10 @@ export function makeShopUI({ S, send, toast, thumb, world, serverNow, onBackToCh
   function frame(now) {
     if (now - tickAt < 200 || !S.me) return;
     tickAt = now;
-    const pid = plotIdAtPixel(world, S.me.x, S.me.y), plot = pid >= 0 ? S.plots[pid] : null;
+    const pid = plotIdAtPixel(world, S.me.x, S.me.y);
+    let plot = pid >= 0 ? S.plots[pid] : null;
+    // Standing at a market stall counts as being in the shop.
+    if (!plot?.biz) plot = Object.values(S.plots).find((p) => p.stall && Math.hypot(S.me.x / TILE - (p.x + 1), S.me.y / TILE - (p.y + 1)) < 3.5) || plot;
     const here = plot?.biz && !mine(plot) ? plot.id : null;
     if (here !== inShop) {
       if (inShop != null && S.cart.length) { S.cart.length = 0; toast('You left the shop, so your cart was put back'); }

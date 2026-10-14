@@ -586,6 +586,7 @@ function updateHud() {
   shopUI?.refresh();
 }
 
+const fmtHour = (h) => `${((Math.floor(h) + 11) % 12) + 1} ${h % 24 < 12 ? 'AM' : 'PM'}`;
 function fmtClock() {
   const { day, year, shownHours: h, minutes: mi } = worldClock(serverNow(), S.epoch);
   const h12 = ((h + 11) % 12) + 1;
@@ -888,6 +889,7 @@ function renderAbout() {
   const v = t.view;
   box.innerHTML = `<b>PERSONALITY</b><div class="nc-chips">${v.personality.map((w) => `<span class="nc-chip">${esc(w)}</span>`).join('')}</div>
     <b>LOVES</b><div class="nc-chips">${v.likes ? v.likes.map((w) => `<span class="nc-chip love">${esc(w)}</span>`).join('') : 'Become good friends to find out.'}</div>
+    ${v.stall ? `<b>MARKET STALL THIS WEEK</b><div class="nc-venture">🧺 <span><b>${esc(v.stall.area)}</b><br><small>${fmtHour(v.stall.from)} – ${fmtHour(v.stall.to)} · come and browse</small></span></div>` : ''}
     ${v.ventures?.length ? `<b>BUSINESS</b>${v.ventures.map((x) => `<div class="nc-venture">${x.icon} <span><b>${esc(x.name)}</b><br><small>${esc(x.label)}${x.with.length ? ` with ${esc(x.with.join(' & '))}` : ''} · ${x.plotId == null ? 'looking for land' : x.built ? 'open 8 AM – 8 PM' : 'being built'}</small></span></div>`).join('')}` : ''}`;
 }
 
@@ -4252,7 +4254,7 @@ function drawOverlay(now) {
     if (st.town) {
       // Village shops: their name over the door.
       const p = view.toScreen(st.x + st.w / 2, 3.2, st.y + st.h);
-      if (onScreen(p)) tag(`🏪 ${st.name}`, p.x, p.y, 12, '#ffe9b0');
+      if (onScreen(p)) tag(st.stall ? `🧺 ${st.name}${st.biz?.closed ? ' · closed' : ''}` : `🏪 ${st.name}`, p.x, p.y, 12, st.stall && st.biz?.closed ? '#e6d3a8' : '#ffe9b0');
       continue;
     }
     if (!st.owner || st.biz) continue;

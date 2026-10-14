@@ -14,6 +14,14 @@ import { LICENCE_FEE, RECIPES, STAFF, sellable, valueOf, slotsOf, isMachine, pri
 const clean = (s, n) => String(s ?? '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, n);
 const SHOPPERS = ['Rosa', 'Otto', 'Juniper', 'Mabel', 'a farmer', 'a tourist', 'old Mr. Finch', 'the Baker twins', 'a hungry kid', 'Mayor Bramble', 'a travelling bard', 'Mrs. Pennywhistle'];
 
+// Inside the shop (or, for a market stall, standing at it).
+export function atShop(world, plot, x, y) {
+  if (plotIdAtPixel(world, x, y) === plot.id) return true;
+  if (!plot.stall) return false;
+  const dx = Math.max(plot.x * TILE - x, 0, x - (plot.x + plot.w) * TILE), dy = Math.max(plot.y * TILE - y, 0, y - (plot.y + plot.h) * TILE);
+  return Math.hypot(dx, dy) < TILE * 3;
+}
+
 export class Business {
   constructor(game) {
     this.game = game;
@@ -173,7 +181,7 @@ export class Business {
     const r = this.reach(s, msg, false);
     if (!r) return;
     const { plot, hit } = r;
-    if (plot.venture) return this.game.agents.shelfBuy(s, plot, hit, msg); // a villager's shop
+    if (plot.venture || plot.stall) return this.game.agents.shelfBuy(s, plot, hit, msg); // a villager's shop or stall
     const owner = this.ownerProfile(plot);
     if (!owner?.biz || owner.biz.plotId !== plot.id) return;
     if (owner.id === s.profile.id) return s.send({ type: 'error', msg: 'That’s your own stock' });
@@ -193,14 +201,13 @@ export class Business {
   buyCart(s, { plotId, items }) {
     const g = this.game, plot = g.plots[plotId];
     if (!plot?.biz || !Array.isArray(items) || !items.length || items.length > 40) return;
-    if (plotIdAtPixel(g.world, s.x, s.y) !== plot.id) return s.send({ type: 'error', msg: 'Pay inside the shop' });
+    if (!atShop(g.world, plot, s.x, s.y)) return s.send({ type: 'error', msg: plot.stall ? 'Walk up to the stall to pay' : 'Pay inside the shop' });
     if (plot.owner === s.profile.id) return s.send({ type: 'error', msg: 'That’s your own stock' });
-    const v = plot.venture ? g.agents.s.ventures[plot.venture] : null;
-    const owner = v ? null : this.ownerProfile(plot);
-    if (!v && (!owner?.biz || owner.biz.plotId !== plot.id)) return;
-    const { hours } = worldClock(g.now(), g.epoch);
-    const open = v ? shopOpen(plot.biz, hours, false) : this.isOpen(owner, plot);
-    if (!open) return s.send({ type: 'error', msg: `“${plot.biz.name}” is closed right now` });
+    const npcRun = !!(plot.venture || plot.stall), ag = g.agents;
+    const owner = npcRun ? null : this.ownerProfile(plot);
+    if (npcRun ? !ag.ownersOf(plot).length : (!owner?.biz || owner.biz.plotId !== plot.id)) return;
+    const open = npcRun ? ag.openPlot(plot) : this.isOpen(owner, plot);
+    if (!open) return s.send({ type: 'error', msg: npcRun ? ag.closedMsg(plot) : `“${plot.biz.name}” is closed right now` });
     // Check every line first: still there, enough of it, same price.
     const lines = [];
     for (const it of items) {
@@ -222,16 +229,13 @@ export class Business {
       const item = slot.item, cost = slot.price * n;
       g.bag(s, item, n);
       count += n;
-      if (v) {
+      if (npcRun) {
         slot.n -= n;
         if (slot.n <= 0) { obj.stock.splice(obj.stock.indexOf(slot), 1); if (!obj.stock.length) delete obj.stock; }
-        g.agents.pay(v, cost, s.profile.name, item);
+        ag.payPlot(plot, cost, s.profile.name, item);
       } else this.sold(owner, plot, { obj }, slot, n, s.profile.name);
     }
-    if (v) {
-      g.plotChanged(plot);
-      for (const id of v.owners) { const o = g.npcs[id]; o.feel(s.profile, 0.4, g.now(), `${s.profile.name} shopped at ${v.name}`, g.epoch); g.hearts(s.profile, o); }
-    }
+    if (npcRun) { g.plotChanged(plot); ag.thank(plot, s, lines[0].slot.item); }
     s.send({ type: 'cartPaid', plotId, total, count });
     s.send({ type: 'toast', text: `🛍️ Paid 🪙${total} for ${count} item${count > 1 ? 's' : ''}` });
   }

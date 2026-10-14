@@ -1987,17 +1987,13 @@ test('villager agents: group conversations players can join, offers, and rearran
   const v = game.agents.ventureOf('fern');
   assert.ok(v && v.owners.includes('lila'), 'they went into business');
   assert.equal(v.name, 'The Honey Pot');
-  // A villager walks up with an offer; you take it.
+  // Only friends walk up to you, and just to say hello.
   hazel.x = s.x + TILE; hazel.y = s.y;
-  for (let i = 0; i < 12 && !a.last('npcOffer'); i++) await game.agents.approach(hazel, s.profile.id);
-  assert.ok(a.last('npcApproach') || a.last('npcOffer'));
-  const offer = a.last('npcOffer');
-  assert.ok(offer, 'an offer');
-  assert.equal(offer.text, 'Fresh catch, friend!');
-  const coins = s.profile.coins;
-  s.profile.coins = Math.max(coins, offer.price);
-  await a.send({ type: 'offerAccept', id: offer.id });
-  assert.ok(s.profile.inv[offer.item] >= 1);
+  hazel.rel(s.profile).affinity = 50;
+  hazel.addCallback(s.profile, 'How did the big catch go?');
+  await game.agents.approach(hazel, s.profile.id);
+  assert.equal(a.last('npcApproach').text, 'Fresh catch, friend!');
+  assert.ok(!a.last('npcOffer'), 'no sales pitches on the street');
   // Rearranging home: something moves or something new appears, and it's kept.
   const home = Object.values(game.plots).find((pl) => pl.home === 'hazel');
   const before = JSON.stringify(home.obj);
@@ -2059,4 +2055,56 @@ test('shop carts: pick from several shelves, pay once, owners get paid', async (
   assert.equal(lila.s.wallet, wallet + total);
   assert.ok(a.last('cartPaid'));
   for (const i of items) assert.ok(s.profile.inv[i.item] >= 1);
+});
+
+
+test('market stalls: a few villagers sell from a stall each week and call out to passers-by', async () => {
+  const { HOUR_MS } = await import('../../shared/needs.js');
+  const { worldClock } = await import('../../shared/world.js');
+  const ai = async (msgs, schema, parse) => (schema?.properties?.text ? parse({ text: 'Psst, you! Fresh jam!' }) : null);
+  const { game, join, advance } = setup({ ai });
+  const a = await join({ name: 'Ana' });
+  const s = a.session();
+  const day = worldClock(game.now(), game.epoch).day;
+  game.agents.planStalls(day);
+  const list = game.agents.s.stalls.list;
+  assert.ok(list.length >= 3 && list.length <= 6, `stalls: ${list.length}`);
+  assert.equal(new Set(list.map((st) => st.npc)).size, list.length);
+  // Each one is a little village plot on public land, with stocked shelves.
+  for (const st of list) {
+    const p = game.plots[st.id];
+    assert.equal(p.stall, st.npc);
+    assert.ok(p.obj['0,1'].stock.length >= 1);
+  }
+  // Same plan all week; a new week brings a new plan.
+  game.agents.planStalls(day + 1);
+  assert.equal(game.agents.s.stalls.list, list);
+  // During their hours the keeper goes to the stall, opens up and calls out to you.
+  const st = list[0], n = game.npcs[st.npc], plot = game.plots[st.id];
+  const h = worldClock(game.now(), game.epoch).hours;
+  game.epoch -= (((st.from + 0.5 - h) % 24 + 24) % 24) * HOUR_MS;
+  n.x = (st.x + 1) * TILE; n.y = (st.y + 3) * TILE; n.talkingTo = null; n.convo = null;
+  for (let i = 0; i < 300 && plot.biz.closed; i++) { advance(100); game.tick(); }
+  assert.ok(!plot.biz.closed, 'open once the keeper is there');
+  s.x = (st.x + 1) * TILE; s.y = (st.y + 2.5) * TILE;
+  for (let i = 0; i < 80 && !a.last('npcOffer'); i++) { advance(100); game.tick(); await new Promise((r) => setTimeout(r, 0)); }
+  const offer = a.last('npcOffer');
+  assert.ok(offer, 'called out');
+  assert.equal(offer.text, 'Psst, you! Fresh jam!');
+  const wallet = n.s.wallet;
+  s.profile.coins = 10_000;
+  await a.send({ type: 'offerAccept', id: offer.id });
+  assert.ok(s.profile.inv[offer.item] >= 1);
+  assert.equal(n.s.wallet, wallet + offer.price);
+  // Calls out once, not every time you pass.
+  const count = a.inbox.filter((m) => m.type === 'npcOffer').length;
+  for (let i = 0; i < 80; i++) { advance(100); game.tick(); }
+  assert.equal(a.inbox.filter((m) => m.type === 'npcOffer').length, count);
+  // The stall shelf works with the cart, too.
+  const sl = plot.obj['0,1'].stock[0];
+  await a.send({ type: 'buyCart', plotId: plot.id, items: [{ level: 0, lx: 0, ly: 1, item: sl.item, price: sl.price, n: 1 }] });
+  assert.ok(a.last('cartPaid'));
+  // And it all survives a restart.
+  const again = new Game(Game.fromEntries(Object.entries(game.takeDirty())));
+  assert.equal(again.plots[st.id].stall, st.npc);
 });

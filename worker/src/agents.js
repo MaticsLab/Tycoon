@@ -10,8 +10,8 @@ import { NPCS, moodLabel } from '../../shared/npcs.js';
 import { VOICES, voiceOf, VENTURES, AMBITIONS, WARES, WAGE, START_WALLET, STAGES, ventureCost, DECOR, YARD_DECOR, siteFor, buildStage } from '../../shared/agents.js';
 import { ITEMS, GOODS, itemName } from '../../shared/catalog.js';
 import { slotsOf, valueOf, shopOpen } from '../../shared/business.js';
-import { placementError, plotEntrance, footprint, inInterior } from '../../shared/plot.js';
-import { TILE, worldClock, publicAreaAt, plotIdAtPixel } from '../../shared/world.js';
+import { placementError, plotEntrance, footprint, inInterior, indexPlots, canStand } from '../../shared/plot.js';
+import { TILE, worldClock, publicAreaAt, plotIdAtPixel, PUBLIC_AREAS, MAP_W, MAP_H } from '../../shared/world.js';
 import { HOUR_MS } from '../../shared/needs.js';
 import { NPC_ACTS, PLACES } from '../../shared/village.js';
 import { TOWN_PLOT_BASE } from '../../shared/townshops.js';
@@ -39,18 +39,29 @@ const MAX_CONVOS = 4;
 const MAX_VENTURES = 10;
 const JOIN_RANGE = TILE * 7;
 const HEAR_RANGE = TILE * 14;
+// Market stalls: a handful of villagers each week get a pitch somewhere busy and sell
+// what they make for a few hours a day, calling out to people walking by.
+const STALL_AREAS = ['Town Square', 'Willow Park', 'Harvest Fair', 'Seashell Beach', 'Duck Pond', 'Riverside Green', 'Pine Hollow Campsite'];
+const STALL_HOURS = [[8, 12], [9, 13], [11, 15], [13, 17], [15, 19]];
+const STALLS_A_WEEK = 6;
+const STALL_BASE = TOWN_PLOT_BASE + 200;
+const CALL_RANGE = TILE * 5;
 
 export class Agents {
   constructor(game, saved = {}) {
     this.game = game;
     this.s = { ventures: saved.ventures || {}, nextId: saved.nextId || 1, wageDay: saved.wageDay || 0 };
+    this.sought = {}; // player id -> when a villager last came over to them
     this.convos = new Map();
     this.nextConvo = 1;
     this.offers = new Map(); // offer id -> { pid, npc, item, price, venture, until }
     this.nextOffer = 1;
     this.nextSale = 0;
     this.pairCool = new Map(); // "a|b" -> time they last talked
+    this.called = new Map(); // "npc|player" -> when they last called out to them
+    this.s.stalls = saved.stalls || null;
     for (const n of Object.values(game.npcs)) this.init(n);
+    this.buildStalls(false);
   }
   get npcs() { return this.game.npcs; }
   save() { return this.s; }
@@ -76,14 +87,17 @@ export class Agents {
     this.s.wageDay = day;
     for (const n of Object.values(this.npcs)) { n.s.wallet = Math.round((n.s.wallet || 0) + (WAGE[n.id] || 50)); this.game.mark(`npc:${n.id}`); }
     for (const v of Object.values(this.s.ventures)) if (v.stage >= STAGES.length - 1) this.restock(v);
+    for (const st of this.s.stalls?.list || []) this.restockStall(st);
     this.mark();
   }
 
   // ---------- the loop ----------
   tick(now, clock) {
+    this.planStalls(clock.day);
     this.wages(clock.day);
     this.tickConvos(now);
     this.tickSales(now, clock.hours);
+    this.tickStalls(now, clock.hours);
     for (const [id, o] of this.offers) if (now > o.until) this.offers.delete(id);
     for (const n of Object.values(this.npcs)) {
       if (n.agenda) { this.follow(n, now, clock); continue; }
@@ -118,7 +132,7 @@ export class Agents {
     if (!v && amb && Object.keys(this.s.ventures).length < MAX_VENTURES && n.s.wallet >= ventureCost(amb.kind) * 0.45 && now > (n.s.pitchAt || 0)) opts.push(['dream', 1.4 + t.energy / 60]);
     opts.push(['visit', 0.6 + t.warmth / 45]);
     opts.push(['home', 0.5]);
-    if (g.sessions.size) opts.push(['seek', 0.4 + (t.warmth + t.energy) / 110]);
+    if (g.sessions.size) opts.push(['seek', 0.15 + t.warmth / 400]);
     if (n.s.wallet > 60) opts.push(['shop', 0.3 + t.generosity / 90]);
     let r = Math.random() * opts.reduce((a, o) => a + o[1], 0), choice = 'routine';
     for (const [k, w] of opts) { r -= w; if (r <= 0) { choice = k; break; } }
@@ -167,37 +181,29 @@ export class Agents {
     this.start([n.id, o.id, ...near.map((x) => x.id)], purpose);
   }
 
+  // Only friends come looking for you, now and then, with something to say.
   goSeek(n) {
     const g = this.game, now = g.now();
-    const ss = [...g.sessions.values()].filter((s) => Math.hypot(s.x - n.x, s.y - n.y) < TILE * 70 && now - (n.sought?.[s.profile.id] || 0) > 10 * 60_000 && !s.act?.id?.startsWith?.('sleep'));
+    const ss = [...g.sessions.values()].filter((s) => n.affinity(s.profile) >= 30 && Math.hypot(s.x - n.x, s.y - n.y) < TILE * 70
+      && now - (n.sought?.[s.profile.id] || 0) > HOUR_MS * 24 && now - (this.sought[s.profile.id] || 0) > HOUR_MS * 4);
     if (!ss.length) return;
-    ss.sort((a, b) => n.affinity(b.profile) - n.affinity(a.profile) + (Math.random() - 0.5) * 60);
-    const s = ss[0];
+    const s = pick(ss);
     (n.sought ||= {})[s.profile.id] = now;
+    this.sought[s.profile.id] = now;
     this.send(n, { kind: 'seek', verb: `looking for ${s.profile.name}`, act: 'stroll', x: s.x + TILE, y: s.y, chase: s.profile.id, hours: 1, arrive: () => this.approach(n, s.profile.id) });
   }
-  // Walk up to a player with an offer, or just to chat.
+  // Walk up to a friend to say hello (and ask after something they remember).
   async approach(n, pid) {
     const g = this.game, s = g.sessions.get(pid);
     if (!s || Math.hypot(s.x - n.x, s.y - n.y) > TILE * 4) return;
     n.faceToward(s.x, s.y);
     if (n.agenda) { n.agenda.until = g.now() + HOUR_MS * 0.4; n.agenda.still = true; }
-    const v = this.ventureOf(n.id);
-    const shelf = v?.stage >= STAGES.length - 1 && VENTURES[v.kind].biz ? this.shelfGoods(v) : [];
-    const goods = shelf.length ? shelf : [...(WARES[n.id] || []), ...n.def.sells].filter((i) => GOODS[i]);
-    const offer = goods.length && Math.random() < 0.7 ? pick(goods) : null;
-    const item = typeof offer === 'string' ? offer : offer?.item;
-    const price = item ? (offer?.price || n.price(s.profile, item, true)) : 0;
-    const what = item ? `offer ${s.profile.name} some ${GOODS[item].name} for ${price} coins${v ? ` from ${v.name}` : ''}` : `start a chat with ${s.profile.name}${v ? ` (maybe mention ${v.name})` : ''}`;
-    const text = await this.oneLine(n, s.profile, `You walked over to ${s.profile.name} to ${what}. Say one short opening line (max 22 words).`)
-      || (item ? `${pick(voiceOf(n.id).quirks)} Fancy some ${GOODS[item].name}? 🪙${price}.` : `${pick(voiceOf(n.id).quirks)} Got a minute, ${s.profile.name}?`);
+    const r = n.rel(s.profile);
+    const about = r.callbacks?.length ? ` You'd like to ask them: "${r.callbacks.at(-1)}".` : r.notes.length ? ` You remember: ${r.notes.at(-1)}.` : '';
+    const text = await this.oneLine(n, s.profile, `You spotted your friend ${s.profile.name} and walked over to say hello.${about} Say one short, warm opening line (max 22 words), speaking straight to them.`)
+      || (r.callbacks?.length ? `${s.profile.name}! ${r.callbacks.at(-1)}` : `${pick(voiceOf(n.id).quirks)} Got a minute, ${s.profile.name}?`);
     this.bubble(n, text);
-    if (!g.sessions.has(pid)) return;
-    if (item) {
-      const id = this.nextOffer++;
-      this.offers.set(id, { pid, npc: n.id, item, price, venture: offer?.price ? v.id : null, until: g.now() + 60_000 });
-      s.send({ type: 'npcOffer', id, npc: n.id, item, price, text });
-    } else s.send({ type: 'npcApproach', npc: n.id, text });
+    if (g.sessions.has(pid)) s.send({ type: 'npcApproach', npc: n.id, text });
   }
   offerAccept(s, { id }) {
     const g = this.game, o = this.offers.get(id);
@@ -205,10 +211,13 @@ export class Agents {
     const n = this.npcs[o.npc];
     if (Math.hypot(n.x - s.x, n.y - s.y) > TILE * 8) return s.send({ type: 'error', msg: `${n.def.name} has wandered off` });
     if (s.profile.coins < o.price) return s.send({ type: 'error', msg: 'Not enough coins' });
-    if (o.venture) {
-      const v = this.s.ventures[o.venture], sl = v && this.takeFromShelf(v, o.item);
-      if (!sl) { this.offers.delete(id); return s.send({ type: 'error', msg: 'Sold out!' }); }
-      this.pay(v, o.price, s.profile.name, o.item);
+    if (o.plotId != null) {
+      const plot = g.plots[o.plotId], hit = plot && this.shelves(plot).find(({ sl }) => sl.item === o.item && sl.n > 0);
+      if (!hit) { this.offers.delete(id); return s.send({ type: 'error', msg: 'Sold out!' }); }
+      hit.sl.n -= 1;
+      if (hit.sl.n <= 0) { hit.o.stock.splice(hit.o.stock.indexOf(hit.sl), 1); if (!hit.o.stock.length) delete hit.o.stock; }
+      g.plotChanged(plot);
+      this.payPlot(plot, o.price, s.profile.name, o.item);
     } else { n.s.wallet += o.price; g.mark(`npc:${n.id}`); }
     this.offers.delete(id);
     g.coins(s, -o.price);
@@ -490,12 +499,42 @@ export class Agents {
     const plot = g.plots[v.plotId];
     if (plot) g.broadcast({ type: 'sale', plotId: plot.id, item, n: 1, coins, who });
   }
-  // A customer buys off an NPC shop's shelf.
-  shelfBuy(s, plot, hit, msg) {
-    const g = this.game, v = this.s.ventures[plot.venture];
-    if (!v) return;
+  // Villager-run plots (a venture shop or a market stall): who owns it, is it open, and
+  // where the money goes.
+  ownersOf(plot) {
+    if (plot.stall) return [plot.stall];
+    return this.s.ventures[plot.venture]?.owners || [];
+  }
+  openPlot(plot) {
+    const g = this.game;
+    if (plot.stall) return !plot.biz.closed;
     const { hours } = worldClock(g.now(), g.epoch);
-    if (!shopOpen(plot.biz, hours, false)) return s.send({ type: 'error', msg: `“${v.name}” is closed right now (open 8 AM – 8 PM)` });
+    return shopOpen(plot.biz, hours, false);
+  }
+  closedMsg(plot) {
+    if (plot.stall) { const st = this.s.stalls?.list.find((x) => x.npc === plot.stall); return `${this.name(plot.stall)} isn’t at the stall right now${st ? ` (here ${fmtH(st.from)} – ${fmtH(st.to)})` : ''}`; }
+    return `“${plot.biz.name}” is closed right now (open 8 AM – 8 PM)`;
+  }
+  payPlot(plot, coins, who, item) {
+    const g = this.game;
+    if (plot.venture) return this.pay(this.s.ventures[plot.venture], coins, who, item);
+    const n = this.npcs[plot.stall];
+    if (!n) return;
+    n.s.wallet += coins;
+    g.mark(`npc:${n.id}`);
+    g.broadcast({ type: 'sale', plotId: plot.id, item, n: 1, coins, who });
+  }
+  thank(plot, s, item) {
+    const g = this.game;
+    for (const id of this.ownersOf(plot)) { const o = this.npcs[id]; o.feel(s.profile, 0.4, g.now(), `${s.profile.name} bought from me`, g.epoch); g.hearts(s.profile, o); g.mark(`npc:${id}`); }
+    const keeper = this.ownersOf(plot).map((id) => this.npcs[id]).find((o) => Math.hypot(o.x - (plot.x + plot.w / 2) * TILE, o.y - (plot.y + plot.h / 2) * TILE) < TILE * 6);
+    if (keeper) this.bubble(keeper, pick([`Thank you, ${s.profile.name}!`, `Enjoy the ${GOODS[item].name}!`, pick(voiceOf(keeper.id).quirks)]));
+  }
+  // A customer buys off a villager's shelf.
+  shelfBuy(s, plot, hit, msg) {
+    const g = this.game;
+    if (!this.ownersOf(plot).length) return;
+    if (!this.openPlot(plot)) return s.send({ type: 'error', msg: this.closedMsg(plot) });
     const sl = hit.obj.stock?.[msg.slot];
     if (!sl || sl.n < 1) return;
     const n = Math.max(1, Math.min(sl.n, Math.floor(msg.n) || 1));
@@ -507,13 +546,128 @@ export class Agents {
     sl.n -= n;
     if (sl.n <= 0) { hit.obj.stock.splice(msg.slot, 1); if (!hit.obj.stock.length) delete hit.obj.stock; }
     g.plotChanged(plot);
-    this.pay(v, cost, s.profile.name, item);
-    for (const id of v.owners) { const o = this.npcs[id]; o.feel(s.profile, 0.4, g.now(), `${s.profile.name} shopped at ${v.name}`, g.epoch); g.hearts(s.profile, o); }
-    // An owner in the shop thanks you.
-    const keeper = v.owners.map((id) => this.npcs[id]).find((o) => plotIdAtPixel(g.world, o.x, o.y) === plot.id);
-    if (keeper) this.bubble(keeper, pick([`Thank you, ${s.profile.name}!`, `Enjoy the ${GOODS[item].name}!`, pick(voiceOf(keeper.id).quirks)]));
-    s.send({ type: 'toast', text: `🛍️ Bought ${n} × ${GOODS[item].name} at ${v.name} for 🪙${cost}` });
+    this.payPlot(plot, cost, s.profile.name, item);
+    this.thank(plot, s, item);
+    s.send({ type: 'toast', text: `🛍️ Bought ${n} × ${GOODS[item].name} at ${plot.biz.name} for 🪙${cost}` });
   }
+
+  // ---------- market stalls ----------
+  // A new week: who's selling, where and when.
+  planStalls(day) {
+    const week = Math.floor((day - 1) / 7);
+    if (this.s.stalls?.week === week) return;
+    const g = this.game;
+    const busy = new Set(Object.values(this.s.ventures).filter((v) => v.stage >= STAGES.length - 1 && VENTURES[v.kind].biz).flatMap((v) => v.owners));
+    const sellers = Object.keys(WARES).filter((id) => this.npcs[id] && !busy.has(id) && !NPCS[id].clerk).sort(() => Math.random() - 0.5).slice(0, STALLS_A_WEEK);
+    const old = this.s.stalls?.list || [];
+    for (const st of old) delete g.plots[st.id];
+    const list = [], used = {};
+    sellers.forEach((npc, i) => {
+      const areas = STALL_AREAS.map((name) => PUBLIC_AREAS.find((a) => a.name === name)).filter(Boolean).sort((a, b) => (used[a.name] || 0) - (used[b.name] || 0) + (Math.random() - 0.5) * 0.9);
+      for (const a of areas) {
+        const at = this.stallSpot(a, list);
+        if (!at) continue;
+        used[a.name] = (used[a.name] || 0) + 1;
+        const [from, to] = pick(STALL_HOURS);
+        const fishy = (WARES[npc] || []).some((w) => /fish|carp|sunfish|trout|bass/.test(w));
+        list.push({ id: STALL_BASE + i, npc, x: at.x, y: at.y, area: a.name, from, to, kind: fishy ? 'fishstall' : 'marketstall' });
+        break;
+      }
+    });
+    this.s.stalls = { week, list };
+    this.mark();
+    this.buildStalls(true, old);
+    for (const st of list) this.restockStall(st);
+    if (list.length) g.addGossip('the market', `This week’s market stalls: ${list.map((st) => `${this.name(st.npc)} at ${st.area}`).join(', ')}`);
+  }
+  // Somewhere open in the area: the stall, the keeper behind it and room in front.
+  stallSpot(area, taken) {
+    const g = this.game, w = g.world;
+    for (let t = 0; t < 400; t++) {
+      const x = area.x + 2 + Math.floor(Math.random() * Math.max(1, area.w - 6)), y = area.y + 2 + Math.floor(Math.random() * Math.max(1, area.h - 6));
+      if (taken.some((st) => Math.abs(st.x - x) < 6 && Math.abs(st.y - y) < 6)) continue;
+      let ok = true;
+      for (let j = -1; j < 4 && ok; j++) for (let i = -1; i < 3 && ok; i++) {
+        const tx = x + i, ty = y + j;
+        if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H || w.plotAt[ty * MAP_W + tx] >= 0 || !canStand(w, g.plots, (tx + 0.5) * TILE, (ty + 0.9) * TILE)) ok = false;
+      }
+      if (ok) return { x, y };
+    }
+    return null;
+  }
+  // The stalls are little village plots (rebuilt from the plan on every start).
+  buildStalls(announce, old = []) {
+    const g = this.game;
+    for (const st of old) if (announce) g.broadcast({ type: 'plotRemoved', id: st.id });
+    for (const st of this.s.stalls?.list || []) {
+      const name = `${this.name(st.npc)}’s Stall`;
+      const prev = g.plots[st.id];
+      g.plots[st.id] = {
+        id: st.id, x: st.x, y: st.y, w: 2, h: 2, owner: `npc:${st.npc}`, ownerName: this.name(st.npc), farm: '',
+        town: 'stall', name, stall: st.npc, rev: (prev?.rev || 0) + 1,
+        biz: { name, npc: true, staff: null, closed: true },
+        floor: {}, obj: { '0,1': { t: st.kind, ...(st.stock ? { stock: st.stock } : {}) } }, l1: { floor: {}, obj: {} }, walls: {}, roofs: [],
+      };
+    }
+    indexPlots(g.world, g.plots);
+    if (announce) for (const st of this.s.stalls?.list || []) g.broadcast({ type: 'plot', plot: g.plots[st.id] });
+  }
+  restockStall(st) {
+    const g = this.game, plot = g.plots[st.id], n = this.npcs[st.npc];
+    if (!plot || !n) return;
+    const shelf = plot.obj['0,1'];
+    shelf.stock = (WARES[st.npc] || []).filter((i) => GOODS[i]).slice(0, slotsOf(shelf.t)).map((item) => ({ item, n: 3 + Math.floor(Math.random() * 4), price: Math.max(2, Math.round(valueOf(item) * (1.25 - n.s.traits.generosity / 250))) }));
+    st.stock = shelf.stock; // (kept with the plan, so a restart doesn't refill the shelf)
+    g.plotChanged(plot);
+  }
+  // Keepers head to their stall for their hours, and call out to people walking past.
+  tickStalls(now, hours) {
+    const g = this.game;
+    for (const st of this.s.stalls?.list || []) {
+      const n = this.npcs[st.npc], plot = g.plots[st.id];
+      if (!n || !plot) continue;
+      const h = hours < 5 ? hours + 24 : hours;
+      const on = h >= st.from && h < st.to;
+      if (on && n.agenda?.kind !== 'stall' && !n.asleep && !n.convo && !n.talkingTo) {
+        this.send(n, { kind: 'stall', verb: `selling at their stall in ${st.area}`, act: 'work', x: (st.x + 1) * TILE, y: (st.y + 0.55) * TILE, hours: st.to - h, still: true,
+          arrive: () => { n.dir = 0; } });
+      }
+      const open = on && n.agenda?.kind === 'stall' && !!n.agenda.arrived && Math.hypot(n.x - (st.x + 1) * TILE, n.y - (st.y + 0.55) * TILE) < TILE;
+      if (plot.biz.closed === open) { plot.biz.closed = !open; st.stock = plot.obj['0,1'].stock || []; g.plotChanged(plot); this.mark(); }
+      if (!open || now - (st.calledAt || 0) < 4000) continue;
+      // Someone walking past the front of the stall?
+      const fx = (st.x + 1) * TILE, fy = (st.y + 2.5) * TILE;
+      for (const s of g.sessions.values()) {
+        if (Math.hypot(s.x - fx, s.y - fy) > CALL_RANGE || s.act) continue;
+        const k = `${n.id}|${s.profile.id}`;
+        if (now - (this.called.get(k) || -1e12) < HOUR_MS * 3) continue;
+        this.called.set(k, now);
+        st.calledAt = now;
+        this.callOut(n, s, plot, st).catch((e) => console.error('call out', e));
+        break;
+      }
+    }
+  }
+  async callOut(n, s, plot, st) {
+    const g = this.game;
+    const stock = this.shelves(plot).filter(({ sl }) => sl.n > 0).map(({ sl }) => sl);
+    if (!stock.length) return;
+    const feat = n.def.likes.length && stock.find((sl) => n.def.likes.includes(sl.item)) || pick(stock);
+    const goods = stock.map((sl) => GOODS[sl.item].name).join(', ');
+    n.faceToward(s.x, s.y);
+    const text = await this.oneLine(n, s.profile, `You're behind your market stall at ${st.area}, selling ${goods}. ${s.profile.name} is walking past. Call out to them like a market seller, in your own voice, tempting them with the ${GOODS[feat.item].name} (${feat.price} coins). Speak straight to them. Max 20 words.`)
+      || `${pick(voiceOf(n.id).quirks)} Fresh ${GOODS[feat.item].name}, only 🪙${feat.price}!`;
+    this.bubble(n, text);
+    if (!g.sessions.has(s.profile.id)) return;
+    const id = this.nextOffer++;
+    this.offers.set(id, { pid: s.profile.id, npc: n.id, item: feat.item, price: feat.price, plotId: plot.id, until: g.now() + 60_000 });
+    s.send({ type: 'npcOffer', id, npc: n.id, item: feat.item, price: feat.price, text, stall: plot.id });
+  }
+  stallOf(id) {
+    const st = this.s.stalls?.list.find((x) => x.npc === id);
+    return st ? { area: st.area, from: st.from, to: st.to } : null;
+  }
+
   // Walk-in customers at the villagers' shops.
   tickSales(now, hours) {
     if (now < this.nextSale) return;
@@ -691,6 +845,7 @@ export class Agents {
       `Village news:\n- ${g.gossip.slice(-4).join('\n- ') || 'nothing much'}`,
       recent ? `SO FAR:\n${recent}` : '',
       news,
+      players ? 'When a villager speaks to a player, they talk TO them ("you", "your"), not about them in the third person.' : '',
       `Write the next ${pending.some((l) => l.player) ? '1 to 3 lines, answering the player directly (whoever would naturally answer; use their name)' : '3 to 5 lines'}. Every villager must sound unmistakably like themselves: follow HOW THEY TALK closely (sentence length, slang, catchphrases). Keep each line under 140 characters, kind and funny (a family game), react to what was just said, and let them make plans, tease, disagree and agree like real people.`,
       `Also give "sentiment" (-2..2): how the villagers felt about the player's latest message (0 if none). Set "outcome" to "end" if the chat is naturally wrapping up, otherwise "none" (or yes/no for a pitch).`,
       'Respond with JSON: {"lines": [{"who": "<id>", "text": "..."}], "outcome": "none", "name": "", "sentiment": 0}',
@@ -741,6 +896,8 @@ export class Agents {
     else if (amb) bits.push(`You dream of opening a ${VENTURES[amb.kind].label.toLowerCase()} one day.`);
     const friends = Object.entries(n.s.bonds || {}).sort((a, b) => b[1] - a[1]).slice(0, 3).filter(([, b]) => b > 5).map(([id]) => this.name(id));
     if (friends.length) bits.push(`Your closest friends in the village: ${friends.join(', ')}.`);
+    const st = this.stallOf(n.id);
+    if (st) bits.push(`This week you have a market stall at ${st.area}, open ${fmtH(st.from)} – ${fmtH(st.to)}, selling ${(WARES[n.id] || []).map((i) => GOODS[i]?.name).filter(Boolean).join(', ')}. Tell people about it if it comes up.`);
     if (n.agenda?.verb) bits.push(`Right now you're ${n.agenda.verb}.`);
     return bits.join(' ');
   }
@@ -751,13 +908,14 @@ export class Agents {
     const g = this.game;
     if (!g.ai) return null;
     const msgs = [
-      { role: 'system', content: `You are ${n.def.name}, ${n.def.role}, in a cozy village life-sim. ${n.def.bio}\nHOW YOU TALK: ${voiceOf(n.id).diction} Phrases you use: ${voiceOf(n.id).quirks.join(' / ')}\nYou know ${profile.name}: ${friendshipWord(n.affinity(profile))}.${n.rel(profile).notes.length ? ` You remember: ${n.rel(profile).notes.slice(-2).join('; ')}.` : ''}\n${task}\nRespond with JSON: {"text": "..."}` },
+      { role: 'system', content: `You are ${n.def.name}, ${n.def.role}, in a cozy village life-sim. ${n.def.bio}\nHOW YOU TALK: ${voiceOf(n.id).diction} Phrases you use: ${voiceOf(n.id).quirks.join(' / ')}\nYou know ${profile.name}: ${friendshipWord(n.affinity(profile))}. You are speaking TO ${profile.name}: address them as "you" (never talk about them in the third person).${n.rel(profile).notes.length ? ` You remember: ${n.rel(profile).notes.slice(-2).join('; ')}.` : ''}\n${task}\nRespond with JSON: {"text": "..."}` },
       { role: 'user', content: 'Go.' },
     ];
     const res = await g.ai(msgs, LINE_SCHEMA, (out) => { const o = asJson(out); return o && typeof o.text === 'string' && o.text.trim() ? tidy(o.text, 160) : null; }, { maxTokens: 80, temperature: 0.9 }).catch(() => null);
     return res;
   }
 }
+const fmtH = (h) => `${((Math.floor(h) + 11) % 12) + 1} ${h % 24 < 12 ? 'AM' : 'PM'}`;
 const friendshipWord = (a) => (a >= 60 ? 'a close friend' : a >= 20 ? 'a friend' : a > -20 ? 'an acquaintance' : 'someone who has been rude to you');
 
 // Apply villagers' saved home rearrangements to their (rebuilt) cottages.

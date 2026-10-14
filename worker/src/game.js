@@ -1362,7 +1362,7 @@ export class Game {
     if (s.talkedDay !== today) { s.talkedDay = today; s.talked = new Set(); }
     if (!s.talked.has(n.id)) { s.talked.add(n.id); this.count(s.profile, 'talk'); }
     const greeting = n.greeting(s.profile, this.now());
-    s.send({ type: 'npc', ...n.view(s.profile, this.now()), doing: n.doing(), thought: n.thought, say: greeting, ventures: this.agents.venturesOf(n.id) });
+    s.send({ type: 'npc', ...n.view(s.profile, this.now()), doing: n.doing(), thought: n.thought, say: greeting, ventures: this.agents.venturesOf(n.id), stall: this.agents.stallOf(n.id) });
     this.broadcast({ type: 'npcBubble', id: n.id, text: greeting });
     return this.life.onOpen(s, n);
   }
@@ -1457,6 +1457,7 @@ export class Game {
     n.addHistory(s.profile, n.def.name, res.reply);
     if (res.remember) n.remember(s.profile, res.remember);
     if (res.bit) n.addBit(s.profile, res.bit);
+    if (res.callback) n.addCallback(s.profile, res.callback);
     if (res.gossip) this.addGossip(n.def.name, res.gossip);
     const changes = n.feel(s.profile, sentiment, this.now(), sentiment >= 0 ? `${s.profile.name} was kind to me` : `${s.profile.name} upset me`, this.epoch);
     this.hearts(s.profile, n);
