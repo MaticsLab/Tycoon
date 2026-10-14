@@ -425,6 +425,9 @@ uniform float ptCount;
 varying vec3 vPos;
 varying vec3 vNormal;
 #endif
+#ifdef SNOWY
+uniform float snowCover;
+#endif
 #ifdef SHADOW
 uniform sampler2D shadowMap;
 varying vec4 vLight;
@@ -461,6 +464,21 @@ void main() {
   vec3 outc = diff.rgb;
 #ifdef LIT
   vec3 n = normalize(vNormal);
+#ifdef SNOWY
+  // Snow settling on the ground and roofs while it snows (see weather.js): blocky
+  // eighth-of-a-tile patches whiten one by one as the cover builds, then melt away.
+  if (snowCover > 0.001) {
+    vec2 hk = vec2(12.9898, 78.233);
+    float f = fract(sin(dot(floor(vPos.xz * 8.0), hk)) * 43758.5453);
+    float h = fract(sin(dot(floor(vPos.xz * 2.0) + 0.37, hk)) * 43758.5453) * 0.5
+      + fract(sin(dot(floor(vPos.xz * 4.0) + 0.71, hk)) * 43758.5453) * 0.3 + f * 0.2; // drifts in clumps
+    float s = smoothstep(0.45, 0.8, n.y) * step(h * 0.88 + 0.08, snowCover);
+#ifdef SNOWGROUND
+    s *= 1.0 - step(diff.r * 1.25 + 0.02, diff.b) * step(diff.g, diff.b); // not on open water
+#endif
+    diff.rgb = mix(diff.rgb, mix(vec3(0.8, 0.85, 0.95), vec3(0.94, 0.96, 1.0), f), s * 0.9);
+  }
+#endif
   vec3 irr = mix(hemiGround, hemiSky, 0.5 * n.y + 0.5);
   float sh = 1.0;
 #ifdef SHADOW
@@ -490,6 +508,7 @@ export const G = {
   hemiSky: new Color3(), hemiGround: new Color3(), sunDir: new Vector3(0, 1, 0), sunColor: new Color3(),
   ptPos: new Float32Array(NPT * 4), ptCol: new Float32Array(NPT * 4), ptCount: 0,
   tint: new Color3(1, 1, 1), lightMatrix: null, shadowMap: null,
+  snow: 0, // 0..1 fresh snow cover on `snow` materials (ground, roofs)
 };
 
 function bindGlobals(effect, o) {
@@ -502,11 +521,13 @@ function bindGlobals(effect, o) {
   }
   if (o.shadow && G.lightMatrix) effect.setMatrix('lightMatrix', G.lightMatrix);
   if (o.tint) effect.setColor3('uTint', G.tint);
+  if (o.snow) effect.setFloat('snowCover', G.snow);
 }
 
 // opts: { kind: 'lit'|'basic'|'sprite'|'depth', map, color '#hex' or Color3 (linear), vertexColors,
 //   emissive, transparent, opacity, alphaTest, doubleSided, depthWrite, depthTest, receive,
-//   feet (sprite upright depth), tint (night sprite tint), points, lines }
+//   feet (sprite upright depth), tint (night sprite tint), points, lines,
+//   snow (lit surfaces that whiten when snow settles: ground, roofs) }
 export class TyMaterial extends ShaderMaterial {
   constructor(opts = {}) {
     const o = { kind: 'lit', opacity: 1, depthWrite: true, depthTest: true, receive: true, ...opts };
@@ -524,10 +545,12 @@ export class TyMaterial extends ShaderMaterial {
     if (sprite) defines.push('#define SPRITE');
     if (o.feet) defines.push('#define FEET');
     if (o.tint) defines.push('#define TINT');
+    if (o.snow && lit) defines.push('#define SNOWY');
+    if (o.snow === 'ground' && lit) defines.push('#define SNOWGROUND');
     if (o.points) defines.push('#define POINTS');
     if (depth) defines.push('#define DEPTH');
     const uniforms = ['world', 'viewProjection', 'view', 'projection', 'uColor', 'uOpacity', 'uAlphaTest', 'uEmissive', 'uTint',
-      'hemiSky', 'hemiGround', 'sunDir', 'sunColor', 'ptPos', 'ptCol', 'ptCount', 'lightMatrix'];
+      'hemiSky', 'hemiGround', 'sunDir', 'sunColor', 'ptPos', 'ptCol', 'ptCount', 'lightMatrix', 'snowCover'];
     const samplers = [];
     if (o.map) samplers.push('map');
     if (shadow) samplers.push('shadowMap');
@@ -552,7 +575,7 @@ export class TyMaterial extends ShaderMaterial {
     if (o.alphaTest) this.setFloat('uAlphaTest', o.alphaTest);
     if (o.map) this.setTexture('map', o.map);
     if (shadow) this.setTexture('shadowMap', ctx.shadow.map);
-    const flags = { lit, shadow, tint: !!o.tint };
+    const flags = { lit, shadow, tint: !!o.tint, snow: !!o.snow && lit };
     this.onBindObservable.add(() => bindGlobals(this.getEffect(), flags));
   }
   // Uniform changes are picked up on the next bind (the Color3 objects are shared).

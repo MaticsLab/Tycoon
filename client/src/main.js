@@ -4320,10 +4320,11 @@ function drawOverlay(now) {
     const { day, hours } = worldClock(serverNow(), S.epoch);
     const wx = S.weather ?? weatherAt(day, hours);
     view.overcast = wx === 'storm' ? 1 : wx ? 0.6 : 0;
-    audio.objects(objFx.draw(octx, now, { dark: darkness(serverNow(), S.epoch) }));
+    audio.objects(objFx.draw(octx, now, { dark: darkness(S.debugHour ?? hours) }));
     updateAudio(now, wx, day);
-    treeLeaves.draw(octx, now, Math.min(0.05, (now - (lastWeather || now)) / 1000), S.seasonOverride || seasonOf(day).id);
-    weather.draw(octx, innerWidth, innerHeight, now, Math.min(0.05, (now - (lastWeather || now)) / 1000), { kind: wx, season: seasonOf(day).id, dark: darkness(serverNow(), S.epoch) });
+    const wdt = Math.min(0.05, (now - (lastWeather || now)) / 1000), season = S.seasonOverride || seasonOf(day).id;
+    treeLeaves.update(now, wdt, season);
+    weather.update(now, wdt, { kind: wx, season, dark: darkness(S.debugHour ?? hours) });
     lastWeather = now;
   }
   ui.drawFishing(octx, view, now, [S.me, ...S.players.values()]);
@@ -4846,7 +4847,18 @@ function drawTouchMarks(now) {
 
 // ---------- trees and rocks ----------
 const audio = createAudio({ store });
-const weather = makeWeather({ onFlash: () => audio.thunder() });
+const weather = makeWeather({
+  view, world, onFlash: () => audio.thunder(),
+  // Rain stops on roofs, and doesn't fall inside a house whose roof is cut away.
+  roof: (x, z) => {
+    const id = world.plotAt[z * MAP_W + x], plot = id >= 0 ? S.plots[id] : null;
+    if (!plot?.roofs?.length) return null;
+    const i = roofAt(plot, x - plot.x, z - plot.y, null);
+    if (i < 0) return null;
+    const o = plotOpts(id), rf = plot.roofs[i];
+    return !o.roofs || rf.l > o.maxLevel ? { hidden: true } : { y: rf.l * LEVEL_H + 2.5 };
+  },
+});
 const treeLeaves = makeTreeLeaves({
   view, world, palette: LEAF,
   isTree: (x, y) => x >= 0 && y >= 0 && x < world.w && y < world.h && world.tiles[y * world.w + x] === T.TREE,
@@ -4882,7 +4894,7 @@ function updateAudio(now, wx, day) {
     const t = world.tiles[(ty + dy) * MAP_W + tx + dx];
     if (t === T.WATER || t === T.FOUNTAIN) water = Math.max(water, 1 - Math.hypot(dx, dy) / 6);
   }
-  audio.update({ season: S.seasonOverride || seasonOf(day).id, night: darkness(serverNow(), S.epoch) > 0.35, weather: wx, indoor, water });
+  audio.update({ season: S.seasonOverride || seasonOf(day).id, night: darkness(S.debugHour ?? worldClock(serverNow(), S.epoch).hours) > 0.35, weather: wx, indoor, water });
 }
 let lastWeather = 0;
 // A wild tree or rock right next to you (in front of you first), if you have the tool.

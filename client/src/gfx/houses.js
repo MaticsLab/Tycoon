@@ -41,7 +41,7 @@ const SHOPFRONT = new Set(['window_shop', 'door_shop', 'door_shopdouble']);
 const featureWidth2 = (f) => (ITEMS[f]?.width || 1) === 2;
 const railMat = () => mat('rail', () => lambert({ map: woodTex() }));
 const ceilMat = () => mat('ceil', () => lambert({ color: '#e8e2d4' }));
-const roofMat = (m) => mat(`roof|${m}`, () => lambert({ map: roofTex(m) }));
+const roofMat = (m) => mat(`roof|${m}`, () => lambert({ map: roofTex(m), snow: true }));
 const floorMat = (t) => mat(`floor|${t}`, () => lambert({ map: floorTex(t) }));
 
 // ---------- village shopfronts ----------

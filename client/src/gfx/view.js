@@ -23,7 +23,7 @@ const DIR_VEC = [[0, 1], [0, -1], [-1, 0], [1, 0]]; // world dir 0..3 -> (x, z)
 export const PERSON_SCALE = 0.8;
 const SUN_OFF = [-14, 26, 8]; // sun position relative to the point it lights
 const SUN_DIR = (() => { const l = Math.hypot(...SUN_OFF); return new Vector3(SUN_OFF[0] / l, SUN_OFF[1] / l, SUN_OFF[2] / l); })();
-const HEMI_GROUND = linear('#6f8f4a'), HEMI_DAY = linear('#dff0ff'), HEMI_NIGHT = linear('#7d8fd6');
+const HEMI_GROUND = linear('#6f8f4a'), HEMI_DAY = linear('#dff0ff'), HEMI_NIGHT = linear('#7d8fd6'), HEMI_STORM = linear('#9aa6b8');
 const LIGHT_KIND = {
   post: { i: 9, c: linearRGB('#ffd08a'), d: 8 }, fire: { i: 7, c: linearRGB('#ff9a4a'), d: 6 }, window: { i: 4, c: linearRGB('#ffd08a'), d: 6 },
   pumpkin: { i: 4, c: linearRGB('#ff9a4a'), d: 4 }, cauldron: { i: 6, c: linearRGB('#8aff6a'), d: 6 }, lamp: { i: 6, c: linearRGB('#ffd08a'), d: 6 },
@@ -82,6 +82,9 @@ export class View {
     this.plots = new Map(); // id -> { group, cards, lights, sig }
     this.actors = new Map(); // id -> { sprite, blob, vec }
     this.vehicles = new Map(); // id -> { node, yaw, lx, lz }
+    // Weather on the light (set by weather.js each frame): dim 0..1 cloud cover that mutes
+    // the sun and cools the sky light, flash 0..1 lightning, snow 0..1 settled snow.
+    this.wx = { dim: 0, flash: 0, snow: 0 };
     this.resize();
     this.applyCamera(true);
   }
@@ -251,6 +254,18 @@ export class View {
     this.treeSet.build(this.basis());
     this.terrainRoads = null;
     this.refreshTerrain();
+  }
+
+  // Snow has settled on the trees (while it snows), or melted off again.
+  setSnowTrees(on) {
+    const s = this.world.season || {};
+    if (!!s.snowTrees === on) return;
+    this.world.season = { ...s, snowTrees: on };
+    if (s.winter) return; // winter trees are snowy anyway
+    this.treeSet.dispose();
+    this.treeSet = new BillboardSet();
+    treeCards(this.world, this.treeSet);
+    this.treeSet.build(this.basis());
   }
 
   refreshTerrain() {
@@ -505,14 +520,25 @@ export class View {
     this.applyCamera(false);
     const night = Math.min(1, dark / 0.62);
     // Shader globals (linear colour × intensity, as three.js's physically based lights).
-    const sunI = 2.4 * (1 - night * 0.88);
+    // Under rain and snow clouds the sun goes (and its shadows soften away) and the sky
+    // light turns grey-blue and dimmer; lightning floods everything white for a moment.
+    const { dim, flash } = this.wx;
+    const sunI = 2.4 * (1 - night * 0.88) * (1 - dim * 0.8);
     linearHSL(0.1 - night * 0.45, 0.55, 0.85 - night * 0.2, G.sunColor).scaleInPlace(sunI);
     G.sunDir.copyFrom(SUN_DIR);
-    const hemiI = 1.6 - night * 1.05;
-    G.hemiSky.copyFrom(night > 0.5 ? HEMI_NIGHT : HEMI_DAY).scaleInPlace(hemiI);
-    G.hemiGround.copyFrom(HEMI_GROUND).scaleInPlace(hemiI);
-    const tint = 1 - night * 0.55;
-    G.tint.set(tint, tint, Math.min(1, tint + night * 0.15));
+    const hemiI = (1.6 - night * 1.05) * (1 - dim * 0.33);
+    G.hemiSky.copyFrom(night > 0.5 ? HEMI_NIGHT : HEMI_DAY);
+    if (dim) { const k = dim * 0.7, h = G.hemiSky; h.set(h.r + (HEMI_STORM.r - h.r) * k, h.g + (HEMI_STORM.g - h.g) * k, h.b + (HEMI_STORM.b - h.b) * k); }
+    G.hemiSky.scaleInPlace(hemiI);
+    G.hemiGround.copyFrom(HEMI_GROUND).scaleInPlace(hemiI * (1 - dim * 0.35));
+    const tint = (1 - night * 0.55) * (1 - dim * 0.32);
+    G.tint.set(tint * (1 - dim * 0.06), tint, Math.min(1, tint + night * 0.15 + dim * 0.05));
+    if (flash > 0) {
+      G.hemiSky.r += flash * 2.6; G.hemiSky.g += flash * 2.7; G.hemiSky.b += flash * 3.0;
+      G.hemiGround.r += flash * 1.2; G.hemiGround.g += flash * 1.25; G.hemiGround.b += flash * 1.4;
+      G.tint.set(G.tint.r + flash * 0.9, G.tint.g + flash * 0.9, G.tint.b + flash * 1);
+    }
+    G.snow = this.wx.snow;
     glassMat().emissive.set(night * 0.9, night * 0.7, night * 0.3);
     // Night light pool: nearest light sources to the camera target.
     G.ptCount = 0;

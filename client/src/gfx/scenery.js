@@ -19,7 +19,7 @@ export function buildTerrain(world) {
   if (world.season?.winter) snowGround(cv);
   const grp = node('terrain');
   const g = planeGeo(MAP_W, MAP_H).rotateX(-Math.PI / 2).translate(MAP_W / 2, 0, MAP_H / 2);
-  const groundMat = lambert({ map: canvasTex(cv) });
+  const groundMat = lambert({ map: canvasTex(cv), snow: 'ground' });
   toMesh(g, groundMat, { parent: grp });
   buildRelief(world, groundMat, grp);
   // A dark forest floor beyond the map edge.
@@ -46,7 +46,7 @@ function buildRelief(world, groundMat, grp) {
   const rock = new Batch(), stone = new Batch(), wood = new Batch();
   // (Flat colours: rock in bands, a grassy lip on top.)
   const ROCK = ['#8a7f6c', '#9a8f7b', '#7c7262', '#a39884', '#857a68'].map((c) => lambert({ color: c }));
-  const lipMat = lambert({ color: '#4f8a33' }), stoneMat = lambert({ color: '#b6af9f' }), treadMat = lambert({ color: '#d3cdbf' }), railMat = lambert({ color: '#6e4826' });
+  const lipMat = lambert({ color: '#4f8a33', snow: true }), stoneMat = lambert({ color: '#b6af9f' }), treadMat = lambert({ color: '#d3cdbf' }), railMat = lambert({ color: '#6e4826' });
   const stairTop = (x, y, nx, ny) => { const d = world.stepDir[ny * MAP_W + nx]; return d >= 0 && nx + STEP_UP[d][0] === x && ny + STEP_UP[d][1] === y; };
   for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
     const e = at(x, y), t = tile(x, y);
@@ -124,7 +124,7 @@ export function buildRocks(world) {
     }
   }
   const grp = node('rocks');
-  if (pos.length) toMesh(new Geo(pos, nrm, [], idx), lambert({ color: '#8d939b' }), { parent: grp, cast: true });
+  if (pos.length) toMesh(new Geo(pos, nrm, [], idx), lambert({ color: '#8d939b', snow: true }), { parent: grp, cast: true });
   return freeze(grp);
 }
 
@@ -188,7 +188,7 @@ export function treeCards(world, set) {
     if (world.tiles[y * MAP_W + x] !== T.TREE) continue;
     const v = tileHash(x * 3, y * 7);
     const kind = treeKindAt(world, x, y);
-    const spr = world.season?.winter ? snowy(treeSprite(v, kind)) : treeSprite(v, kind);
+    const spr = world.season?.winter || world.season?.snowTrees ? snowy(treeSprite(v, kind)) : treeSprite(v, kind);
     // Trees are drawn 1.5x so they tower over houses and villagers.
     set.add(spr, 8, 14, x + 0.5, tileGround(world, x, y), y + 0.55, { shadow: 1.5, scale: 1.5 });
   }
@@ -262,7 +262,7 @@ export function buildShop(shop) {
   const grp = node(`shop:${shop.id}`);
   const b = new Batch();
   const wall = lambert({ map: wallTex(shop.id === 'rosa' ? 'wall_white' : 'wall_wood') });
-  const roofM = lambert({ map: roofTex(shop.id === 'rosa' ? 'roof_red' : 'roof_blue') });
+  const roofM = lambert({ map: roofTex(shop.id === 'rosa' ? 'roof_red' : 'roof_blue'), snow: true });
   const trim = lambert({ color: '#4a2e18' });
   const found = lambert({ map: stoneTex() });
   const x0 = shop.x + 0.1, x1 = shop.x + shop.w - 0.1, z0 = shop.y + 0.1, z1 = shop.y + shop.h - 0.8; // leave room for goods inside the solid footprint
@@ -341,7 +341,7 @@ export function buildCityHall() {
   const b = new Batch();
   const stone = lambert({ map: wallTex('wall_stone') });
   const plaster = lambert({ map: wallTex('wall_white') });
-  const roofM = lambert({ map: roofTex('roof_blue') });
+  const roofM = lambert({ map: roofTex('roof_blue'), snow: true });
   const trim = lambert({ color: '#4a2e18' });
   const white = lambert({ color: '#f4f1ea' });
   const found = lambert({ map: stoneTex() });
