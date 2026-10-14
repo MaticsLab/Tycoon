@@ -153,6 +153,7 @@ export function socialUI(c) {
   let journalTab = 'goals';
   function showJournal(tab = journalTab) {
     journalTab = tab;
+    if (c.openJournal) return c.openJournal(tab); // the bag window's Journal tab
     const body = openModal('journal', '📖 Journal');
     const tabs = el('div', { className: 'seg city-tabs' });
     for (const [k, label] of [['goals', '✅ Goals'], ['fest', '🎪 Festival'], ['paper', '📰 Gazette']]) {
@@ -240,9 +241,9 @@ export function socialUI(c) {
       case 'trade': S.trade = m.trade; showTrade(); return true;
       case 'board': S.board = m.board; if (modal() === 'board') showBoard(); return true;
       case 'mail': S.mail = m.mail; c.badges(); if (modal() === 'mail') showMail(); return true;
-      case 'goals': S.goals = m.goals; if (modal() === 'journal' && journalTab === 'goals') showJournal('goals'); return true;
-      case 'fest': S.fest = m; if (modal() === 'journal' && journalTab === 'fest') showJournal('fest'); return true;
-      case 'paper': S.paper = m.paper; c.badges(); if (modal() === 'journal' && journalTab === 'paper') showJournal('paper'); return true;
+      case 'goals': S.goals = m.goals; c.bookChanged?.(); return true;
+      case 'fest': S.fest = m; c.bookChanged?.(); return true;
+      case 'paper': S.paper = m.paper; c.badges(); c.bookChanged?.(); return true;
       case 'fishing': {
         if (m.state === 'cast') Object.assign(fish, { state: 'cast', tx: m.tx, ty: m.ty, at: performance.now() });
         else if (m.state === 'bite') { fish.state = 'bite'; navigator.vibrate?.(80); }
@@ -258,5 +259,5 @@ export function socialUI(c) {
     return false;
   }
 
-  return { handle, showTrade, showBoard, showMail, showStore, showJournal, drawFishing, contextAction, runAction, onMove, unread, fish, storeOpen: () => storeAt };
+  return { handle, showTrade, showBoard, showMail, showStore, showJournal, renderFest, renderPaper, drawFishing, contextAction, runAction, onMove, unread, fish, storeOpen: () => storeAt };
 }

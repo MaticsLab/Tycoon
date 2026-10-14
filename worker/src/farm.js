@@ -70,6 +70,15 @@ export class Farm {
   ownerOf(plot) { return plot.owner && Object.values(this.game.profiles).find((p) => p.id === plot.owner); }
 
   // ---------- dropping and picking up ----------
+  // Throw things away for good (the bag's Trash).
+  trash(s, { item, n = 1 }) {
+    const have = s.profile.inv[item] || 0;
+    n = Math.max(1, Math.min(have, Math.floor(n) || 1));
+    if (!have) return;
+    if (s.ride && item === 'tractor') return s.send({ type: 'error', msg: 'Park the tractor first' });
+    this.game.bag(s, item, -n);
+  }
+
   drop(s, { item, n = 1 }) {
     const inv = s.profile.inv;
     n = Math.max(1, Math.min(99, Math.floor(n) || 1));

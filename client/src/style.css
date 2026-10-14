@@ -43,7 +43,7 @@ button { font: inherit; cursor: pointer; }
 #side button:disabled { opacity: .45; }
 #side button.on { background: #ffe9a8; }
 
-#action { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(24px + var(--sab)); padding: 12px 22px; font-size: 18px; font-weight: bold; color: #fff; background: #d98a2b; border: 3px solid #8f5512; border-radius: 12px; box-shadow: 0 4px 0 #8f5512; animation: pulse 1.6s infinite; white-space: nowrap; }
+#action { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(96px + var(--sab)); padding: 12px 22px; font-size: 18px; font-weight: bold; color: #fff; background: #d98a2b; border: 3px solid #8f5512; border-radius: 12px; box-shadow: 0 4px 0 #8f5512; animation: pulse 1.6s infinite; white-space: nowrap; }
 @keyframes pulse { 50% { transform: translateX(-50%) scale(1.06); } }
 
 /* Chat: fading lines over the corner, and a panel with the whole conversation. */
@@ -88,7 +88,7 @@ body:has(#chatpanel:not([hidden])) #chatlog { display: none; }
 @keyframes mailbob { 50% { transform: translateY(-2px); } }
 
 
-#toast { position: fixed; top: calc(60px + var(--sat)); left: 50%; transform: translateX(-50%); background: rgba(30, 22, 12, .85); color: #fff; padding: 8px 16px; border-radius: 10px; font-weight: bold; opacity: 0; transition: opacity .3s; pointer-events: none; text-align: center; max-width: 80vw; }
+#toast { position: fixed; top: calc(60px + var(--sat)); left: 50%; transform: translateX(-50%); background: rgba(30, 22, 12, .85); color: #fff; padding: 8px 16px; border-radius: 10px; font-weight: bold; opacity: 0; transition: opacity .3s; pointer-events: none; text-align: center; max-width: 80vw; z-index: 45; }
 #toast.show { opacity: 1; }
 
 #side button { width: 56px; height: 56px; font-size: 21px; }
@@ -767,3 +767,114 @@ body.walldrag, body.walldrag .wlh { cursor: grabbing; }
   .st-task { width: 36px; height: 36px; font-size: 15px; }
   .st-label { left: 60px; top: 6px; max-width: 150px; }
 }
+
+/* ---------- The bag (slot inventory) ---------- */
+#bagwin { position: fixed; inset: 0; z-index: 30; background: rgba(30,20,10,.35); display: flex; justify-content: center; align-items: flex-start; padding: 56px 12px 12px; overflow-y: auto; --slot: 60px; }
+#bagwin[hidden] { display: none; }
+#bagwin button { font: inherit; }
+#bagwin :focus-visible { outline: 2px solid #f5c542; outline-offset: 2px; }
+.bw-wrap { position: relative; width: min(932px, 100%); padding-top: 46px; }
+.bw-tabs { position: absolute; top: 0; left: 28px; display: flex; gap: 6px; align-items: flex-end; height: 50px; z-index: 1; }
+.bw-tab { position: relative; height: 44px; margin-top: 6px; margin-bottom: -4px; padding: 0 18px; display: flex; align-items: center; gap: 6px; border: 4px solid #6b4a2b; border-bottom: 0; border-radius: 14px 14px 0 0; background: #e9d6a8; color: #3a2a1a; font-size: 16px; font-weight: bold; cursor: pointer; }
+.bw-tab span { font-size: 18px; }
+.bw-tab.on { height: 50px; margin-top: 0; background: #fbf3dc; z-index: 2; }
+.bw-tab i { position: absolute; top: -9px; right: -9px; width: 22px; height: 22px; border-radius: 50%; background: #d9463a; border: 2px solid #fbf3dc; color: #fff; font-style: normal; font-size: 12px; display: grid; place-items: center; box-sizing: border-box; }
+.bw-panel { position: relative; background: #fbf3dc; border: 4px solid #6b4a2b; border-radius: 20px; box-shadow: 0 6px 0 #4a3220, 0 24px 60px rgba(0,0,0,.45); padding: 18px 20px 20px; color: #3a2a1a; }
+.bw-close { position: absolute; top: -20px; right: -20px; width: 44px; height: 44px; border-radius: 50%; background: #f3e6c4; border: 3px solid #6b4a2b; box-shadow: 0 3px 0 #4a3220; color: #6b4a2b; font-size: 18px; font-weight: bold; cursor: pointer; z-index: 3; }
+.bw-close:hover { background: #ffe9a8; }
+.bw-body.bw-bag { display: flex; gap: 18px; align-items: stretch; }
+.bw-left { width: calc(var(--slot) * 9 + 6px * 8 + 20px); flex: none; display: flex; flex-direction: column; gap: 8px; }
+.bw-toolbar, .bw-hotlabel { display: flex; align-items: center; gap: 8px; }
+.bw-hotlabel small { font-size: 12px; color: #8f6a45; }
+.bw-label { font-size: 13px; font-weight: bold; letter-spacing: .06em; color: #8f6a45; }
+.bw-spacer { flex: 1; }
+.bw-pill { height: 30px; border-radius: 15px; padding: 0 12px; font-size: 13px; font-weight: bold; display: inline-flex; align-items: center; gap: 5px; box-sizing: border-box; }
+.bw-trash { border: 2px dashed #c9a46a; color: #a8703f; }
+.bw-trash.armed { background: #fde3e0; border-color: #d9463a; }
+.bw-sort { background: #f3e6c4; border: 2px solid #c9a46a; color: #3a2a1a; cursor: pointer; }
+.bw-sort:hover { background: #ffe9a8; }
+.bw-tray { display: grid; grid-template-columns: repeat(9, var(--slot)); gap: 6px; padding: 10px; border-radius: 14px; background: #e9d6a8; box-shadow: inset 0 3px 0 rgba(107,74,43,.18); }
+.bw-hot { background: #d9bf86; box-shadow: inset 0 3px 0 rgba(107,74,43,.22); }
+.bw-slot { position: relative; width: var(--slot); height: var(--slot); border-radius: 10px; background: #f3e0b5; box-shadow: inset 0 0 0 2px #c9a46a, inset 0 -3px 0 rgba(107,74,43,.15); display: grid; place-items: center; cursor: pointer; user-select: none; touch-action: none; }
+.bw-slot.sel { background: #ffe9a8; box-shadow: inset 0 0 0 3px #e0a82e, 0 0 0 3px #ffd36a; }
+.bw-slot .ic { font-size: calc(var(--slot) * .53); line-height: 1; filter: drop-shadow(0 2px 0 rgba(0,0,0,.18)); display: grid; place-items: center; pointer-events: none; }
+.bw-slot .ic canvas { width: calc(var(--slot) * .6); height: calc(var(--slot) * .6); image-rendering: pixelated; }
+.bw-slot b { position: absolute; right: 5px; bottom: 2px; font-size: 15px; font-weight: 900; color: #fff; text-shadow: 0 0 2px #3a2a1a, 0 2px 0 #3a2a1a; pointer-events: none; }
+.bw-slot u { position: absolute; left: 5px; bottom: 3px; font-size: 12px; color: #f5c542; text-decoration: none; text-shadow: 0 1px 0 #8f5512; pointer-events: none; }
+.bw-slot em { position: absolute; left: 5px; top: 3px; font-size: 11px; font-weight: bold; font-style: normal; color: #8f6a45; pointer-events: none; }
+.bw-ghost { position: fixed; z-index: 40; width: 60px; height: 60px; border-radius: 10px; background: #ffe9a8; box-shadow: 0 6px 16px rgba(0,0,0,.35); display: grid; place-items: center; pointer-events: none; opacity: .9; font-size: 32px; }
+.bw-ghost em, .bw-ghost u { display: none; }
+.bw-ghost b { position: absolute; right: 5px; bottom: 2px; font-size: 15px; color: #fff; text-shadow: 0 0 2px #3a2a1a, 0 2px 0 #3a2a1a; }
+.bw-ghost canvas { width: 36px; height: 36px; image-rendering: pixelated; }
+.bw-details { width: 250px; flex: none; background: #fffaf0; border: 2px solid #e6d3a8; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px; box-sizing: border-box; }
+.bw-empty { margin: auto; text-align: center; color: #8f6a45; font-size: 14px; }
+.bw-dhead { display: flex; gap: 12px; align-items: center; }
+.bw-dicon { width: 68px; height: 68px; flex: none; border-radius: 12px; background: #f3e0b5; box-shadow: inset 0 0 0 2px #c9a46a; display: grid; place-items: center; font-size: 40px; }
+.bw-dicon canvas { width: 44px; height: 44px; image-rendering: pixelated; }
+.bw-dname { display: block; font-size: 20px; line-height: 1.15; margin-bottom: 4px; }
+.bw-chip { display: inline-block; font-size: 12px; font-weight: bold; border-radius: 8px; padding: 2px 8px; background: #efe2c2; color: #8f6a45; }
+.bw-chip.crop { background: #e3f4d6; color: #2f6b22; }
+.bw-chip.gift { background: #fde3e0; color: #a82a22; }
+.bw-chip.food { background: #ffe9a8; color: #8f5512; }
+.bw-chip.drink { background: #dce9fb; color: #2f5e9e; }
+.bw-desc { margin: 0; font-size: 14px; color: #6b4a2b; line-height: 1.4; }
+.bw-facts { border-top: 2px solid #efe2c2; border-bottom: 2px solid #efe2c2; padding: 8px 0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.bw-facts > div { display: flex; justify-content: space-between; gap: 8px; }
+.bw-facts span { color: #8f6a45; }
+.bw-good { color: #2f6b22; font-weight: bold; }
+.bw-q { flex-direction: column; }
+.bw-amount { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.bw-amount span { flex: 1; color: #8f6a45; font-weight: bold; }
+.bw-amount button { width: 32px; height: 32px; border-radius: 50%; background: #f3e6c4; border: 2px solid #c9a46a; font-weight: bold; font-size: 16px; cursor: pointer; padding: 0; color: #3a2a1a; }
+.bw-amount b { font-size: 18px; min-width: 22px; text-align: center; }
+.bw-amount .bw-all { width: auto; border-radius: 16px; padding: 0 10px; font-size: 13px; }
+.bw-actions { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
+.bw-actions button { border: 0; border-radius: 22px; font-weight: bold; cursor: pointer; }
+.bw-eat { height: 44px; background: #4f9e3a; color: #fff; font-size: 16px; box-shadow: 0 3px 0 #2f6b22; }
+.bw-give { height: 44px; background: #a8703f; color: #fff; font-size: 15px; box-shadow: 0 3px 0 #7a4f2a; }
+.bw-give.off { background: #efe2c2; color: #a89270; cursor: not-allowed; box-shadow: none; }
+.bw-drop { height: 40px; background: #fffaf0; border: 2px solid #a8703f !important; color: #6b4a2b; font-size: 15px; }
+.bw-h { margin: 0 0 12px; font-size: 22px; color: #6b4a2b; }
+.bw-list { display: flex; flex-direction: column; gap: 10px; }
+.bw-emptybox { border: 3px dashed #e0c99a; border-radius: 16px; padding: 28px; text-align: center; color: #8f6a45; font-size: 15px; }
+.bw-subtabs { display: flex; gap: 6px; margin-bottom: 14px; }
+.bw-subtabs button { height: 36px; border-radius: 18px; padding: 0 14px; background: #f3e6c4; border: 2px solid #c9a46a; font-weight: bold; color: #3a2a1a; cursor: pointer; }
+.bw-subtabs button.on { background: #a8703f; border-color: #a8703f; color: #fff; }
+.bw-pane { display: flex; flex-direction: column; gap: 8px; }
+.bw-goals { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 6px 0 12px; }
+.bw-goal { background: #fffaf0; border: 2px solid #e6d3a8; border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+.bw-goal.done { background: #f3f9ec; border-color: #c9e3b6; }
+.bw-goal-top { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+.bw-goal-top b { font-size: 15px; }
+.bw-goal small { font-size: 12px; color: #8f6a45; align-self: flex-end; }
+.bw-bar { height: 10px; border-radius: 5px; background: #e2d6bb; overflow: hidden; }
+.bw-bar i { display: block; height: 100%; background: #6cbf4a; border-radius: 5px; }
+.bw-muted { color: #8f6a45; font-size: 13px; margin: 0; }
+@media (max-width: 960px) {
+  .bw-body.bw-bag { flex-direction: column; }
+  .bw-details { width: auto; }
+}
+@media (max-width: 700px) {
+  #bagwin { padding: 46px 6px 6px; --slot: min(60px, calc((100vw - 84px) / 9)); }
+  .bw-panel { padding: 14px 10px 12px; border-radius: 16px; }
+  .bw-tray { gap: 4px; padding: 6px; grid-template-columns: repeat(9, var(--slot)); }
+  .bw-left { width: auto; }
+  .bw-tab { padding: 0 10px; font-size: 14px; }
+  .bw-tabs { left: 12px; }
+  .bw-close { top: -16px; right: -6px; width: 40px; height: 40px; }
+  .bw-slot b { font-size: 11px; right: 2px; }
+  .bw-slot em { font-size: 9px; left: 3px; top: 1px; }
+  .bw-hotlabel small { display: none; }
+  .bw-goals { grid-template-columns: 1fr; }
+}
+
+/* The hotbar, always on the HUD (bottom centre). */
+#hotbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + var(--sab)); z-index: 3; display: flex; gap: 4px; padding: 6px; background: rgba(74,50,32,.88); border: 3px solid #3a2a1a; border-radius: 14px; box-shadow: 0 4px 0 #2a1d12; --slot: 52px; }
+#hotbar .bw-slot { background: #e9d6a8; box-shadow: inset 0 0 0 2px #b08a5c; }
+#hotbar .bw-slot.held { background: #fbf3dc; box-shadow: inset 0 0 0 3px #f5c542, 0 0 0 2px #f5c542; }
+#hotbar .bw-slot em { color: #c9a978; font-size: 10px; }
+#hotbar .bw-slot b { font-size: 13px; }
+#hotbar .bw-slot .ic { font-size: 28px; }
+#hotbar .bw-slot .ic canvas { width: 30px; height: 30px; }
+body.building #hotbar { display: none; }
+@media (max-width: 620px) { #hotbar { --slot: min(36px, calc((100vw - 60px) / 9)); gap: 2px; padding: 4px; } #hotbar .bw-slot .ic { font-size: 20px; } #hotbar .bw-slot .ic canvas { width: 22px; height: 22px; } #hotbar .bw-slot b { font-size: 10px; } }

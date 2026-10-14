@@ -33,6 +33,7 @@ import { renderCity, cityOpen, closeCity } from './cityui.js';
 import { socialUI } from './social-ui.js';
 import { makeWeather, makeTreeLeaves } from './weather.js';
 import { makeObjectFx } from './objfx.js';
+import { makeBag } from './bagui.js';
 import { groundAt } from '@shared/landscape.js';
 import { LEAF } from './sprites.js';
 import { treeKindAt } from './gfx/scenery.js';
@@ -90,6 +91,7 @@ const S = {
 };
 const afford = (cost) => S.freeBuild || cost <= S.coins;
 let ui = null; // village life UI (social-ui.js), set up at the end
+let bag = null; // the bag window and HUD hotbar (bagui.js), set up at the end
 // Your role on a plot: 'build' (yours, or a co-builder), 'farm' (a farmhand friend) or null.
 const roleOn = (plot) => (!plot || !S.me ? null : plot.owner === S.me.id ? 'build' : plot.helpers?.[S.me.id]?.role || null);
 const serverNow = () => Date.now() + S.timeOffset;
@@ -177,6 +179,7 @@ function onMessage(m) {
       S.coins = m.you.coins;
       S.inv = m.you.inv || {};
       S.qual = m.qual || {};
+      bag?.renderHud();
       S.myPlot = S.homePlot = m.you.plotId;
       S.username = m.you.username;
       S.library = m.you.library || [];
@@ -338,7 +341,7 @@ function onMessage(m) {
       if (m.day != null) { S.questDay = m.day; S.offered = new Set(m.offered || []); }
       badges();
       if (S.talk) renderQuestCard();
-      if (modalKind === 'quests') showQuests();
+      if (bag?.isOpen()) bag.render();
       break;
     case 'plot':
       S.plots[m.plot.id] = m.plot;
@@ -383,11 +386,11 @@ function onMessage(m) {
     case 'inv':
       S.inv = m.inv;
       S.qual = m.qual || {};
+      bag?.refresh();
       updateHud();
       if (S.stockRedraw && modalKind === 'stock') S.stockRedraw();
       if (S.mode === 'build' && S.cat === 'special') renderItems();
       if (S.talk?.extra) renderExtra();
-      if (modalKind === 'bag') showBag();
       if (modalKind === 'store') ui.showStore();
       if (modalKind === 'trade') ui.showTrade();
       break;
@@ -613,6 +616,7 @@ function updateContext() {
   else if (ui.contextAction()) action = `ui:${ui.contextAction().id}`;
   else if (wildNear()) { const w = wildNear(); action = `wild:${w.x}:${w.y}:${w.kind}`; }
   else if (S.carry) action = `eatHere:${S.carry.food}`;
+  else if (bag?.held() && FOODS[bag.held()] && S.inv[bag.held()] > 0) action = `eatHeld:${bag.held()}`;
   else if (plot && !plot.owner && S.homePlot == null) action = 'claim';
   else if (plot && !plot.owner && S.biz && S.biz.plotId == null) action = 'claimShop';
   else if (here === S.myPlot && here >= 0) {
@@ -630,6 +634,7 @@ function updateContext() {
     else if (action.startsWith('wild:')) btn.textContent = action.endsWith('tree') ? '🪓 Chop tree' : '⛏️ Break rock';
     else if (action.startsWith('talk')) btn.textContent = `💬 Talk to ${NPCS[action.split(':')[1]].name}`;
     else if (action === 'pet') btn.textContent = `🐾 Pet your ${PETS[petOf(S.me)].kind}`;
+    else if (action.startsWith('eatHeld')) { const id = action.split(':')[1]; btn.textContent = `😋 Eat ${(GOODS[id]?.name || id).toLowerCase()}`; }
     else if (action.startsWith('eatHere')) { const pl = PLATES[S.carry.food]; btn.textContent = `${pl.icon} Eat ${pl.name.toLowerCase()} here`; }
     else if (action.startsWith('stop')) { const a = ACTIVITIES[S.act]; btn.textContent = `${a.icon} ${a.verb}… ✋ Stop`; }
     else if (action.startsWith('use')) {
@@ -645,6 +650,7 @@ $('action').onclick = () => {
   if (lastAction.startsWith('ui:')) { ui.runAction(lastAction.slice(3)); return; }
   if (lastAction.startsWith('wild:')) { const [, x, y] = lastAction.split(':'); swing(+x, +y); return; }
   if (lastAction.startsWith('eatHere')) { send({ type: 'use', act: 'eatHere' }); return; }
+  if (lastAction.startsWith('eatHeld')) { send({ type: 'eat', item: lastAction.split(':')[1] }); return; }
   if (lastAction.startsWith('use')) {
     const u = nearestUsable();
     if (!u) return;
@@ -673,7 +679,7 @@ function syncBuildBtn() {
 }
 $('btn-done').onclick = () => setMode('walk');
 $('btn-chat').onclick = () => ($('chatpanel').hidden ? openChat() : closeChat());
-$('btn-bag').onclick = () => (BOOK.some(([k]) => k === modalKind) ? closeModal() : showBag());
+$('btn-bag').onclick = () => (bag.isOpen() ? bag.close() : showBag());
 $('btn-settings').onclick = () => (modalKind === 'settings' ? closeModal() : showSettings());
 function turnCamera(d) { view.rotate(d); }
 
@@ -773,10 +779,11 @@ function localProgress(q) {
 }
 
 // The quest log: everything villagers have asked of you.
-function showQuests() {
-  const body = openModal('quests', '📜 Requests');
+function showQuests() { bag.open('quests'); }
+// The Quests tab of the bag window.
+function renderQuests(el) {
   const qs = S.quests || [];
-  if (!qs.length) body.insertAdjacentHTML('beforeend', '<p class="muted">No requests right now. Chat with villagers: they’ll often ask for a favour (once a day each).</p>');
+  if (!qs.length) { el.innerHTML = '<div class="bw-emptybox">No requests right now. Chat with villagers: now and then one will have a favour to ask (look for the ❗ over their head).</div>'; return; }
   for (const q of qs) {
     const pr = localProgress(q);
     const c = document.createElement('div');
@@ -785,7 +792,7 @@ function showQuests() {
     const drop = document.createElement('button'); drop.className = 'chip'; drop.textContent = 'Give up';
     drop.onclick = () => { if (confirm('Give up on this request?')) send({ type: 'questAbandon', id: q.id }); };
     c.appendChild(drop);
-    body.appendChild(c);
+    el.appendChild(c);
   }
 }
 // Little numbers: open requests and a new paper on the Bag button (and its tabs), and an
@@ -1059,53 +1066,7 @@ function showCity() {
 
 // Players close enough to hand things to.
 const nearbyPlayers = () => [...S.players.values()].filter((p) => Math.hypot(p.x - S.me.x, p.y - S.me.y) < TILE * 4);
-let bagTo = null, bagN = 1;
-function showBag() {
-  const body = openModal('bag', '🎒 Your bag');
-  const entries = Object.entries(S.inv);
-  // Give to someone nearby, or drop things on the ground (anyone can pick them up).
-  const near = nearbyPlayers();
-  if (!near.some((p) => p.id === bagTo)) bagTo = near[0]?.id || null;
-  const bar = document.createElement('div');
-  bar.className = 'row bag-bar';
-  const amount = document.createElement('input');
-  amount.type = 'number'; amount.min = 1; amount.max = 99; amount.value = bagN; amount.className = 'qty';
-  amount.title = 'How many to drop or give';
-  amount.addEventListener('keydown', (e) => e.stopPropagation());
-  amount.oninput = () => { bagN = Math.max(1, Math.min(99, Math.floor(+amount.value) || 1)); };
-  bar.append(Object.assign(document.createElement('span'), { textContent: 'Amount', className: 'muted' }), amount);
-  if (near.length) {
-    const sel = document.createElement('select');
-    for (const p of near) sel.add(new Option(`🎁 to ${p.name}`, p.id, false, p.id === bagTo));
-    sel.onchange = () => { bagTo = sel.value; };
-    const coins = document.createElement('button');
-    coins.className = 'chip'; coins.textContent = '🪙 Give coins';
-    coins.onclick = () => {
-      const c = Math.floor(Number(prompt(`How many coins for ${S.players.get(bagTo)?.name}?`, '50')));
-      if (c > 0) send({ type: 'giveTo', to: bagTo, coins: c });
-    };
-    const trade = document.createElement('button');
-    trade.className = 'chip'; trade.textContent = '🤝 Trade';
-    trade.onclick = () => send({ type: 'tradeAsk', to: bagTo });
-    bar.append(sel, coins, trade);
-  } else bar.append(Object.assign(document.createElement('span'), { textContent: '· stand near someone to give them things', className: 'muted small' }));
-  body.appendChild(bar);
-  if (!entries.length) body.insertAdjacentHTML('beforeend', '<p class="muted">Empty. Harvest crops, or buy gifts and furniture in the town square.</p>');
-  const list = document.createElement('div');
-  list.className = 'list';
-  for (const [k, n] of entries) {
-    const sub = ITEMS[k] ? 'Furniture · place it from the Bag tab in Build mode' : GOODS[k].kind === 'tool' ? 'Tool · walk through your crops to water them' : GOODS[k].kind === 'fish' ? 'Fish · Rosa buys these, eat them, smoke them or enter the Fishing Derby' : GOODS[k].kind === 'feed' ? 'Animal feed · feed your animals at their coop or barn' : GOODS[k].kind === 'animal' ? 'From your animals · Rosa buys these, or make cheese, cloth and cake' : GOODS[k].kind === 'produce' ? 'Crop · Rosa buys these, or sell them in your shop' : GOODS[k].kind === 'product' ? 'Homemade · sell it in your shop or to Rosa' : 'Gift · give it to a villager';
-    const food = FOODS[k];
-    const gives = food ? Object.entries(food).map(([nd, v]) => `+${v} ${(NEEDS.find((x) => x.id === nd) || HEALTH).icon}`).join(' ') : '';
-    const ql = S.qual?.[k];
-    const qtxt = ql ? ` · ${[ql[1] && `${ql[1]} ★★`, ql[0] && `${ql[0]} ★`].filter(Boolean).join(' ')}` : '';
-    const btns = food ? [['😋 Eat', () => { send({ type: 'eat', item: k }); closeModal(); }]] : [];
-    btns.push(['⬇️ Drop', () => send({ type: 'drop', item: k, n: Math.min(n, bagN) }), S.ride && k === 'tractor']);
-    if (bagTo) btns.push(['🎁 Give', () => send({ type: 'giveTo', to: bagTo, item: k, n: Math.min(n, bagN) }), S.ride && k === 'tractor']);
-    list.appendChild(itemRow(k, `×${n}${qtxt} · ${sub}${gives ? ` · eat: ${gives}` : ''}`, btns));
-  }
-  body.appendChild(list);
-}
+function showBag() { bag.open('bag'); }
 
 function showMe() { showSettings('me'); }
 function renderMe(body) {
@@ -2888,6 +2849,7 @@ addEventListener('keydown', (e) => {
   if (k === 'q') turnCamera(-1);
   if (k === 'e') turnCamera(1);
   if (k === 'i') $('btn-bag').click();
+  if (S.mode === 'walk' && /^[1-9]$/.test(k) && !e.ctrlKey && !e.metaKey) bag.hold(Number(k) - 1);
   if (k === 'm') toggleMap();
   if (S.mode === 'build') {
     if (k === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey) { e.preventDefault(); redo(); return; }
@@ -4697,7 +4659,22 @@ function drawAnimals(now) {
   }
 }
 
-ui = socialUI({ S, send, openModal, closeModal, modal: () => modalKind, toast, esc, itemRow, world, badges });
+ui = socialUI({ S, send, openModal, closeModal, modal: () => modalKind, toast, esc, itemRow, world, badges, openJournal: () => bag.open('journal'), bookChanged: () => { if (bag.isOpen()) bag.render(); } });
+bag = makeBag({
+  S, send, toast, esc, store,
+  iconOf: (id) => itemThumb(id),
+  quests: renderQuests,
+  fest: (el) => ui.renderFest(el),
+  paper: (el) => { ui.renderPaper(el); badges(); },
+  // The nearest person you could hand something to: a player, else a villager.
+  nearest: () => {
+    const p = nearbyPlayers()[0];
+    if (p) return { kind: 'player', id: p.id, name: p.name };
+    const n = nearestNpc(TILE * 3);
+    return n ? { kind: 'npc', id: n.id, name: NPCS[n.id].name } : null;
+  },
+});
+bag.renderHud();
 
 // ---------- touch: staged placement, long press, haptics ----------
 const TOUCH_LIFT = 56; // CSS px the preview sits above your finger

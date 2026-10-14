@@ -275,6 +275,7 @@ export class Game {
       case 'sell': return this.sell(s, msg);
       case 'gift': return this.gift(s, msg);
       case 'drop': return this.farm.drop(s, msg);
+      case 'trash': return this.farm.trash(s, msg);
       case 'giveTo': return this.farm.giveTo(s, msg);
       case 'utilStart': return this.cityAction(s, () => this.farm.utilStart(s, msg));
       case 'utilPay': return this.cityAction(s, () => this.farm.utilPay(s, msg));
