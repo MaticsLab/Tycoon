@@ -233,13 +233,13 @@ You can also befriend villagers whose personalities change based on how you trea
   - **Cloud shadows** drift slowly over the land.
 - **Things come alive.** Live sprinklers spray arcs of water that splash down (the big one sweeps back and forth), fireplaces and fire pits flicker with embers and smoke, candles and lanterns glow at night, busy machines puff steam, the cauldron bubbles and the harvester's light blinks while it's powered.
 - **Music and sound** are all synthesized in the browser, with no audio files. Things near you make their own sounds, louder the closer you are: sprinklers hiss and tick, fires crackle, machines hum, a grandfather clock ticks, the cauldron bubbles. **Settings → 🔊 Sounds** has a volume for everything, music, weather & nature, things around you and actions.
-  - **Music:** four calm, looping pieces, one per season, that crossfade when the season turns:
-    - **Spring:** flute over electric piano, in C major.
-    - **Summer:** marimba, in D major.
-    - **Fall:** piano over strings, in A minor.
-    - **Winter:** a music box over a soft pad, in E minor.
+  - **Music:** four slow, hushed songs, one per season, in the spirit of an intimate bedroom-pop ballad: soft felt piano, a wordless breathy "ooh" voice, warm sub-bass swells, airy pads and a long dark reverb. Each is a whole 2.5–3 minute song (intro, verse, chorus, a second verse, a bridge that drops to just piano and breath, a last chorus with harmonies, and an outro that fades back into the intro) and they crossfade when the season turns:
+    - **Spring:** F major / D minor at 70 BPM, hopeful but a little sad, with soft finger snaps in the last chorus.
+    - **Summer:** a warm, hazy Rhodes in A major at 66 BPM, also with soft snaps in the last chorus.
+    - **Fall:** felt piano over a falling bass line, in G minor at 62 BPM.
+    - **Winter:** very sparse and still, piano, pad and breath with no beat, in E minor at 56 BPM.
 
-    At night the melody rests and a few bell notes play instead.
+    At night the voice mostly rests (only its long held notes stay), the beat drops out and it all gets quieter and darker.
   - **Ambience:**
     - rain with pattering droplets;
     - storms with rumble, and thunder that follows the lightning;
