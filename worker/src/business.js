@@ -17,7 +17,7 @@ const SHOPPERS = ['Rosa', 'Otto', 'Juniper', 'Mabel', 'a farmer', 'a tourist', '
 // Inside the shop (or, for a market stall, standing at it).
 export function atShop(world, plot, x, y) {
   if (plotIdAtPixel(world, x, y) === plot.id) return true;
-  if (!plot.stall) return false;
+  if (!plot.stall && !plot.rental) return false;
   const dx = Math.max(plot.x * TILE - x, 0, x - (plot.x + plot.w) * TILE), dy = Math.max(plot.y * TILE - y, 0, y - (plot.y + plot.h) * TILE);
   return Math.hypot(dx, dy) < TILE * 3;
 }
@@ -159,6 +159,7 @@ export class Business {
     slot.n += n;
     this.game.bag(s, item, -n);
     this.game.plotChanged(plot);
+    if (plot.rental) this.game.agents.syncRental(plot);
   }
 
   // Change a price, or take goods back off the shelf.
@@ -174,6 +175,7 @@ export class Business {
       if (!r.hit.obj.stock.length) delete r.hit.obj.stock;
     }
     this.game.plotChanged(r.plot);
+    if (r.plot.rental) this.game.agents.syncRental(r.plot);
   }
 
   // A player buys off someone's shelf.
@@ -181,7 +183,7 @@ export class Business {
     const r = this.reach(s, msg, false);
     if (!r) return;
     const { plot, hit } = r;
-    if (plot.venture || plot.stall) return this.game.agents.shelfBuy(s, plot, hit, msg); // a villager's shop or stall
+    if (plot.venture || plot.stall || plot.rental) return this.game.agents.shelfBuy(s, plot, hit, msg); // a villager's shop, a stall
     const owner = this.ownerProfile(plot);
     if (!owner?.biz || owner.biz.plotId !== plot.id) return;
     if (owner.id === s.profile.id) return s.send({ type: 'error', msg: 'That’s your own stock' });
@@ -203,9 +205,9 @@ export class Business {
     if (!plot?.biz || !Array.isArray(items) || !items.length || items.length > 40) return;
     if (!atShop(g.world, plot, s.x, s.y)) return s.send({ type: 'error', msg: plot.stall ? 'Walk up to the stall to pay' : 'Pay inside the shop' });
     if (plot.owner === s.profile.id) return s.send({ type: 'error', msg: 'That’s your own stock' });
-    const npcRun = !!(plot.venture || plot.stall), ag = g.agents;
+    const npcRun = !!(plot.venture || plot.stall || plot.rental), ag = g.agents;
     const owner = npcRun ? null : this.ownerProfile(plot);
-    if (npcRun ? !ag.ownersOf(plot).length : (!owner?.biz || owner.biz.plotId !== plot.id)) return;
+    if (npcRun ? !ag.sellerOK(plot) : (!owner?.biz || owner.biz.plotId !== plot.id)) return;
     const open = npcRun ? ag.openPlot(plot) : this.isOpen(owner, plot);
     if (!open) return s.send({ type: 'error', msg: npcRun ? ag.closedMsg(plot) : `“${plot.biz.name}” is closed right now` });
     // Check every line first: still there, enough of it, same price.
@@ -235,7 +237,7 @@ export class Business {
         ag.payPlot(plot, cost, s.profile.name, item);
       } else this.sold(owner, plot, { obj }, slot, n, s.profile.name);
     }
-    if (npcRun) { g.plotChanged(plot); ag.thank(plot, s, lines[0].slot.item); }
+    if (npcRun) { g.plotChanged(plot); if (plot.rental) ag.syncRental(plot); else ag.thank(plot, s, lines[0].slot.item); }
     s.send({ type: 'cartPaid', plotId, total, count });
     s.send({ type: 'toast', text: `🛍️ Paid 🪙${total} for ${count} item${count > 1 ? 's' : ''}` });
   }

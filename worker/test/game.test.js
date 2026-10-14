@@ -1996,12 +1996,13 @@ test('villager agents: group conversations players can join, offers, and rearran
   assert.ok(!a.last('npcOffer'), 'no sales pitches on the street');
   // Rearranging home: something moves or something new appears, and it's kept.
   const home = Object.values(game.plots).find((pl) => pl.home === 'hazel');
-  const before = JSON.stringify(home.obj);
+  const before = structuredClone(home.obj);
   hazel.s.wallet = 500;
-  for (let i = 0; i < 10 && JSON.stringify(home.obj) === before; i++) game.agents.rearrange(hazel, home, null);
-  assert.notEqual(JSON.stringify(home.obj), before);
+  const same = () => { try { assert.deepStrictEqual(home.obj, before); return true; } catch { return false; } };
+  for (let i = 0; i < 10 && same(); i++) game.agents.rearrange(hazel, home, null);
+  assert.ok(!same(), 'something moved');
   const again = new Game(Game.fromEntries(Object.entries(game.takeDirty())));
-  assert.equal(JSON.stringify(Object.values(again.plots).find((pl) => pl.home === 'hazel').obj), JSON.stringify(home.obj));
+  assert.deepStrictEqual(Object.values(again.plots).find((pl) => pl.home === 'hazel').obj, home.obj);
 });
 
 test('villager agents live freely: over a day they visit, chat, shop and chase their dreams', async () => {
@@ -2067,7 +2068,7 @@ test('market stalls: a few villagers sell from a stall each week and call out to
   const s = a.session();
   const day = worldClock(game.now(), game.epoch).day;
   game.agents.planStalls(day);
-  const list = game.agents.s.stalls.list;
+  const list = game.agents.s.stalls.list.filter((st) => !st.rent);
   assert.ok(list.length >= 3 && list.length <= 6, `stalls: ${list.length}`);
   assert.equal(new Set(list.map((st) => st.npc)).size, list.length);
   // Each one is a little village plot on public land, with stocked shelves.
@@ -2078,7 +2079,7 @@ test('market stalls: a few villagers sell from a stall each week and call out to
   }
   // Same plan all week; a new week brings a new plan.
   game.agents.planStalls(day + 1);
-  assert.equal(game.agents.s.stalls.list, list);
+  assert.deepEqual(game.agents.s.stalls.list.filter((st) => !st.rent), list);
   // During their hours the keeper goes to the stall, opens up and calls out to you.
   const st = list[0], n = game.npcs[st.npc], plot = game.plots[st.id];
   const h = worldClock(game.now(), game.epoch).hours;
@@ -2107,4 +2108,60 @@ test('market stalls: a few villagers sell from a stall each week and call out to
   // And it all survives a restart.
   const again = new Game(Game.fromEntries(Object.entries(game.takeDirty())));
   assert.equal(again.plots[st.id].stall, st.npc);
+});
+
+
+test('players rent a market stall for the week, sell from it while away, and get leftovers back', async () => {
+  const { HOUR_MS } = await import('../../shared/needs.js');
+  const { worldClock } = await import('../../shared/world.js');
+  const { RENTALS_A_WEEK, STALL_RENT } = await import('../src/agents.js');
+  const { game, join } = setup();
+  const a = await join({ name: 'Ana' }), b = await join({ name: 'Bo' });
+  const day = worldClock(game.now(), game.epoch).day;
+  game.agents.planStalls(day);
+  const rentals = game.agents.s.stalls.list.filter((st) => st.rent);
+  assert.equal(rentals.length, RENTALS_A_WEEK);
+  const st = rentals[0], plot = () => game.plots[st.id];
+  assert.ok(plot().rental && !plot().renter);
+  const sa = a.session(), sb = b.session();
+  // Too far away, then walk up and rent it.
+  await a.send({ type: 'stallRent', plotId: st.id });
+  assert.equal(a.last('error').msg, 'Walk up to the stall first');
+  sa.x = (st.x + 1) * TILE; sa.y = (st.y + 2.6) * TILE;
+  const coins = sa.profile.coins;
+  await a.send({ type: 'stallRent', plotId: st.id });
+  assert.equal(sa.profile.coins, coins - STALL_RENT);
+  assert.equal(plot().renter, sa.profile.id);
+  assert.equal(plot().owner, sa.profile.id);
+  // Only one each.
+  const other = rentals[1];
+  sa.x = (other.x + 1) * TILE; sa.y = (other.y + 2.6) * TILE;
+  await a.send({ type: 'stallRent', plotId: other.id });
+  assert.equal(a.last('error').msg, 'You already have a stall this week');
+  sa.x = (st.x + 1) * TILE; sa.y = (st.y + 2.6) * TILE;
+  // Put goods out and price them.
+  sa.profile.inv.turnip = 10; sa.profile.inv.berry = 3;
+  await a.send({ type: 'stock', plotId: st.id, level: 0, lx: 0, ly: 1, item: 'turnip', n: 6, price: 20 });
+  await a.send({ type: 'stock', plotId: st.id, level: 0, lx: 0, ly: 1, item: 'berry', n: 3, price: 70 });
+  assert.equal(plot().obj['0,1'].stock.length, 2);
+  // Ana goes home; Bo buys a turnip and the money reaches Ana anyway.
+  game.leave(sa);
+  const h = worldClock(game.now(), game.epoch).hours;
+  game.epoch -= ((11 - h + 24) % 24) * HOUR_MS;
+  sb.x = (st.x + 1) * TILE; sb.y = (st.y + 2.6) * TILE;
+  const anaCoins = sa.profile.coins;
+  await b.send({ type: 'buyCart', plotId: st.id, items: [{ level: 0, lx: 0, ly: 1, item: 'turnip', price: 20, n: 2 }] });
+  assert.ok(b.last('cartPaid'), JSON.stringify(b.last('error')));
+  assert.equal(sa.profile.coins, anaCoins + 40);
+  assert.equal(plot().obj['0,1'].stock.find((x) => x.item === 'turnip').n, 4);
+  // The shelf survives a restart.
+  const again = new Game(Game.fromEntries(Object.entries(game.takeDirty())));
+  assert.equal(again.plots[st.id].renter, sa.profile.id);
+  assert.equal(again.plots[st.id].obj['0,1'].stock.find((x) => x.item === 'turnip').n, 4);
+  // Next week: the stall goes back on the market and the leftovers come by mail.
+  game.agents.planStalls(day + 7);
+  const mail = sa.profile.mail.at(-1);
+  assert.equal(mail.from, 'The Market');
+  assert.deepEqual(mail.items, { turnip: 4, berry: 3 });
+  assert.ok(!Object.values(game.plots).some((p) => p.renter === sa.profile.id));
 });

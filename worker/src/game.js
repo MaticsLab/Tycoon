@@ -273,6 +273,7 @@ export class Game {
       case 'restock': return this.biz.restock(s, msg);
       case 'buyStock': return this.biz.buy(s, msg);
       case 'buyCart': return this.biz.buyCart(s, msg);
+      case 'stallRent': return this.agents.rent(s, msg);
       case 'craft': return this.biz.craft(s, msg);
       case 'collect': return this.biz.collect(s, msg);
       case 'questDecline': return this.life.decline(s, msg);

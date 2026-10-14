@@ -621,7 +621,7 @@ function updateContext() {
   else if (S.act) action = `stop:${S.act}`;
   else if (ui.fish.state) action = `ui:${ui.contextAction().id}`;
   else if (npc) action = `talk:${npc.id}`;
-  else if (usable) action = `use:${usable.plot.id}:${usable.level}:${usable.key}`;
+  else if (usable) action = `use:${usable.plot.id}:${usable.level}:${usable.key}:${usable.uses.join('/')}`;
   else if (ui.contextAction()) action = `ui:${ui.contextAction().id}`;
   else if (wildNear()) { const w = wildNear(); action = `wild:${w.x}:${w.y}:${w.kind}`; }
   else if (S.carry) action = `eatHere:${S.carry.food}`;
@@ -3634,6 +3634,7 @@ const usesNow = (t) => usesOf(t).filter((id) => (ACTIVITIES[id].carry ? !!S.carr
 const SHOP_ACTS = {
   'shop:stock': { icon: '📦', label: 'Stock & set prices' },
   'shop:browse': { icon: '🛍️', label: 'Browse & buy' },
+  'shop:rent': { icon: '🧺', label: 'Rent this stall for the week · 🪙120' },
   'shop:make': { icon: '⚙️', label: 'Make something' },
   'shop:collect': { icon: '✅', label: 'Collect' },
   'shop:wait': { icon: '⏳', label: 'Working…' },
@@ -3654,7 +3655,7 @@ const actInfo = (id) => ACTIVITIES[id] || SHOP_ACTS[id];
 function actionsFor(plot, o) {
   const mine = plot.owner === S.me.id;
   const out = canUseOn(plot) ? usesNow(o.t).filter((id) => !ACTIVITIES[id].shop || (mine && plot.biz)) : [];
-  if (slotsOf(o.t) || (plot.town && o.t === 'register')) { if (mine) out.push('shop:stock'); else if (plot.biz) out.push('shop:browse'); else if (plot.town) out.push('shop:keeper'); }
+  if (plot.rental && !plot.renter) { if (slotsOf(o.t)) out.push('shop:rent'); } else if (slotsOf(o.t) || (plot.town && o.t === 'register')) { if (mine) out.push('shop:stock'); else if (plot.biz) out.push('shop:browse'); else if (plot.town) out.push('shop:keeper'); }
   if (isMachine(o.t) && mine) out.push(o.job ? (serverNow() >= o.job.ready ? 'shop:collect' : 'shop:wait') : 'shop:make');
   const role = roleOn(plot);
   if (o.t === 'tractor' && role && !S.ride) out.push('farm:drive');
@@ -3687,16 +3688,21 @@ function distTo(plot, ax, ay, t, r) {
 function nearestUsable(range = TILE * 1.5) {
   const here = plotIdAtPixel(world, S.me.x, S.me.y);
   const plot = here >= 0 ? S.plots[here] : null;
-  if (!plot || !(canUseOn(plot) || plot.biz || plot.town)) return null;
-  const level = S.me.level || 0, view = level ? plot.l1 : plot;
-  if (!view) return null;
+  const level = S.me.level || 0;
+  // The plot you're on, plus any market stall you're standing in front of.
+  const plots = (plot && (canUseOn(plot) || plot.biz || plot.town) ? [plot] : []);
+  if (!level) for (const p of Object.values(S.plots)) if ((p.stall || p.rental) && p !== plot && Math.hypot(S.me.x / TILE - (p.x + 1), S.me.y / TILE - (p.y + 1)) < 3.5) plots.push(p);
   let best = null;
-  for (const [k, o] of Object.entries(view.obj)) {
-    const uses = actionsFor(plot, o);
-    if (!uses.length) continue;
-    const [ax, ay] = k.split(',').map(Number);
-    const d = distTo(plot, ax, ay, o.t, o.r);
-    if (d <= range && (!best || d < best.d)) best = { plot, level, key: k, lx: ax, ly: ay, t: o.t, uses, d };
+  for (const pl of plots) {
+    const view = level ? pl.l1 : pl;
+    if (!view) continue;
+    for (const [k, o] of Object.entries(view.obj)) {
+      const uses = actionsFor(pl, o);
+      if (!uses.length) continue;
+      const [ax, ay] = k.split(',').map(Number);
+      const d = distTo(pl, ax, ay, o.t, o.r);
+      if (d <= range && (!best || d < best.d)) best = { plot: pl, level, key: k, lx: ax, ly: ay, t: o.t, uses, d };
+    }
   }
   return best;
 }
@@ -3775,6 +3781,11 @@ function shopAction(u, act) {
   if (act === 'shop:collect') return send({ type: 'collect', ...at });
   if (act === 'shop:make') return showMake(u, at);
   if (act === 'shop:stock' || act === 'shop:browse') return shopUI.openShelf(u);
+  if (act === 'shop:rent') {
+    if (Object.values(S.plots).some((p) => p.renter === S.me.id)) return toast('You already have a stall this week');
+    if (confirm(`Rent this stall until the end of the week for 🪙${u.plot.rentFee || 120}? You can put out up to 4 kinds of goods; people buy from it 8 AM – 8 PM, even while you’re away.`)) send({ type: 'stallRent', plotId: u.plot.id });
+    return;
+  }
 }
 
 // Owner: start a machine on a recipe.
@@ -4139,7 +4150,9 @@ function updateMap(now) {
     text: p.farm ? `${p.farm} Farm` : `${p.ownerName}'s`, x: p.x + p.w / 2, y: p.y + 1.6, mine: p.id === S.myPlot,
   }));
   // Market stalls this week (faded while the keeper's away).
-  const markers = Object.values(S.plots).filter((p) => p.stall).map((p) => ({ x: p.x + 1, y: p.y + 1, icon: '🧺', text: `${p.name}${p.biz?.closed ? ' · closed' : ''}`, dim: !!p.biz?.closed }));
+  const markers = Object.values(S.plots).filter((p) => p.stall || p.rental).map((p) => (p.rental && !p.renter
+    ? { x: p.x + 1, y: p.y + 1, icon: '🏷️', text: `Stall for rent · 🪙${p.rentFee}`, dim: false }
+    : { x: p.x + 1, y: p.y + 1, icon: '🧺', text: `${p.name}${p.biz?.closed ? ' · closed' : ''}`, dim: !!p.biz?.closed, mine: p.renter === S.me?.id }));
   minimap.draw(people, labels, markers);
 }
 function placeMinimap() {
@@ -4256,7 +4269,8 @@ function drawOverlay(now) {
     if (st.town) {
       // Village shops: their name over the door.
       const p = view.toScreen(st.x + st.w / 2, 3.2, st.y + st.h);
-      if (onScreen(p)) tag(st.stall ? `🧺 ${st.name}${st.biz?.closed ? ' · closed' : ''}` : `🏪 ${st.name}`, p.x, p.y, 12, st.stall && st.biz?.closed ? '#e6d3a8' : '#ffe9b0');
+      const label = st.rental ? (st.renter ? `🧺 ${st.name}` : `🏷️ Stall for rent · 🪙${st.rentFee}/week`) : st.stall ? `🧺 ${st.name}${st.biz?.closed ? ' · closed' : ''}` : `🏪 ${st.name}`;
+      if (onScreen(p)) tag(label, p.x, p.y, 12, st.stall && st.biz?.closed ? '#e6d3a8' : st.renter === S.me.id ? '#ffe08a' : '#ffe9b0');
       continue;
     }
     if (!st.owner || st.biz) continue;

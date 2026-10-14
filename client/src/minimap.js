@@ -169,6 +169,6 @@ function pin(g, m, s, withText, scale = s) {
     g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); g.stroke();
     g.font = `${r * 1.25}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText(m.icon, x, y + r * 0.08);
-  } else if (m.text) label(g, m.text, x, y - r * 1.6, scale * 1.6, m.dim ? '#d8ccb4' : '#ffe9a8');
+  } else if (m.text) label(g, m.text, x, y - r * 1.6, scale * 1.6, m.mine ? '#ffe36e' : m.dim ? '#d8ccb4' : '#ffe9a8');
   g.restore();
 }

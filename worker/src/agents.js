@@ -9,7 +9,7 @@
 import { NPCS, moodLabel } from '../../shared/npcs.js';
 import { VOICES, voiceOf, VENTURES, AMBITIONS, WARES, WAGE, START_WALLET, STAGES, ventureCost, DECOR, YARD_DECOR, siteFor, buildStage } from '../../shared/agents.js';
 import { ITEMS, GOODS, itemName } from '../../shared/catalog.js';
-import { slotsOf, valueOf, shopOpen } from '../../shared/business.js';
+import { slotsOf, valueOf, shopOpen, priceAppeal } from '../../shared/business.js';
 import { placementError, plotEntrance, footprint, inInterior, indexPlots, canStand } from '../../shared/plot.js';
 import { TILE, worldClock, publicAreaAt, plotIdAtPixel, PUBLIC_AREAS, MAP_W, MAP_H } from '../../shared/world.js';
 import { HOUR_MS } from '../../shared/needs.js';
@@ -46,6 +46,9 @@ const STALL_HOURS = [[8, 12], [9, 13], [11, 15], [13, 17], [15, 19]];
 const STALLS_A_WEEK = 6;
 const STALL_BASE = TOWN_PLOT_BASE + 200;
 const CALL_RANGE = TILE * 5;
+// Stalls players can rent for the week (the fee goes to the village treasury).
+export const RENTALS_A_WEEK = 4;
+export const STALL_RENT = 120;
 
 export class Agents {
   constructor(game, saved = {}) {
@@ -265,13 +268,12 @@ export class Agents {
     const price = sl.price, item = sl.item;
     n.s.wallet -= price;
     g.mark(`npc:${n.id}`);
-    if (p.venture) {
-      const v = this.s.ventures[p.venture];
+    if (p.venture || p.stall || p.rental) {
       sl.n -= 1;
       if (sl.n <= 0) { o.stock.splice(o.stock.indexOf(sl), 1); if (!o.stock.length) delete o.stock; }
       g.plotChanged(p);
-      this.pay(v, price, n.def.name, item);
-      for (const id of v.owners) this.addBond(n.id, id, 1);
+      this.payPlot(p, price, n.def.name, item);
+      for (const id of this.ownersOf(p)) this.addBond(n.id, id, 1);
     } else {
       const owner = g.biz.ownerProfile(p);
       if (!owner) return;
@@ -409,9 +411,10 @@ export class Agents {
     const fixed = new Set(['register', 'mailbox', 'stairs', 'fireplace', 'bakeryoven', 'smoker', 'stove', 'fridge', 'kitchensink', 'toilet', 'shower', 'bathtub']);
     const things = Object.entries(plot.obj).filter(([k, o]) => !fixed.has(o.t) && !slotsOf(o.t) && ITEMS[o.t] && inRect(...k.split(',').map(Number)));
     let said = null;
-    const tryPlace = (t, r, tries = 40) => {
+    const tryPlace = (t, r, tries = 40, not = null) => {
       for (let i = 0; i < tries; i++) {
         const lx = rect.x + Math.floor(Math.random() * rect.w), ly = rect.y + Math.floor(Math.random() * rect.h);
+        if (`${lx},${ly}` === not) continue;
         if (!placementError(plot, lx, ly, t, r, 0, g.world)) return [lx, ly];
       }
       return null;
@@ -430,7 +433,7 @@ export class Agents {
       const [k, o] = pick(things);
       delete plot.obj[k];
       const r = ITEMS[o.t].rot && ITEMS[o.t].rot !== 'none' && Math.random() < 0.4 ? (((o.r || 0) + 1 + Math.floor(Math.random() * 3)) % 4) : (o.r || 0);
-      const at = tryPlace(o.t, r);
+      const at = tryPlace(o.t, r, 40, r === (o.r || 0) ? k : null);
       if (at) {
         plot.obj[`${at[0]},${at[1]}`] = r ? { ...o, r } : (({ r: _r, ...rest }) => rest)(o);
         said = pick([`The ${itemName(o.t).toLowerCase()} looks better over here.`, `Hmm… ${itemName(o.t).toLowerCase()} by the window? Yes.`, `Moving the ${itemName(o.t).toLowerCase()}. Fresh start!`]);
@@ -501,23 +504,42 @@ export class Agents {
   }
   // Villager-run plots (a venture shop or a market stall): who owns it, is it open, and
   // where the money goes.
+  sellerOK(plot) { return plot.rental ? !!plot.renter : this.ownersOf(plot).length > 0; }
   ownersOf(plot) {
+    if (plot.rental) return [];
     if (plot.stall) return [plot.stall];
     return this.s.ventures[plot.venture]?.owners || [];
   }
   openPlot(plot) {
     const g = this.game;
     if (plot.stall) return !plot.biz.closed;
+    if (plot.rental && !plot.biz) return false;
     const { hours } = worldClock(g.now(), g.epoch);
     return shopOpen(plot.biz, hours, false);
   }
   closedMsg(plot) {
+    if (plot.rental) return `“${plot.biz?.name || 'This stall'}” is open 8 AM – 8 PM`;
     if (plot.stall) { const st = this.s.stalls?.list.find((x) => x.npc === plot.stall); return `${this.name(plot.stall)} isn’t at the stall right now${st ? ` (here ${fmtH(st.from)} – ${fmtH(st.to)})` : ''}`; }
     return `“${plot.biz.name}” is closed right now (open 8 AM – 8 PM)`;
   }
   payPlot(plot, coins, who, item) {
     const g = this.game;
     if (plot.venture) return this.pay(this.s.ventures[plot.venture], coins, who, item);
+    if (plot.rental) {
+      // A player's stall: the money goes straight to them (even when they're away).
+      const st = this.s.stalls?.list.find((x) => x.id === plot.id);
+      const p = Object.values(g.profiles).find((x) => x.id === plot.renter);
+      if (!p || !st) return;
+      st.till = (st.till || 0) + coins; st.sold = (st.sold || 0) + 1;
+      plot.till = st.till; plot.sold = st.sold;
+      st.stock = plot.obj['0,1'].stock || [];
+      this.mark();
+      const ps = g.sessions.get(p.id);
+      if (ps) { g.coins(ps, coins); ps.send({ type: 'toast', text: `🧺 ${who} bought ${GOODS[item].name} at your stall · +🪙${coins}` }); }
+      else { p.coins += coins; g.city.onCoins(coins); g.markProfile(p); }
+      g.broadcast({ type: 'sale', plotId: plot.id, item, n: 1, coins, who });
+      return;
+    }
     const n = this.npcs[plot.stall];
     if (!n) return;
     n.s.wallet += coins;
@@ -533,7 +555,8 @@ export class Agents {
   // A customer buys off a villager's shelf.
   shelfBuy(s, plot, hit, msg) {
     const g = this.game;
-    if (!this.ownersOf(plot).length) return;
+    if (!this.sellerOK(plot)) return;
+    if (plot.renter === s.profile.id) return s.send({ type: 'error', msg: 'That’s your own stock' });
     if (!this.openPlot(plot)) return s.send({ type: 'error', msg: this.closedMsg(plot) });
     const sl = hit.obj.stock?.[msg.slot];
     if (!sl || sl.n < 1) return;
@@ -555,11 +578,17 @@ export class Agents {
   // A new week: who's selling, where and when.
   planStalls(day) {
     const week = Math.floor((day - 1) / 7);
-    if (this.s.stalls?.week === week) return;
+    if (this.s.stalls?.week === week) {
+      // (A plan from before rentals existed gets its pitches now.)
+      if (!this.s.stalls.list.some((x) => x.rent)) { this.addRentals(this.s.stalls.list, {}); this.mark(); this.buildStalls(true); }
+      return;
+    }
     const g = this.game;
     const busy = new Set(Object.values(this.s.ventures).filter((v) => v.stage >= STAGES.length - 1 && VENTURES[v.kind].biz).flatMap((v) => v.owners));
     const sellers = Object.keys(WARES).filter((id) => this.npcs[id] && !busy.has(id) && !NPCS[id].clerk).sort(() => Math.random() - 0.5).slice(0, STALLS_A_WEEK);
     const old = this.s.stalls?.list || [];
+    // Last week's renters get their leftovers back by mail.
+    for (const st of old) if (st.rent && st.renter) this.endRental(st);
     for (const st of old) delete g.plots[st.id];
     const list = [], used = {};
     sellers.forEach((npc, i) => {
@@ -574,10 +603,11 @@ export class Agents {
         break;
       }
     });
+    this.addRentals(list, used);
     this.s.stalls = { week, list };
     this.mark();
     this.buildStalls(true, old);
-    for (const st of list) this.restockStall(st);
+    for (const st of list) if (!st.rent) this.restockStall(st);
     if (list.length) g.addGossip('the market', `This week’s market stalls: ${list.map((st) => `${this.name(st.npc)} at ${st.area}`).join(', ')}`);
   }
   // Somewhere open in the area: the stall, the keeper behind it and room in front.
@@ -600,6 +630,7 @@ export class Agents {
     const g = this.game;
     for (const st of old) if (announce) g.broadcast({ type: 'plotRemoved', id: st.id });
     for (const st of this.s.stalls?.list || []) {
+      if (st.rent) { g.plots[st.id] = this.rentalPlot(st, g.plots[st.id]); continue; }
       const name = `${this.name(st.npc)}’s Stall`;
       const prev = g.plots[st.id];
       g.plots[st.id] = {
@@ -611,6 +642,62 @@ export class Agents {
     }
     indexPlots(g.world, g.plots);
     if (announce) for (const st of this.s.stalls?.list || []) g.broadcast({ type: 'plot', plot: g.plots[st.id] });
+  }
+  // Pitches for players to rent, in the same busy spots as the villagers' stalls.
+  addRentals(list, used) {
+    for (let i = 0; i < RENTALS_A_WEEK; i++) {
+      const areas = STALL_AREAS.map((name) => PUBLIC_AREAS.find((a) => a.name === name)).filter(Boolean).sort((a, b) => (used[a.name] || 0) - (used[b.name] || 0) + (Math.random() - 0.5) * 0.9);
+      for (const a of areas) {
+        const at = this.stallSpot(a, list);
+        if (!at) continue;
+        used[a.name] = (used[a.name] || 0) + 1;
+        list.push({ id: STALL_BASE + 50 + i, rent: true, renter: null, renterName: null, x: at.x, y: at.y, area: a.name, kind: 'marketstall', till: 0, sold: 0 });
+        break;
+      }
+    }
+  }
+  // Keep a rented stall's shelf in the plan (stalls are rebuilt from it on restart).
+  syncRental(plot) {
+    const st = this.s.stalls?.list.find((x) => x.id === plot.id);
+    if (!st?.rent) return;
+    st.stock = plot.obj['0,1']?.stock || [];
+    this.mark();
+  }
+  rentalPlot(st, prev) {
+    const name = st.renter ? `${st.renterName}’s Stall` : 'Stall for rent';
+    return {
+      id: st.id, x: st.x, y: st.y, w: 2, h: 2, owner: st.renter || 'market', ownerName: st.renterName || 'the market', farm: '',
+      town: 'stall', name, rental: true, renter: st.renter || null, rentFee: STALL_RENT, till: st.till || 0, sold: st.sold || 0, rev: (prev?.rev || 0) + 1,
+      ...(st.renter ? { biz: { name, npc: true, staff: null, closed: false } } : {}),
+      floor: {}, obj: { '0,1': { t: st.kind, ...(st.stock?.length ? { stock: st.stock } : {}) } }, l1: { floor: {}, obj: {} }, walls: {}, roofs: [],
+    };
+  }
+  // A player rents a pitch for the rest of the week.
+  rent(s, { plotId }) {
+    const g = this.game, st = this.s.stalls?.list.find((x) => x.id === plotId && x.rent);
+    if (!st) return;
+    const plot = g.plots[st.id];
+    if (st.renter) return s.send({ type: 'error', msg: st.renter === s.profile.id ? 'This stall is already yours' : `${st.renterName} is renting this one` });
+    if (this.s.stalls.list.some((x) => x.renter === s.profile.id)) return s.send({ type: 'error', msg: 'You already have a stall this week' });
+    const dx = Math.max(plot.x * TILE - s.x, 0, s.x - (plot.x + 2) * TILE), dy = Math.max(plot.y * TILE - s.y, 0, s.y - (plot.y + 2) * TILE);
+    if (Math.hypot(dx, dy) > TILE * 3) return s.send({ type: 'error', msg: 'Walk up to the stall first' });
+    if (s.profile.coins < STALL_RENT) return s.send({ type: 'error', msg: `Renting a stall costs 🪙${STALL_RENT} for the week` });
+    g.coins(s, -STALL_RENT);
+    g.city.onLand(STALL_RENT);
+    Object.assign(st, { renter: s.profile.id, renterName: s.profile.name, till: 0, sold: 0, stock: [] });
+    g.plots[st.id] = this.rentalPlot(st, plot);
+    g.plotChanged(g.plots[st.id]);
+    this.mark();
+    g.addGossip('the market', `${s.profile.name} rented a market stall at ${st.area}`);
+    s.send({ type: 'toast', text: `🧺 The stall at ${st.area} is yours until the end of the week! Tap the stall to put your goods out and set prices.` });
+  }
+  // The week's over: unsold goods go back to the renter by mail.
+  endRental(st) {
+    const g = this.game, plot = g.plots[st.id];
+    const p = Object.values(g.profiles).find((x) => x.id === st.renter);
+    const left = {};
+    for (const sl of plot?.obj['0,1']?.stock || []) left[sl.item] = (left[sl.item] || 0) + sl.n;
+    if (p) g.social.mail(p, { from: 'The Market', text: `Your week at the ${st.area} stall is over. You took 🪙${st.till || 0} for ${st.sold || 0} item${st.sold === 1 ? '' : 's'}.${Object.keys(left).length ? ' Here’s what didn’t sell.' : ''} Rent another stall any time.`, items: Object.keys(left).length ? left : null });
   }
   restockStall(st) {
     const g = this.game, plot = g.plots[st.id], n = this.npcs[st.npc];
@@ -673,6 +760,19 @@ export class Agents {
     if (now < this.nextSale) return;
     this.nextSale = now + HOUR_MS / 6;
     const g = this.game;
+    for (const st of this.s.stalls?.list || []) {
+      const plot = g.plots[st.id];
+      if (!st.rent || !plot?.biz || !shopOpen(plot.biz, hours, false)) continue;
+      const shelf = this.shelves(plot).filter(({ sl }) => sl.n > 0);
+      if (!shelf.length || Math.random() > (1.2 + g.biz.traffic(plot)) / 6) continue;
+      const w = shelf.map((x) => ({ ...x, w: priceAppeal(x.sl.price, valueOf(x.sl.item)) }));
+      const { o, sl, w: appeal } = w.sort((a, b) => b.w - a.w)[Math.floor(Math.random() * Math.min(2, w.length))];
+      if (Math.random() > Math.min(0.95, appeal * 0.7)) continue; // looked, didn't buy
+      sl.n -= 1;
+      if (sl.n <= 0) { o.stock.splice(o.stock.indexOf(sl), 1); if (!o.stock.length) delete o.stock; }
+      g.plotChanged(plot);
+      this.payPlot(plot, sl.price, pick(['a tourist', 'a farmer', 'old Mr. Finch', 'the Baker twins', 'a travelling bard', 'Mrs. Pennywhistle']), sl.item);
+    }
     for (const v of Object.values(this.s.ventures)) {
       const plot = g.plots[v.plotId];
       if (!plot?.biz || !shopOpen(plot.biz, hours, false)) continue;

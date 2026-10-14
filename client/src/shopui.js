@@ -157,10 +157,10 @@ export function makeShopUI({ S, send, toast, thumb, world, serverNow, onBackToCh
         <div class="sh-glyph"></div>
         <div class="sw-who">
           <div class="sw-title">${own ? 'Your shelf' : `${esc(name)} · Shelf ${shelf.i + 1}`}</div>
-          <div class="sw-sub">${own ? `${esc(name)} · sold ${b?.sales?.items || 0} so far` : open ? 'Self-serve. Add things to your cart, then pay.' : `Closed right now${plot.biz?.staff ? ` (${STAFF[plot.biz.staff].name} works ${OPEN_HOURS[0]} AM – ${OPEN_HOURS[1] - 12} PM)` : plot.biz?.npc ? ' (open 8 AM – 8 PM)' : ''}.`}</div>
+          <div class="sw-sub">${own ? `${esc(name)} · sold ${plot.rental ? plot.sold || 0 : b?.sales?.items || 0} so far${plot.rental ? ' this week' : ''}` : open ? 'Self-serve. Add things to your cart, then pay.' : `Closed right now${plot.biz?.staff ? ` (${STAFF[plot.biz.staff].name} works ${OPEN_HOURS[0]} AM – ${OPEN_HOURS[1] - 12} PM)` : plot.biz?.npc ? ' (open 8 AM – 8 PM)' : ''}.`}</div>
         </div>
         ${list.length > 1 ? `<span class="sh-switch"><button type="button" data-s="-1" aria-label="Previous shelf">‹</button>Shelf ${shelf.i + 1} of ${list.length}<button type="button" data-s="1" aria-label="Next shelf">›</button></span>` : ''}
-        <span class="sw-coins"><small>${own ? 'TILL' : 'YOU'}</small>${money(own ? b?.sales?.today || 0 : S.coins)}</span>
+        <span class="sw-coins"><small>${own ? 'TILL' : 'YOU'}</small>${money(own ? (plot.rental ? plot.till || 0 : b?.sales?.today || 0) : S.coins)}</span>
         <button type="button" class="sw-round" data-k="close" aria-label="Close">${X_ICON}</button>
       </div>
       <div class="sh-board"></div>
