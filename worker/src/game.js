@@ -19,6 +19,8 @@ import { Social } from './social.js';
 import { Fishing } from './fishing.js';
 import { Events } from './events.js';
 import { Nature } from './nature.js';
+import { Agents, applyHomeEdits } from './agents.js';
+import { VENTURES, AMBITIONS } from '../../shared/agents.js';
 import { townShopPlots, TOWN_PLOT_BASE } from '../../shared/townshops.js';
 import { waterCrop, WET_MS, QUALITY, ANIMALS } from '../../shared/farm.js';
 import { NPC_ACTS, readTone, blendTone } from '../../shared/village.js';
@@ -134,6 +136,8 @@ export class Game {
     this.events = new Events(this, saved.events);
     setMarket((item) => this.farm.sellMult(item));
     for (const id of Object.keys(NPCS)) this.npcs[id] = new Npc(id, saved.npcs?.[id]);
+    applyHomeEdits(this.plots, this.npcs);
+    this.agents = new Agents(this, saved.agents);
     this.sessions = new Map(); // player id -> session
     this.city = new City(this, saved.city);
     this.dirty = new Set(saved.meta && !this.freshLand ? [] : ['meta']);
@@ -161,6 +165,7 @@ export class Game {
       else if (k === 'social') out[k] = this.social.save();
       else if (k === 'events') out[k] = this.events.save();
       else if (k === 'nature') out[k] = this.nature.save();
+      else if (k === 'agents') out[k] = this.agents.save();
       else if (kind === 'plot') { if (this.plots[id]?.town) continue; out[k] = this.plots[id] ?? null; }
       else if (kind === 'profile') out[k] = this.profiles[id] ?? null;
       else if (kind === 'npc') out[k] = this.npcs[id].s;
@@ -183,6 +188,7 @@ export class Game {
       else if (kind === 'social') saved.social = v;
       else if (kind === 'events') saved.events = v;
       else if (kind === 'nature') saved.nature = v;
+      else if (kind === 'agents') saved.agents = v;
       else if (kind === 'plot') saved.plots[id] = v;
       else if (kind === 'profile') saved.profiles[id] = v;
       else if (kind === 'npc') saved.npcs[id] = v;
@@ -277,6 +283,11 @@ export class Game {
       case 'npcOpen': return this.npcOpen(s, msg);
       case 'npcClose': return this.npcClose(s, msg);
       case 'npcTalk': return this.npcTalk(s, msg);
+      case 'convoJoin': return this.agents.join(s, msg);
+      case 'convoSay': return this.agents.say(s, msg);
+      case 'convoLeave': return this.agents.leave(s, msg);
+      case 'offerAccept': return this.agents.offerAccept(s, msg);
+      case 'offerDecline': return this.agents.offerDecline(s, msg);
       case 'buy': return this.buy(s, msg);
       case 'sell': return this.sell(s, msg);
       case 'gift': return this.gift(s, msg);
@@ -425,7 +436,7 @@ export class Game {
       roads: this.roads,
       city: this.city.view(this.day(), profile),
       drops: this.farm.drops,
-      nature: this.nature.view(), weather: this.weather || null,
+      nature: this.nature.view(), weather: this.weather || null, convos: this.agents.list(),
       market: this.farm.marketView(),
       util: profile.util || {}, hand: profile.hand || null, qual: profile.qual || {},
     });
@@ -448,6 +459,7 @@ export class Game {
     s.profile.x = s.x; s.profile.y = s.y; s.profile.level = s.level;
     this.markProfile(s.profile);
     for (const n of Object.values(this.npcs)) if (n.talkingTo === s.profile.id) n.talkingTo = null;
+    for (const c of this.agents.convos.values()) if (c.players.has(s.profile.id)) this.agents.leave(s, { id: c.id });
     this.broadcast({ type: 'leave', id: s.profile.id });
   }
 
@@ -1167,7 +1179,7 @@ export class Game {
     const off = (v) => ['false', 'off', '0', 'no'].includes(v);
     if (!c) return;
     if (c === 'help') {
-      return say('testingcheats true · money <amount> · motherlode · kaching · rosebud · freerealestate on/off · bb.enablefreebuild · tp cityhall|park|fair|square · fillneeds · needs <need> <0-100> · give <item> <n>');
+      return say('testingcheats true · venture <npc> [partner] [kind] · convo <npc> <npc> · seekme <npc> · money <amount> · motherlode · kaching · rosebud · freerealestate on/off · bb.enablefreebuild · tp cityhall|park|fair|square · fillneeds · needs <need> <0-100> · give <item> <n>');
     }
     if (c === 'testingcheats') {
       if (on(args[0])) { s.cheats.testing = true; return say('Cheats are enabled.'); }
@@ -1185,6 +1197,35 @@ export class Game {
         return say(`Funds set to 🪙${s.profile.coins.toLocaleString()}.`);
       }
       case 'motherlode': set(s.profile.coins + 50_000); return say('+🪙50,000');
+      // Villager agents: build a venture on the spot, start a chat, come and find me.
+      case 'venture': {
+        const ids = args.filter((a) => this.npcs[a]);
+        const kind = args.find((a) => VENTURES[a]) || AMBITIONS[ids[0]]?.kind;
+        if (!ids.length || !kind) return say('Usage: venture <npc> [partner] [kind]');
+        for (const id of ids) this.npcs[id].s.wallet = Math.max(this.npcs[id].s.wallet, 3000);
+        const v = this.agents.found(this.npcs[ids[0]], ids, kind);
+        const lot = this.agents.chooseLot(this.npcs[ids[0]], kind);
+        if (!lot) return say('No lot found');
+        this.agents.buyLot(this.npcs[ids[0]], v, lot);
+        if (!args.includes('plot')) for (let st = 0; st < 3; st++) this.agents.finishStage(this.npcs[ids[0]], v, st);
+        this.npcs[ids[0]].clearAgenda();
+        return say(`${v.name} on plot ${lot.id + 1}`);
+      }
+      case 'convo': {
+        const ids = args.filter((a) => this.npcs[a]);
+        if (ids.length < 2) return say('Usage: convo <npc> <npc> [npc…]');
+        for (const id of ids.slice(1)) { const n = this.npcs[id]; n.x = this.npcs[ids[0]].x + TILE * (1 + Math.random()); n.y = this.npcs[ids[0]].y; n.path = null; n.clearAgenda?.(); }
+        const c = this.agents.start(ids, null, '', true);
+        return say(c ? `Conversation ${c.id} started` : 'They’re busy');
+      }
+      case 'seekme': {
+        const n = this.npcs[args[0]];
+        if (!n) return say('Usage: seekme <npc>');
+        n.x = s.x + TILE * 6; n.y = s.y; n.path = null; n.talkingTo = null;
+        (n.sought ||= {})[s.profile.id] = 0;
+        this.agents.send(n, { kind: 'seek', verb: `looking for ${s.profile.name}`, act: 'stroll', x: s.x + TILE, y: s.y, chase: s.profile.id, hours: 1, arrive: () => this.agents.approach(n, s.profile.id) });
+        return say(`${n.def.name} is coming over`);
+      }
       case 'kaching': case 'rosebud': set(s.profile.coins + 1_000); return say('+🪙1,000');
       case 'freerealestate':
         if (on(args[0])) { s.cheats.land = true; return say('Free real estate: land changes cost nothing.'); }
@@ -1304,12 +1345,14 @@ export class Game {
     const n = this.nearNpc(s, npc);
     if (!n) return;
     if (n.asleep) return s.send({ type: 'error', msg: `${n.def.name} is fast asleep. Zzz… (try again in the morning)` });
+    // Chatting with friends? Join the group.
+    if (n.convo) return this.agents.join(s, { id: n.convo });
     this.hold(n, s);
     const today = this.day();
     if (s.talkedDay !== today) { s.talkedDay = today; s.talked = new Set(); }
     if (!s.talked.has(n.id)) { s.talked.add(n.id); this.count(s.profile, 'talk'); }
     const greeting = n.greeting(s.profile, this.now());
-    s.send({ type: 'npc', ...n.view(s.profile, this.now()), doing: n.doing(), thought: n.thought, say: greeting });
+    s.send({ type: 'npc', ...n.view(s.profile, this.now()), doing: n.doing(), thought: n.thought, say: greeting, ventures: this.agents.venturesOf(n.id) });
     this.broadcast({ type: 'npcBubble', id: n.id, text: greeting });
     return this.life.onOpen(s, n);
   }
@@ -1391,7 +1434,7 @@ export class Game {
     const now = this.now();
     // How this player writes, averaged over time, so the villager can match it.
     if (!text.startsWith('*')) { const r0 = n.rel(s.profile); r0.tone = blendTone(r0.tone, readTone(text)); }
-    const ctx = { now, epoch: this.epoch, playerFacts: this.playerFacts(s), gossip: this.gossip.slice(-6), city: n.def.clerk ? this.city.brief() : null, quests: this.life.promptFor(s, n) };
+    const ctx = { now, epoch: this.epoch, playerFacts: this.playerFacts(s), gossip: this.gossip.slice(-6), city: n.def.clerk ? this.city.brief() : null, quests: this.life.promptFor(s, n), agent: this.agents.context(n) };
     let res = null;
     if (this.ai) {
       try { res = await this.ai(n.buildPrompt(s.profile, text, ctx), REPLY_SCHEMA, parseAiReply); } catch (e) { console.error('ai error', e); }
@@ -1548,7 +1591,7 @@ export class Game {
     const plot = this.plots[plotId];
     if (!plot || !Number.isInteger(lx) || !Number.isInteger(ly)) return;
     level = this.lvl(level);
-    if (plot.owner !== s.profile.id && !plot.town && !this.canWork(plot, s.profile.id)) {
+    if (plot.owner !== s.profile.id && !plot.town && !plot.venture && !this.canWork(plot, s.profile.id)) {
       const host = plot.owner && this.sessions.get(plot.owner);
       if (!host || plotIdAtPixel(this.world, host.x, host.y) !== plot.id) return s.send({ type: 'error', msg: 'You can only use things in someone’s home while they’re in' });
     }
@@ -1687,6 +1730,7 @@ export class Game {
     this.life.ensurePlans(clock.day);
     const hours = clock.hours; // fractional, 0..24
     this.life.tickMeetups(now);
+    this.agents.tick(now, clock);
     for (const n of Object.values(this.npcs)) {
       n.tick(dt, now, this.world, this.plots, hours);
       if (n.asleep) continue;

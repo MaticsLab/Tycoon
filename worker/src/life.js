@@ -6,6 +6,7 @@ import { PLACES, NPC_ACTS, ROUTINES, stepAt } from '../../shared/village.js';
 import { makeQuest, questProgress, questGoal, MAX_QUESTS, favourToday } from '../../shared/quests.js';
 import { MORE_VILLAGERS } from '../../shared/villagers.js';
 import { TILE } from '../../shared/world.js';
+import { voiceOf } from '../../shared/agents.js';
 
 const PLAN_SCHEMA = {
   type: 'object',
@@ -123,7 +124,7 @@ export class Life {
       const routine = ROUTINES[id] || [];
       const menu = routine.map((slot, i) => `${i}. from ${fmtHour(slot.at)}: ${slot.opts.map(([p, a, w], j) => `[${j}] ${NPC_ACTS[a].verb} at ${PLACES[p].name}${w ? ` with ${NPCS[w].name}` : ''}`).join(' or ')}`).join('\n');
       const msgs = [
-        { role: 'system', content: `You are ${n.def.name}. ${n.def.bio}\nYour sense of humour: ${n.def.humor || ''}\nIt's the start of day ${day} in the village. Recent village news:\n- ${this.game.gossip.slice(-4).join('\n- ') || 'nothing much'}\nPlan your day by choosing one option per time slot, decide what's on your mind today (one specific, funny sentence in third person, like a diary teaser), and write 3 short things you'd call out to a passer-by today (in your voice, under 60 characters each).\nRespond with JSON: {"choices": [option index per slot], "thought": "...", "passing": ["...", "...", "..."]}` },
+        { role: 'system', content: `You are ${n.def.name}. ${n.def.bio}\nYour sense of humour: ${n.def.humor || ''}\nHow you talk: ${voiceOf(id).diction}\nIt's the start of day ${day} in the village. Recent village news:\n- ${this.game.gossip.slice(-4).join('\n- ') || 'nothing much'}\nPlan your day by choosing one option per time slot, decide what's on your mind today (one specific, funny sentence in third person, like a diary teaser), and write 3 short things you'd call out to a passer-by today (in your voice, under 60 characters each).\nRespond with JSON: {"choices": [option index per slot], "thought": "...", "passing": ["...", "...", "..."]}` },
         { role: 'user', content: `Today's slots:\n${menu}` },
       ];
       const res = await this.game.ai(msgs, PLAN_SCHEMA, (out) => {
@@ -158,19 +159,10 @@ export class Life {
       if (!o || !o.act || o.path || NPC_ACTS[o.act]?.hidden || Math.hypot(o.x - n.x, o.y - n.y) > TILE * 3) continue;
       if (n.talkingTo || o.talkingTo) continue;
       const key = `${[n.id, o.id].sort().join('|')}|${st.at}`;
-      let m = this.meetings.get(key);
-      if (!m) {
-        m = { lines: null, i: 0, next: now + 1500 };
-        this.meetings.set(key, m);
-        n.faceToward(o.x, o.y); o.faceToward(n.x, n.y);
-        this.writeBanter(n, o, st).then((lines) => { m.lines = lines; });
-      }
-      if (!m.lines || now < m.next || m.i >= m.lines.length) continue;
-      const [who, text] = m.lines[m.i++];
-      const speaker = who === o.id ? o : n;
-      this.game.broadcast({ type: 'npcBubble', id: speaker.id, text });
-      m.next = now + Math.min(9000, 3500 + text.length * 55);
-      if (m.i === m.lines.length && text.length > 20) this.game.addGossip(speaker.def.name, `${n.def.name} and ${o.def.name} were chatting at ${PLACES[st.place].name}`);
+      if (this.meetings.has(key) || n.convo || o.convo) continue;
+      // A proper conversation (anyone nearby can join in).
+      this.meetings.set(key, true);
+      this.game.agents.start([n.id, o.id], null, `meeting up at ${PLACES[st.place].name} as planned`, true);
     }
   }
 
@@ -179,7 +171,7 @@ export class Life {
     const fallback = BANTER[pair] || [[a.id, `Evening, ${b.def.name}.`], [b.id, `Evening, ${a.def.name}. Nice night for it.`]];
     if (!this.game.ai) return fallback;
     const msgs = [
-      { role: 'system', content: `Write a short, funny exchange between two villagers in a cozy farming village, meeting at ${PLACES[st.place].name}.\n${a.def.name}: ${a.def.bio} Humour: ${a.def.humor}. On their mind today: ${a.thought}\n${b.def.name}: ${b.def.bio} Humour: ${b.def.humor}. On their mind today: ${b.thought}\nVillage news they might bring up:\n- ${this.game.gossip.slice(-4).join('\n- ') || 'nothing much'}\nWrite 4 to 6 alternating lines, each under 100 characters, in their own voices, kind and silly (it's a family game). Respond with JSON: {"lines": [{"who": "${a.id}" or "${b.id}", "text": "..."}]}` },
+      { role: 'system', content: `Write a short, funny exchange between two villagers in a cozy farming village, meeting at ${PLACES[st.place].name}.\n${a.def.name}: ${a.def.bio} Humour: ${a.def.humor}. How they talk: ${voiceOf(a.id).diction} On their mind today: ${a.thought}\n${b.def.name}: ${b.def.bio} Humour: ${b.def.humor}. How they talk: ${voiceOf(b.id).diction} On their mind today: ${b.thought}\nVillage news they might bring up:\n- ${this.game.gossip.slice(-4).join('\n- ') || 'nothing much'}\nWrite 4 to 6 alternating lines, each under 100 characters, in their own voices, kind and silly (it's a family game). Respond with JSON: {"lines": [{"who": "${a.id}" or "${b.id}", "text": "..."}]}` },
       { role: 'user', content: 'Go.' },
     ];
     const res = await this.game.ai(msgs, BANTER_SCHEMA, (out) => {

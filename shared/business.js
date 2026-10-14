@@ -54,5 +54,5 @@ export function priceAppeal(price, value) {
 export function shopOpen(biz, hours, cashierHere) {
   if (!biz || biz.closed) return false;
   if (cashierHere) return true;
-  return !!biz.staff && hours >= OPEN_HOURS[0] && hours < OPEN_HOURS[1];
+  return (!!biz.staff || !!biz.npc) && hours >= OPEN_HOURS[0] && hours < OPEN_HOURS[1];
 }

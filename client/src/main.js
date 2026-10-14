@@ -41,6 +41,7 @@ import { createAudio } from './audio.js';
 import { FOUNTAIN } from '@shared/world.js';
 import { applyNature, wildKind, treeStage, fruitReady, HITS, TOOL_FOR, weatherAt } from '@shared/nature.js';
 import { drawLook, personSprite } from './people.js';
+import { makeGroupUI } from './groupui.js';
 import { sanitizeLook, randomLook, PETS } from '@shared/look.js';
 import { httpBase, signInGuest, signIn, signUp, getSession, signOut } from './auth.js';
 
@@ -199,6 +200,7 @@ function onMessage(m) {
       view.refreshTerrain();
       view.refreshNature();
       S.weather = m.weather || null;
+      group.setConvos(m.convos);
       S.city = m.city;
       S.drops = new Map((m.drops || []).map((d) => [d.id, d]));
       S.util = m.util || {}; S.hand = m.hand || null; S.market = m.market || null; S.ride = null;
@@ -287,6 +289,7 @@ function onMessage(m) {
       break;
     }
     case 'npc': openTalk(m); break;
+    case 'convo': case 'convoEnd': case 'convoLine': case 'convoJoined': case 'npcOffer': case 'npcApproach': group.onMessage(m); break;
     case 'npcSay': npcSaid(m); break;
     case 'epoch':
       // The village slept through the night: fade to black and back to morning.
@@ -722,6 +725,7 @@ $('chatinput').addEventListener('keydown', (e) => {
 // ---------- NPC conversations & shops ----------
 function openTalk(v) {
   closeModal();
+  group.close();
   setMode('walk');
   const def = NPCS[v.npc];
   if (!S.talk || S.talk.npc !== v.npc) {
@@ -825,6 +829,11 @@ function closeTalk() {
   $('npc-input').blur();
 }
 $('npc-close').onclick = closeTalk;
+// Group conversations among villagers (and the offers they walk up with).
+const group = makeGroupUI({
+  S, send,
+  where: (c) => { const a = publicAreaAt(Math.floor(c.x / TILE), Math.floor(c.y / TILE)); if (a) return a.name; const pid = plotIdAtPixel(world, c.x, c.y), p = pid >= 0 ? S.plots[pid] : null; return p?.biz?.name || p?.name || ''; },
+});
 
 // Header status: friendship hearts (each 20 points, filling part-way), how close you
 // are, their mood and where they are.
@@ -865,7 +874,8 @@ function renderAbout() {
   if (!t.about) return;
   const v = t.view;
   box.innerHTML = `<b>PERSONALITY</b><div class="nc-chips">${v.personality.map((w) => `<span class="nc-chip">${esc(w)}</span>`).join('')}</div>
-    <b>LOVES</b><div class="nc-chips">${v.likes ? v.likes.map((w) => `<span class="nc-chip love">${esc(w)}</span>`).join('') : 'Become good friends to find out.'}</div>`;
+    <b>LOVES</b><div class="nc-chips">${v.likes ? v.likes.map((w) => `<span class="nc-chip love">${esc(w)}</span>`).join('') : 'Become good friends to find out.'}</div>
+    ${v.ventures?.length ? `<b>BUSINESS</b>${v.ventures.map((x) => `<div class="nc-venture">${x.icon} <span><b>${esc(x.name)}</b><br><small>${esc(x.label)}${x.with.length ? ` with ${esc(x.with.join(' & '))}` : ''} · ${x.plotId == null ? 'looking for land' : x.built ? 'open 8 AM – 8 PM' : 'being built'}</small></span></div>`).join('')}` : ''}`;
 }
 
 function renderLog() {
@@ -3292,6 +3302,7 @@ function update(dt) {
   tractorWork();
   runQueue(performance.now());
   freeWill(performance.now());
+  group.frame(performance.now());
   if (S.queue.length) tickQueue(performance.now());
   checkViewKey();
   // Steering: the stick / keys, or a tap-to-walk path.
@@ -3562,7 +3573,7 @@ const freeFailed = {};
 function freeWill(now) {
   if (now - freeWillAt < 2000 || !freeWillOn() || !S.needs) return;
   freeWillAt = now;
-  if (S.queue.length || S.act || S.walk || S.mode !== 'walk' || S.talk || S.ride || bag?.isOpen() || modalKind || cityOpen() || now - lastInput < 8000) return;
+  if (S.queue.length || S.act || S.walk || S.mode !== 'walk' || S.talk || S.ride || group.isOpen() || bag?.isOpen() || modalKind || cityOpen() || now - lastInput < 8000) return;
   const h = worldClock(serverNow(), S.epoch).hours, night = h >= 22 || h < 5;
   let best = null;
   for (const [id, at0] of Object.entries(FREE_AT)) {
@@ -4546,8 +4557,8 @@ function frame(now) {
   if (S.me) {
     update(dt);
     render(now);
-    hudAcc += dt;
-    if (hudAcc > 0.25) { hudAcc = 0; updateContext(); }
+    // (real time, not the capped frame step, so a slow device still sees the clock)
+    if (now - hudAcc > 250) { hudAcc = now; updateContext(); }
   } else {
     // Behind the join screen: a slow drift over the village.
     view.setTarget(42 + Math.sin(now / 9000) * 14, 30 + Math.cos(now / 11000) * 10);

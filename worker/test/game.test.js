@@ -306,6 +306,7 @@ test('villagers live their day: walk to planned places, sit, sleep indoors, meet
       const act = NPC_ACTS[n.act];
       if (!n.act) continue;
       (seen[n.id] ||= new Set()).add(n.act);
+      if (n.agenda || n.convo) continue; // off doing their own thing (agents.js)
       // Arrived somewhere: standing on walkable ground, on their bench, or indoors.
       const place = PLACES[n.step.place];
       if (act?.pose === 'sit' && place.seat) assert.deepEqual([n.x, n.y], [place.seat[0] * TILE, place.seat[1] * TILE], `${n.id} on the bench`);
@@ -1899,4 +1900,129 @@ test('a slower clock keeps the date: the epoch is rescaled so today stays today'
   const game = new Game({ meta: { version: 6, epoch: oldEpoch, nextPlotId: 16 } }, { now: () => now });
   assert.notEqual(STEP_MS, 6000);
   assert.equal(worldClock(now, game.epoch).day, 31, 'still day 31');
+});
+
+
+test('villager agents: partner up, buy a lot, build a shop in stages and sell to players', async () => {
+  const { HOUR_MS } = await import('../../shared/needs.js');
+  const { worldClock } = await import('../../shared/world.js');
+  const { game, join, advance } = setup();
+  const a = await join({ name: 'Ana' });
+  const lila = game.npcs.lila, rosa = game.npcs.rosa;
+  lila.s.wallet = rosa.s.wallet = 3000;
+  const v = game.agents.found(lila, ['lila', 'rosa'], 'bakery');
+  assert.equal(v.name, 'Lila & Rosa’s Bakery');
+  assert.ok(lila.s.wallet < 3000 && rosa.s.wallet < 3000, 'both put money in');
+  const lot = game.agents.chooseLot(lila, 'bakery');
+  assert.ok(lot && !lot.owner);
+  game.agents.buyLot(lila, v, lot);
+  assert.equal(lot.owner, 'npc:lila');
+  assert.equal(lot.ownerName, 'Lila & Rosa');
+  // A stage at a time: walls and door, then roof and fittings, then the finishing touches.
+  game.agents.finishStage(lila, v, 0);
+  assert.ok(Object.keys(lot.walls).length > 20 && !lot.roofs.length);
+  assert.ok(Object.values(lot.walls).some((w) => w.f === 'door_shop'));
+  game.agents.finishStage(rosa, v, 1);
+  assert.equal(lot.roofs.length, 1);
+  game.agents.finishStage(lila, v, 2);
+  assert.ok(lot.biz?.npc, 'open for business');
+  const shelf = Object.entries(lot.obj).find(([, o]) => o.stock?.length);
+  assert.ok(shelf, 'stocked shelves');
+  // A player buys a loaf off the shelf during opening hours; the owners share the takings.
+  const h = worldClock(game.now(), game.epoch).hours;
+  game.epoch -= ((11 - h + 24) % 24) * HOUR_MS;
+  const [k, o] = shelf;
+  const [lx, ly] = k.split(',').map(Number);
+  const s = a.session();
+  s.x = (lot.x + lx + 0.5) * TILE; s.y = (lot.y + ly + 1.5) * TILE;
+  const coins = s.profile.coins, wallets = lila.s.wallet + rosa.s.wallet, item = o.stock[0].item, price = o.stock[0].price;
+  await a.send({ type: 'buyStock', plotId: lot.id, lx, ly, slot: 0, n: 1 });
+  assert.equal(s.profile.coins, coins - price);
+  assert.ok(s.profile.inv[item] >= 1);
+  assert.ok(lila.s.wallet + rosa.s.wallet >= wallets + price - 1);
+  // It all survives a restart.
+  const saved = Game.fromEntries(Object.entries(game.takeDirty()));
+  const again = new Game(saved);
+  assert.equal(again.plots[lot.id].venture, v.id);
+  assert.equal(again.agents.s.ventures[v.id].stage, 2);
+  advance(1);
+});
+
+test('villager agents: group conversations players can join, offers, and rearranging home', async () => {
+  const ai = async (msgs, schema, parse) => {
+    const sys = msgs[0].content;
+    if (schema?.properties?.lines && schema.properties.outcome) {
+      const ids = [...sys.matchAll(/^- (\w+) \(/gm)].map((m) => m[1]);
+      const pitch = /PURPOSE: (\w+) is pitching/.test(sys);
+      const player = /JUST NOW:[\s\S]*Ana: /.test(sys);
+      return parse({ lines: [{ who: ids[1], text: player ? 'Oh hi Ana!' : 'Lovely day.' }, { who: ids[0], text: 'Reckon so.' }], outcome: pitch ? 'yes' : 'none', name: 'The Honey Pot', sentiment: player ? 1 : 0 });
+    }
+    if (schema?.properties?.text) return parse({ text: 'Fresh catch, friend!' });
+    return null;
+  };
+  const { game, join, advance } = setup({ ai });
+  const a = await join({ name: 'Ana' });
+  const s = a.session();
+  const hazel = game.npcs.hazel, gus = game.npcs.gus;
+  gus.x = hazel.x + TILE; gus.y = hazel.y;
+  const c = game.agents.start(['hazel', 'gus'], null, '', true);
+  assert.ok(c);
+  assert.ok(a.inbox.some((m) => m.type === 'convo' && m.convo.id === c.id), 'everyone hears about it');
+  s.x = hazel.x; s.y = hazel.y + TILE * 2;
+  // Clicking one of them joins the group.
+  await a.send({ type: 'npcOpen', npc: 'hazel' });
+  assert.ok(a.last('convoJoined'));
+  await a.send({ type: 'convoSay', id: c.id, text: 'Hello you two!' });
+  for (let i = 0; i < 80; i++) { advance(250); game.tick(); await new Promise((r) => setTimeout(r, 0)); }
+  const lines = a.inbox.filter((m) => m.type === 'convoLine' && m.id === c.id).map((m) => m.line.text);
+  assert.ok(lines.includes('Hello you two!'));
+  assert.ok(lines.includes('Oh hi Ana!'), `they answered: ${lines}`);
+  assert.ok(hazel.affinity(s.profile) > 0, 'they liked the company');
+  // A pitch between friends ends in a partnership.
+  const fern = game.npcs.fern, lila = game.npcs.lila;
+  fern.x = lila.x + TILE; fern.y = lila.y;
+  fern.s.wallet = lila.s.wallet = 2000;
+  const p = game.agents.start(['fern', 'lila'], { kind: 'pitch', from: 'fern', to: 'lila', venture: 'apiary' });
+  for (let i = 0; i < 200 && game.agents.convos.has(p.id); i++) { advance(250); game.tick(); await new Promise((r) => setTimeout(r, 0)); }
+  const v = game.agents.ventureOf('fern');
+  assert.ok(v && v.owners.includes('lila'), 'they went into business');
+  assert.equal(v.name, 'The Honey Pot');
+  // A villager walks up with an offer; you take it.
+  hazel.x = s.x + TILE; hazel.y = s.y;
+  for (let i = 0; i < 12 && !a.last('npcOffer'); i++) await game.agents.approach(hazel, s.profile.id);
+  assert.ok(a.last('npcApproach') || a.last('npcOffer'));
+  const offer = a.last('npcOffer');
+  assert.ok(offer, 'an offer');
+  assert.equal(offer.text, 'Fresh catch, friend!');
+  const coins = s.profile.coins;
+  s.profile.coins = Math.max(coins, offer.price);
+  await a.send({ type: 'offerAccept', id: offer.id });
+  assert.ok(s.profile.inv[offer.item] >= 1);
+  // Rearranging home: something moves or something new appears, and it's kept.
+  const home = Object.values(game.plots).find((pl) => pl.home === 'hazel');
+  const before = JSON.stringify(home.obj);
+  hazel.s.wallet = 500;
+  for (let i = 0; i < 10 && JSON.stringify(home.obj) === before; i++) game.agents.rearrange(hazel, home, null);
+  assert.notEqual(JSON.stringify(home.obj), before);
+  const again = new Game(Game.fromEntries(Object.entries(game.takeDirty())));
+  assert.equal(JSON.stringify(Object.values(again.plots).find((pl) => pl.home === 'hazel').obj), JSON.stringify(home.obj));
+});
+
+test('villager agents live freely: over a day they visit, chat, shop and chase their dreams', async () => {
+  let clock = 0;
+  const game = new Game({}, { now: () => clock });
+  game.sessions.set('x', { profile: { id: 'x', uid: 'x', name: 'X', coins: 0, inv: {} }, x: 60 * TILE, y: 50 * TILE, greeted: {}, quiet: -1e9, sendRaw() {}, send() {} });
+  for (const n of Object.values(game.npcs)) n.s.wallet = 2500;
+  const { DAY_MS } = await import('../../shared/world.js');
+  const kinds = new Set();
+  let convos = 0;
+  for (let i = 0; i < DAY_MS / 100; i++) {
+    clock += 100; game.tick();
+    for (const n of Object.values(game.npcs)) if (n.agenda) kinds.add(n.agenda.kind);
+    convos = Math.max(convos, game.agents.convos.size);
+    if (i % 50 === 0) await new Promise((r) => setTimeout(r, 0));
+  }
+  assert.ok(kinds.size >= 4, `did all sorts: ${[...kinds]}`);
+  assert.ok(convos >= 1, 'got talking');
+  assert.ok(Object.keys(game.agents.s.ventures).length >= 1, 'somebody started a venture');
 });

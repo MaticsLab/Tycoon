@@ -14,6 +14,7 @@ import { GOODS, ITEMS, itemName } from '../../shared/catalog.js';
 import { canStand } from '../../shared/plot.js';
 import { worldClock, TILE } from '../../shared/world.js';
 import { PLACES, NPC_ACTS, stepAt, findPath, toneGuide } from '../../shared/village.js';
+import { voiceOf } from '../../shared/agents.js';
 
 const MOOD_HALF_LIFE = 10 * 60 * 1000;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -67,10 +68,26 @@ export class Npc {
   get asleep() { return this.act === 'sleep'; }
   // What they're up to, in words (for prompts and the talk panel).
   doing() {
+    if (this.agenda) return this.agenda.verb || 'busy';
     if (!this.step) return '';
     const place = PLACES[this.step.place]?.name || 'the village';
     if (!this.act) return `on your way to ${place}`;
     return `${NPC_ACTS[this.act]?.verb || 'busy'} at ${place}`;
+  }
+
+  // Their own plans (see agents.js) take over from the routine for a while.
+  setAgenda(a, world, plots) {
+    this.agenda = a;
+    a.arrived = 0;
+    this.act = null;
+    this.target = null;
+    this.path = findPath(world, plots, this.x, this.y, a.x, a.y) || [[a.x, a.y]];
+  }
+  clearAgenda() {
+    const a = this.agenda;
+    this.agenda = null;
+    this.step = null; this.path = null; this.act = null;
+    try { a?.onEnd?.(); } catch (e) { console.error('agenda end', e); }
   }
 
   mood(now) {
@@ -202,6 +219,9 @@ export class Npc {
       `You are talking with ${profile.name}. Relationship: ${friendshipLabel(r.affinity)} (affinity ${Math.round(r.affinity)} from -100 to 100, ${r.talks} past conversations).`,
       `About ${profile.name}: ${ctx.playerFacts}`,
     ];
+    const voice = voiceOf(this.id);
+    lines.push(`How you talk (always, in every line): ${voice.diction} Phrases you really use: ${voice.quirks.map((q) => `“${q}”`).join(' ')}`);
+    if (ctx.agent) lines.push(ctx.agent);
     if (this.def.humor) lines.push(`Your sense of humour: ${this.def.humor} Be genuinely funny in your own way — a quip, a callback or a ridiculous detail — but keep it kind, and don't force a joke into every line.`);
     const guide = toneGuide(r.tone);
     if (guide) lines.push(`${guide.replace('they talk', `${profile.name} talks`)} Mirror their style and energy while staying recognisably you.`);
@@ -262,6 +282,17 @@ export class Npc {
   tick(dt, now, world, plots, hours) {
     if (this.talkingTo && now < this.talkUntil) { this.moving = false; return; }
     this.talkingTo = null;
+    if (this.agenda) {
+      const a = this.agenda;
+      if (now > a.until) this.clearAgenda();
+      else {
+        if (this.path?.length) return this.walk(dt, world, plots);
+        this.moving = false;
+        if (!a.arrived) { a.arrived = now; this.act = a.act || null; }
+        if (a.still) return;
+        return this.wanderAround(now, world, plots, { x: a.x, y: a.y }, (a.range ?? 0.8) * TILE);
+      }
+    }
     const step = this.plan ? stepAt(this.plan, hours) : null;
     if (step && step !== this.step) this.goTo(step, world, plots);
     if (this.path?.length) return this.walk(dt, world, plots);

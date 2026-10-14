@@ -171,6 +171,7 @@ export class Business {
     const r = this.reach(s, msg, false);
     if (!r) return;
     const { plot, hit } = r;
+    if (plot.venture) return this.game.agents.shelfBuy(s, plot, hit, msg); // a villager's shop
     const owner = this.ownerProfile(plot);
     if (!owner?.biz || owner.biz.plotId !== plot.id) return;
     if (owner.id === s.profile.id) return s.send({ type: 'error', msg: 'That’s your own stock' });

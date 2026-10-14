@@ -894,3 +894,51 @@ body.building #hotbar { display: none; }
 @media (max-width: 620px) { .st-thought p { display: none; } .st-whim span { font-size: 11px; } }
 .st-task.auto svg circle.prog { stroke: #4f8fd6; }
 .st-task.auto { border-color: #2f5e9e; }
+
+/* Group conversations (villagers chatting; join in) */
+#grouppanel { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(24px + var(--sab)); width: min(640px, calc(100vw - 16px)); max-height: calc(100dvh - 32px); z-index: 20; display: flex; flex-direction: column; background: #fbf3dc; border: 4px solid #6b4a2b; border-radius: 22px; box-shadow: 0 6px 0 #4a3220, 0 24px 60px rgba(0,0,0,.45); overflow: hidden; color: #3a2a1a; }
+#grouppanel[hidden] { display: none; }
+#grouppanel button, #grouppanel input { font: inherit; }
+#grouppanel > * + * { border-top: 2px solid #e6d3a8; }
+.gp-faces { display: flex; flex: none; }
+.gp-faces canvas { width: 48px; height: 48px; border-radius: 50%; background: #f3e0b5; box-shadow: 0 0 0 3px #fbf3dc, inset 0 0 0 2px #c9a46a; image-rendering: pixelated; }
+.gp-faces canvas + canvas { margin-left: -14px; }
+#gp-title { font-size: 20px; font-weight: bold; }
+#gp-where { margin-left: 8px; font-size: 13px; color: #8f6a45; font-weight: bold; }
+#gp-log .line b { display: block; font-size: 12px; letter-spacing: .03em; margin-bottom: 2px; }
+#gp-log .line.me b { text-align: right; color: #2f6b22; }
+#gp-log .line.other { align-self: flex-start; background: #eef3fb; border: 2px solid #c9d8ee; border-radius: 4px 16px 16px 16px; }
+#gp-form { display: flex; gap: 8px; }
+#gp-input { flex: 1; min-width: 0; height: 46px; padding: 0 16px; border: 2px solid #c9a46a; border-radius: 23px; background: #fffdf6; color: #3a2a1a; font-size: 16px; }
+#gp-say { height: 46px; padding: 0 20px; border: 0; border-radius: 23px; background: #4f9e3a; color: #fff; font-weight: bold; box-shadow: 0 3px 0 #2f6b22; cursor: pointer; }
+#convochip { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(160px + var(--sab)); z-index: 16; display: flex; align-items: center; gap: 8px; padding: 8px 16px 8px 8px; border: 3px solid #6b4a2b; border-radius: 24px; background: #fbf3dc; color: #3a2a1a; font: inherit; font-size: 15px; font-weight: bold; box-shadow: 0 4px 0 #4a3220; cursor: pointer; white-space: nowrap; max-width: calc(100vw - 24px); }
+#convochip[hidden] { display: none; }
+#convochip:hover { background: #ffe9a8; }
+#convochip .gp-faces canvas { width: 30px; height: 30px; }
+#convochip .gp-faces canvas + canvas { margin-left: -10px; }
+#convochip span { overflow: hidden; text-overflow: ellipsis; }
+/* A villager walks up with an offer (or just to chat) */
+#offercard { position: fixed; right: 16px; bottom: calc(110px + var(--sab)); z-index: 18; width: min(340px, calc(100vw - 32px)); display: flex; gap: 12px; padding: 14px; background: #fbf3dc; border: 4px solid #6b4a2b; border-radius: 18px; box-shadow: 0 5px 0 #4a3220, 0 16px 40px rgba(0,0,0,.35); color: #3a2a1a; animation: of-in .25s ease-out; }
+#offercard[hidden] { display: none; }
+@keyframes of-in { from { transform: translateY(16px); } }
+#of-portrait { width: 56px; height: 56px; flex: none; border-radius: 50%; background: #f3e0b5; box-shadow: inset 0 0 0 2px #c9a46a; image-rendering: pixelated; }
+.of-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+#of-name { font-size: 16px; }
+#of-text { margin: 0; font-size: 14px; line-height: 1.35; color: #6b4a2b; }
+#of-item { display: flex; align-items: center; gap: 8px; font-weight: bold; font-size: 14px; }
+#of-item:empty { display: none; }
+#of-item canvas { width: 28px; height: 28px; }
+.of-row { display: flex; gap: 8px; margin-top: 2px; }
+.of-row button { flex: 1; height: 38px; border-radius: 19px; font: inherit; font-weight: bold; font-size: 14px; cursor: pointer; }
+#of-yes { border: 0; background: #4f9e3a; color: #fff; box-shadow: 0 3px 0 #2f6b22; }
+#of-yes:disabled { background: #efe2c2; color: #a89270; box-shadow: none; cursor: not-allowed; }
+#of-no { border: 2px solid #a8703f; background: #fffaf0; color: #6b4a2b; }
+.nc-venture { display: flex; align-items: center; gap: 8px; padding: 8px 10px; margin-top: 6px; background: #fffaf0; border: 2px solid #e6d3a8; border-radius: 12px; font-size: 14px; }
+.nc-venture small { color: #8f6a45; }
+@media (max-width: 620px) {
+  #grouppanel { bottom: calc(8px + var(--sab)); border-radius: 18px; }
+  #gp-log { height: auto; min-height: 120px; max-height: 32dvh; }
+  .gp-faces canvas { width: 38px; height: 38px; }
+  #offercard { right: 8px; left: 8px; width: auto; bottom: calc(150px + var(--sab)); }
+}
+.of-ic { font-size: 24px; line-height: 1; }

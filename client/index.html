@@ -215,6 +215,34 @@
       </div>
     </div>
 
+    <div id="grouppanel" hidden role="dialog" aria-labelledby="gp-title">
+      <div class="nc-head">
+        <div id="gp-faces" class="gp-faces"></div>
+        <div class="nc-who">
+          <div class="nc-nameline"><span id="gp-title">Group chat</span><span id="gp-where"></span></div>
+          <div id="gp-sub" class="nc-status"></div>
+        </div>
+        <button id="gp-close" class="nc-round nc-x" type="button" aria-label="Leave the conversation"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div id="gp-log" class="nc-log" aria-live="polite"></div>
+      <div class="nc-input">
+        <form id="gp-form">
+          <input id="gp-input" maxlength="160" autocomplete="off" placeholder="Join in…" />
+          <button id="gp-say">Say</button>
+        </form>
+      </div>
+    </div>
+    <button id="convochip" type="button" hidden></button>
+    <div id="offercard" hidden role="dialog" aria-labelledby="of-name">
+      <canvas id="of-portrait" width="64" height="64"></canvas>
+      <div class="of-body">
+        <b id="of-name"></b>
+        <p id="of-text"></p>
+        <div id="of-item"></div>
+        <div class="of-row"><button id="of-yes" type="button"></button><button id="of-no" type="button"></button></div>
+      </div>
+    </div>
+
     <div id="modal" class="sheet" hidden>
       <div class="sheet-head">
         <div id="modal-title"></div>
