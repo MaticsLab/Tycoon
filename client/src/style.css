@@ -878,3 +878,19 @@ body.walldrag, body.walldrag .wlh { cursor: grabbing; }
 #hotbar .bw-slot .ic canvas { width: 30px; height: 30px; }
 body.building #hotbar { display: none; }
 @media (max-width: 620px) { #hotbar { --slot: min(36px, calc((100vw - 60px) / 9)); gap: 2px; padding: 4px; } #hotbar .bw-slot .ic { font-size: 20px; } #hotbar .bw-slot .ic canvas { width: 22px; height: 22px; } #hotbar .bw-slot b { font-size: 10px; } }
+.st-moodlets { display: flex; flex-wrap: wrap; gap: 3px; padding: 0 10px 6px; }
+.st-moodlets:empty { display: none; }
+.st-ml { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font-size: 14px; cursor: default; }
+.st-ml.good { background: #e3f4d6; box-shadow: inset 0 0 0 2px #9fcf86; }
+.st-ml.bad { background: #fbe2dc; box-shadow: inset 0 0 0 2px #e9a0a0; }
+.st-thought { border-top: 2px solid #e6d3a8; padding: 7px 10px 8px; display: flex; flex-direction: column; gap: 6px; background: #fffaf0; }
+.st-thought[hidden] { display: none; }
+.st-thought p { margin: 0; font-size: 12px; line-height: 1.35; color: #6b4a2b; font-style: italic; }
+.st-whim { display: flex; align-items: center; gap: 4px; }
+.st-whim span { flex: 1; font-size: 12px; font-weight: bold; color: #3a2a1a; line-height: 1.25; }
+.st-whim small { color: #8f5512; font-weight: bold; white-space: nowrap; }
+.st-whim button { height: 24px; border-radius: 12px; border: 0; background: #a8703f; color: #fff; font: inherit; font-size: 11px; font-weight: bold; padding: 0 9px; cursor: pointer; box-shadow: 0 2px 0 #7a4f2a; }
+.st-whim button[data-w="x"] { background: #f3e6c4; color: #6b4a2b; box-shadow: none; padding: 0 7px; }
+@media (max-width: 620px) { .st-thought p { display: none; } .st-whim span { font-size: 11px; } }
+.st-task.auto svg circle.prog { stroke: #4f8fd6; }
+.st-task.auto { border-color: #2f5e9e; }

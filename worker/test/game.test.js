@@ -295,9 +295,10 @@ test('villagers live their day: walk to planned places, sit, sleep indoors, meet
   const game = new Game({}, { now: () => clock });
   const bubbles = [];
   game.sessions.set('x', { profile: { id: 'x', uid: 'x', name: 'X' }, x: 0, y: 0, greeted: {}, quiet: -1e9, sendRaw(d) { const m = JSON.parse(d); if (m.type === 'npcBubble') bubbles.push(m); }, send() {} });
-  // Run two whole village days (24 in-game hours = 864 s each) in 100 ms ticks.
+  // Run two whole village days in 100 ms ticks.
+  const { DAY_MS } = await import('../../shared/world.js');
   const seen = {};
-  for (let i = 0; i < 17280; i++) {
+  for (let i = 0; i < (2 * DAY_MS) / 100; i++) {
     clock += 100; game.tick();
     if (i % 50) continue;
     await new Promise((r) => setTimeout(r, 0)); // let banter (async) arrive
@@ -913,11 +914,14 @@ test('needs: run down over time; fridge, toilet, shower, bed and TV fill them; e
     assert.equal(plot.obj[`${lx},${ly}`]?.t, item, item);
   }
   const s = a.session();
-  const run = (secs) => { for (let i = 0; i < secs; i++) { advance(1000); game.tick(); } };
+  // run(n): n "hour-seconds" (an in-game hour is 36 of them, whatever the clock speed).
+  const { HOUR_MS: HOUR, decayFor } = await import('../../shared/needs.js');
+  const run = (secs) => { for (let i = 0; i < Math.round((secs * HOUR) / 36000); i++) { advance(1000); game.tick(); } };
   // Needs decay while online.
   const h0 = s.profile.needs.hunger;
+  const mul = decayFor(game.mood.score(s, game.now())); // happy people's needs drop more slowly
   run(36); // one in-game hour
-  assert.ok(Math.abs(h0 - s.profile.needs.hunger - 3.5) < 0.2, `hunger fell ${h0 - s.profile.needs.hunger}`);
+  assert.ok(Math.abs(h0 - s.profile.needs.hunger - 3.5 * mul) < 0.25, `hunger fell ${h0 - s.profile.needs.hunger}`);
   // Too far away to use the toilet.
   stand(game, a, 0, 14, 10);
   a.send({ type: 'use', plotId: 0, lx: 6, ly: 2, act: 'toilet' });
@@ -1859,4 +1863,40 @@ test('v6 migration: saved tile indices move to the wider map and new lots avoid 
   assert.ok(game.nature.s.cut[30 * MAP_W + 40]);
   const lots = Object.values(game.plots).filter((p) => !p.town && p.id >= 16);
   assert.equal(lots.length, game.world.lots.length);
+});
+
+test('mood: moodlets from nice things, a whim to follow, and mood changes how fast needs drop', async () => {
+  const { game, join, advance } = setup();
+  const a = await join({ name: 'Ana' });
+  const s = a.session();
+  game.tick(); advance(3500); game.tick();
+  const m0 = a.last('needs').mood;
+  assert.ok(m0.thought, 'a thought (scripted without the AI)');
+  assert.ok(m0.whim?.text && m0.whim.reward > 0, 'and a whim');
+  // A lovely view: Seashell Beach.
+  s.x = 186.5 * TILE; s.y = 152.5 * TILE;
+  advance(3500); game.tick();
+  assert.ok(game.mood.ids(s).includes('scenic'), 'what a view');
+  // Follow a whim to go somewhere.
+  s.profile.whim = { kind: 'visit', area: 'Eagle Lookout', text: 'Go to Eagle Lookout', reward: 30 };
+  const c0 = s.profile.coins;
+  s.x = 236.5 * TILE; s.y = 38.5 * TILE;
+  advance(3500); game.tick();
+  assert.equal(s.profile.coins, c0 + 30, 'whim rewarded');
+  assert.ok(game.mood.ids(s).includes('whim'));
+  // An empty need is a bad moodlet, and misery makes needs drop faster.
+  s.profile.needs.fun = 5;
+  assert.ok(game.mood.ids(s).includes('bored'));
+  Object.assign(s.profile.needs, { hunger: 5, energy: 5, bladder: 5, hygiene: 5 });
+  s.profile.moodlets = {};
+  assert.ok(game.mood.decay(s, game.now()) > 1);
+});
+
+test('a slower clock keeps the date: the epoch is rescaled so today stays today', async () => {
+  const { STEP_MS, worldClock } = await import('../../shared/world.js');
+  const now = 50_000_000_000;
+  const oldEpoch = now - 30 * 144 * 6000; // 30 days in at the old speed
+  const game = new Game({ meta: { version: 6, epoch: oldEpoch, nextPlotId: 16 } }, { now: () => now });
+  assert.notEqual(STEP_MS, 6000);
+  assert.equal(worldClock(now, game.epoch).day, 31, 'still day 31');
 });

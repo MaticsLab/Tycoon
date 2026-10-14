@@ -91,13 +91,13 @@ export const FOODS = {
 
 // Run needs forward by `hours` of in-game time while doing activity `act` (or nothing).
 // Returns { needs, low: [need ids that just dropped under 15], faint: health hit 0 }.
-export function advanceNeeds(needs, hours, act = null) {
+export function advanceNeeds(needs, hours, act = null, decayMul = 1) {
   const n = { ...needs };
   const a = act && ACTIVITIES[act];
   const before = { ...n };
   for (const need of NEEDS) {
     const g = a?.gain?.[need.id];
-    n[need.id] += g ? g * hours : -need.decay * hours;
+    n[need.id] += g ? g * hours : -need.decay * decayMul * hours;
   }
   // Health: down while needs are empty, slowly back up while they're all okay.
   const empty = NEEDS.filter((need) => n[need.id] <= 5).length;
@@ -108,6 +108,46 @@ export function advanceNeeds(needs, hours, act = null) {
   const low = NEEDS.filter((need) => before[need.id] >= 15 && n[need.id] < 15).map((need) => need.id);
   return { needs: n, low, faint: n.health <= 0, weak: before.health >= 25 && n.health < 25 };
 }
+
+// ---------- moodlets ----------
+// Feelings that come and go (like The Sims): good ones from doing nice things, bad ones
+// while a need is empty. hours: how long they last (in-game). They add up with your
+// needs into your mood, and your mood changes how fast needs run down.
+export const MOODLETS = {
+  rested:    { icon: '😴', label: 'Well rested', mood: 15, hours: 8 },
+  wellfed:   { icon: '😋', label: 'Good meal', mood: 10, hours: 5 },
+  fresh:     { icon: '🫧', label: 'Squeaky clean', mood: 8, hours: 5 },
+  delighted: { icon: '🎉', label: 'Had a blast', mood: 12, hours: 4 },
+  social:    { icon: '💬', label: 'Good chat', mood: 8, hours: 3 },
+  scenic:    { icon: '🌄', label: 'What a view', mood: 10, hours: 4 },
+  cozy:      { icon: '🔥', label: 'Cozy by the fire', mood: 8, hours: 3 },
+  whim:      { icon: '✨', label: 'Followed a whim', mood: 12, hours: 6 },
+  generous:  { icon: '🎁', label: 'Gave a gift', mood: 6, hours: 4 },
+  fainted:   { icon: '🤕', label: 'Passed out', mood: -15, hours: 8 },
+  // While a need stays empty:
+  starving:  { icon: '🍽️', label: 'Starving', mood: -15, need: 'hunger' },
+  exhausted: { icon: '🥱', label: 'Exhausted', mood: -15, need: 'energy' },
+  desperate: { icon: '🚽', label: 'Need the loo!', mood: -15, need: 'bladder' },
+  stinky:    { icon: '🦨', label: 'Stinky', mood: -10, need: 'hygiene' },
+  bored:     { icon: '😑', label: 'Bored stiff', mood: -10, need: 'fun' },
+};
+// The moodlets someone has right now: [id, ...]. timed: { id: until (ms) }.
+export function activeMoodlets(needs, timed = {}, now = Date.now()) {
+  const out = Object.keys(timed).filter((k) => MOODLETS[k] && timed[k] > now);
+  for (const [k, m] of Object.entries(MOODLETS)) if (m.need && needs[m.need] < 15) out.push(k);
+  return out;
+}
+// Mood 0..100: the lowest need (health aside) and the average, plus moodlets.
+export function moodScore(needs, ids = []) {
+  const vals = NEEDS.map((n) => needs[n.id]);
+  const avg = vals.reduce((a, b) => a + b, 0) / vals.length, low = Math.min(...vals);
+  const base = low * 0.6 + avg * 0.4 - (needs.health < 40 ? 15 : 0);
+  return Math.max(0, Math.min(100, Math.round(base + ids.reduce((a, k) => a + (MOODLETS[k]?.mood || 0), 0))));
+}
+export const MOOD_LEVELS = [[80, 'Very happy'], [65, 'Happy'], [40, 'Fine'], [20, 'Uncomfortable'], [-1, 'Miserable']];
+export const moodLevel = (score) => MOOD_LEVELS.find(([at]) => score >= at)[1];
+// Happy people's needs run down more slowly; miserable ones' faster.
+export const decayFor = (score) => (score >= 80 ? 0.8 : score >= 65 ? 0.9 : score < 20 ? 1.2 : 1);
 
 // Overall mood (-1..1) from the needs, for the plumbob colour.
 export function mood(needs) {

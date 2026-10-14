@@ -1,4 +1,4 @@
-import { generateWorld, applyRoads, worldClock, publicAreaAt, plotIdAtPixel, TILE, PLAYER_SPEED, RUN_MULT, WORLD_VERSION, STARTER_PLOTS, MAP_W, CIVIC, T } from '../../shared/world.js';
+import { generateWorld, applyRoads, worldClock, publicAreaAt, plotIdAtPixel, TILE, PLAYER_SPEED, RUN_MULT, WORLD_VERSION, STARTER_PLOTS, MAP_W, CIVIC, T, STEP_MS } from '../../shared/world.js';
 import { City } from './city.js';
 import { roomRegion, roomTiles as roomTilesOf, extract, stockFragment, rotateTimes, removeAt, placeError as fragError, applyAt, fragmentValue, cleanFragment } from '../../shared/blueprint.js';
 import { STYLED_ROOMS } from '../../shared/rooms.js';
@@ -12,6 +12,7 @@ import { HOUR_MS, NEEDS, ACTIVITIES, FOODS, PLATES, sanitizeNeeds, usesOf, advan
 import { sanitizeLook, randomLook, shirtColor } from '../../shared/look.js';
 import { Npc, parseAiReply, REPLY_SCHEMA, setMarket } from './npc.js';
 import { Life } from './life.js';
+import { Mood } from './mood.js';
 import { Business } from './business.js';
 import { Farm } from './farm.js';
 import { Social } from './social.js';
@@ -79,6 +80,10 @@ export class Game {
     this.roads = { add: (saved.roads?.add || []).map(remap), del: (saved.roads?.del || []).map(remap) };
     applyRoads(this.world, this.roads);
     this.epoch = saved.meta?.epoch || this.now();
+    // The clock's speed changed since this world was saved: keep today's date and time
+    // where they were (time so far, rescaled to the new speed).
+    const savedStep = saved.meta ? saved.meta.stepMs || 6000 : STEP_MS;
+    if (savedStep !== STEP_MS) { this.epoch = this.now() - (this.now() - this.epoch) * (STEP_MS / savedStep); this.dirtyLater = [...(this.dirtyLater || []), 'meta']; }
     this.profiles = saved.profiles || {}; // user id -> profile
     this.gossip = saved.gossip || [];
     // Plots are live data keyed by id. A save from an older map layout starts fresh land.
@@ -121,6 +126,7 @@ export class Game {
     }
     this.npcs = {};
     this.life = new Life(this);
+    this.mood = new Mood(this);
     this.biz = new Business(this);
     this.farm = new Farm(this, saved.farm);
     this.social = new Social(this, saved.social);
@@ -147,7 +153,7 @@ export class Game {
     const out = {};
     for (const k of this.dirty) {
       const [kind, id] = [k.slice(0, k.indexOf(':')), k.slice(k.indexOf(':') + 1)];
-      if (k === 'meta') out[k] = { epoch: this.epoch, version: WORLD_VERSION, nextPlotId: this.nextPlotId };
+      if (k === 'meta') out[k] = { epoch: this.epoch, version: WORLD_VERSION, nextPlotId: this.nextPlotId, stepMs: STEP_MS };
       else if (k === 'gossip') out[k] = this.gossip;
       else if (k === 'roads') out[k] = this.roads;
       else if (k === 'city') out[k] = this.city.s;
@@ -276,6 +282,7 @@ export class Game {
       case 'gift': return this.gift(s, msg);
       case 'drop': return this.farm.drop(s, msg);
       case 'trash': return this.farm.trash(s, msg);
+      case 'whimDismiss': return this.mood.dismiss(s);
       case 'giveTo': return this.farm.giveTo(s, msg);
       case 'utilStart': return this.cityAction(s, () => this.farm.utilStart(s, msg));
       case 'utilPay': return this.cityAction(s, () => this.farm.utilPay(s, msg));
@@ -1419,7 +1426,7 @@ export class Game {
     s.busy = true;
     this.hold(n, s);
     this.broadcast({ type: 'chat', id: s.profile.id, name: s.profile.name, text, to: n.def.name });
-    try { await this.converse(s, n, text); } finally { s.busy = false; }
+    try { await this.converse(s, n, text); this.mood.chatted(s); } finally { s.busy = false; }
   }
 
   async gift(s, { npc, item }) {
@@ -1429,7 +1436,7 @@ export class Game {
     this.bag(s, item, -1);
     this.count(s.profile, 'gift');
     const sentiment = n.def.likes.includes(item) ? 2 : n.def.dislikes.includes(item) ? -1 : 1;
-    try { await this.converse(s, n, `*gives you a ${GOODS[item].name} as a gift*`, sentiment); } finally { s.busy = false; }
+    try { await this.converse(s, n, `*gives you a ${GOODS[item].name} as a gift*`, sentiment); this.mood.gave(s); } finally { s.busy = false; }
   }
 
   buy(s, { npc, item, qty = 1 }) {
@@ -1472,7 +1479,7 @@ export class Game {
     const pr = s.profile;
     // (capped, so a stalled server or a skipped clock never drains needs in one go)
     const before = pr.needs.hunger;
-    const { needs, low, faint, weak } = advanceNeeds(pr.needs, Math.min(5000, now - s.needsAt) / HOUR_MS, s.act?.id);
+    const { needs, low, faint, weak } = advanceNeeds(pr.needs, Math.min(5000, now - s.needsAt) / HOUR_MS, s.act?.id, this.mood.decay(s, now));
     s.needsAt = now;
     // Eating fills you up only as far as the food on your plate goes.
     if (ACTIVITIES[s.act?.id]?.carry && s.carry) {
@@ -1490,6 +1497,7 @@ export class Game {
       if (gone) this.stopActivity(s, true);
       else if (a.carry && (!s.carry || s.carry.left <= 0.05 || needs.hunger >= 99.9)) {
         const full = s.carry && s.carry.left > 0.05;
+        this.mood.ate(s, { plate: s.carry?.food });
         s.carry = null;
         this.stopActivity(s, true);
         s.send({ type: 'toast', text: full ? '😋 You’re full! (you left the rest)' : '😋 All gone. Delicious!' });
@@ -1498,6 +1506,7 @@ export class Game {
     for (const id of low) s.send({ type: 'toast', text: `${NEEDS.find((n) => n.id === id).icon} ${NEEDS.find((n) => n.id === id).low}` });
     if (weak) s.send({ type: 'toast', text: '❤️ You’re feeling faint! Eat, rest and look after yourself soon, or you’ll pass out.' });
     if (faint) return this.faint(s);
+    this.mood.tick(s, now);
     if (now - s.needsSent >= 2000) this.sendNeeds(s);
     if (now - (s.needsSaved || 0) >= 20_000) { s.needsSaved = now; this.markProfile(pr); }
   }
@@ -1505,13 +1514,14 @@ export class Game {
   sendNeeds(s) {
     s.needsSent = this.now();
     const n = s.profile.needs;
-    s.send({ type: 'needs', needs: Object.fromEntries(Object.entries(n).map(([k, v]) => [k, Math.round(v * 10) / 10])), act: s.act?.id || null, carry: s.carry ? { food: s.carry.food, left: Math.round(s.carry.left) } : null });
+    s.send({ type: 'needs', needs: Object.fromEntries(Object.entries(n).map(([k, v]) => [k, Math.round(v * 10) / 10])), act: s.act?.id || null, carry: s.carry ? { food: s.carry.food, left: Math.round(s.carry.left) } : null, mood: this.mood.view(s) });
   }
 
   // Health hit zero: you pass out where you are (no more being whisked home mid-errand)
   // and the village doctor patches you up.
   faint(s) {
     if (s.act) this.stopActivity(s, true);
+    this.mood.fainted(s);
     const n = s.profile.needs;
     Object.assign(n, { health: 45, energy: Math.max(n.energy, 50), hunger: Math.max(n.hunger, 40), bladder: Math.max(n.bladder, 60), hygiene: Math.max(n.hygiene, 30), fun: Math.max(n.fun, 30) });
     const fee = Math.min(25, s.profile.coins);
@@ -1581,6 +1591,7 @@ export class Game {
     const a = ACTIVITIES[act.id];
     // Count it (for villagers' "do" requests) if it finished or went on a while.
     if (done || (this.now() - act.t0) / HOUR_MS >= 0.2) this.life.onActivity(s, act.id === 'eatHere' ? 'eat' : act.id);
+    this.mood.activityEnded(s, act.id, done, (this.now() - act.t0) / HOUR_MS);
     if (a?.makes) {
       if (done) {
         const plate = PLATES[a.makes];
@@ -1603,6 +1614,7 @@ export class Game {
     if (s.profile.needs.hunger >= 98 && !food.energy) return s.send({ type: 'error', msg: 'You’re full!' });
     this.bag(s, item, -1);
     for (const [k, v] of Object.entries(food)) s.profile.needs[k] = Math.min(100, s.profile.needs[k] + v);
+    this.mood.ate(s, { food });
     s.send({ type: 'toast', text: `${GOODS[item].icon} Yum! ${GOODS[item].name}` });
     this.sendNeeds(s);
   }

@@ -310,8 +310,8 @@ export function plotIdAtPixel(world, x, y) {
 }
 
 // The village day runs from 5:00 AM to 5:00 AM. The clock moves in 10-minute steps, and
-// each step takes 6 real seconds, so a whole day lasts 14.4 real minutes.
-export const STEP_MS = 6000;
+// each step takes 15 real seconds, so an hour lasts 90 seconds and a whole day 36 minutes.
+export const STEP_MS = 15000;
 export const DAY_STEPS = 144;              // 24 h / 10 min
 export const DAY_MS = STEP_MS * DAY_STEPS;
 export const DAYS_PER_YEAR = 112;          // used for terms of office

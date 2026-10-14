@@ -1,6 +1,6 @@
 import {
   generateWorld, applyRoads, plotIdAtPixel, worldClock, darkness, publicAreaAt,
-  TILE, MAP_W, MAP_H, PLAYER_SPEED, RUN_MULT, WORLD_VERSION, DAY_MS, T,
+  TILE, MAP_W, MAP_H, PLAYER_SPEED, PUBLIC_AREAS, RUN_MULT, WORLD_VERSION, DAY_MS, T,
 } from '@shared/world.js';
 import {
   canStand, crossesWall, inInterior, key, placementError, objAt, footprint, canRotate, levelView, wallSideAt,
@@ -23,7 +23,7 @@ import { modelIcon } from './modelicon.js';
 import { Minimap } from './minimap.js';
 import { roomTiles, roomRegion, extract, rotateTimes, fragmentValue, removeAt, stockFragment, placeError as fragError } from '@shared/blueprint.js';
 import { STYLED_ROOMS } from '@shared/rooms.js';
-import { NEEDS, HEALTH, ACTIVITIES, FOODS, PLATES, usesOf, HOUR_MS } from '@shared/needs.js';
+import { NEEDS, HEALTH, ACTIVITIES, FOODS, PLATES, usesOf, HOUR_MS, MOODLETS } from '@shared/needs.js';
 import { NPC_ACTS } from '@shared/village.js';
 import { questProgress, favourToday, MAX_QUESTS } from '@shared/quests.js';
 import { RECIPES, STAFF, OPEN_HOURS, recipesFor, sellable, valueOf, slotsOf, isMachine, shopOpen } from '@shared/business.js';
@@ -269,6 +269,7 @@ function onMessage(m) {
       break;
     case 'needs':
       S.needs = m.needs;
+      S.mood = m.mood || null;
       S.carry = m.carry || null;
       S.me.carry = S.carry?.food || 0;
       if (S.act !== m.act) { if (S.act && !m.act) S.actEnded = performance.now(); S.act = m.act; S.stopSent = false; closeUseMenu(); }
@@ -2757,6 +2758,13 @@ function showSettings(tab = settingsTab) {
   root.appendChild(body);
   if (tab === 'me') return renderMe(body);
   if (tab === 'sound') return renderSounds(body);
+  // Free will: let your character look after their own needs when you leave them be.
+  const fw = document.createElement('button');
+  fw.className = 'chip';
+  fw.textContent = freeWillOn() ? '🧠 Free will: on (they look after themselves when you leave them be)' : '🧠 Free will: off';
+  fw.onclick = () => { store.set('freewill', freeWillOn() ? '0' : '1'); showSettings('game'); };
+  body.insertAdjacentHTML('beforeend', '<h3>🧠 Your character</h3>');
+  body.appendChild(fw);
   body.insertAdjacentHTML('beforeend', `
     <h3>🧪 Cheats</h3>
     <p class="muted">Type <b>testingcheats true</b> first, then <b>money 5000</b>, <b>motherlode</b> (+50,000), <b>kaching</b> or <b>rosebud</b> (+1,000), <b>freerealestate on</b> or <b>bb.enablefreebuild</b>.</p>`);
@@ -3283,6 +3291,7 @@ function update(dt) {
   autoHarvest();
   tractorWork();
   runQueue(performance.now());
+  freeWill(performance.now());
   if (S.queue.length) tickQueue(performance.now());
   checkViewKey();
   // Steering: the stick / keys, or a tap-to-walk path.
@@ -3364,11 +3373,15 @@ function renderNeeds() {
   el.hidden = false;
   const low = NEEDS.reduce((a, n) => (S.needs[n.id] < S.needs[a.id] ? n : a), NEEDS[0]);
   const lv = S.needs[low.id];
-  const [, label, fillC, strokeC] = MOODS.find(([at]) => lv >= at);
+  // Mood comes from the server (needs plus moodlets); before it arrives, from the lowest need.
+  const score = S.mood?.score ?? lv;
+  const [, label, fillC, strokeC] = MOODS.find(([at]) => score >= at);
   const pb = $('plumbob').querySelector('.pb');
   pb.setAttribute('fill', fillC); pb.setAttribute('stroke', strokeC);
-  $('needs-mood').textContent = label;
-  $('needs-why').textContent = lv < 40 ? `${low.name} is low` : 'All needs okay';
+  $('needs-mood').textContent = S.mood?.level || label;
+  const best = (S.mood?.moodlets || []).map(([id]) => MOODLETS[id]).filter(Boolean).sort((a, b) => Math.abs(b.mood) - Math.abs(a.mood))[0];
+  $('needs-why').textContent = lv < 40 ? `${low.name} is low` : best ? best.label : 'All needs okay';
+  renderMoodlets();
   const fill = (S.act && ACTIVITIES[S.act]?.gain) || {};
   $('needs-bars').innerHTML = [...NEEDS, HEALTH].map((n) => {
     const v = Math.round(S.needs[n.id] ?? 0);
@@ -3376,6 +3389,34 @@ function renderNeeds() {
     return `<button type="button" class="st-need${v < 20 ? ' low' : ''}${fill[n.id] ? ' up' : ''}${openNeed === n.id ? ' open' : ''}" data-need="${n.id}" title="${n.name} ${v}%" aria-label="${n.name} ${v}%"><span>${n.icon}</span><i><b style="width:${v}%;background:${needCol(v)}"></b></i>${trend}</button>`;
   }).join('');
   renderTip();
+}
+// Moodlets as little icons (hover for what and how long), then a thought and a whim.
+function renderMoodlets() {
+  const ms = S.mood?.moodlets || [];
+  $('moodlets').innerHTML = ms.map(([id, secs]) => {
+    const m = MOODLETS[id];
+    const left = secs == null ? 'while it lasts' : secs > 3600 ? `${Math.round(secs / 3600)}h left` : `${Math.max(1, Math.round(secs / 60))} min left`;
+    return `<span class="st-ml ${m.mood < 0 ? 'bad' : 'good'}" title="${esc(m.label)} (${m.mood > 0 ? '+' : ''}${m.mood} mood · ${left})">${m.icon}</span>`;
+  }).join('');
+  const t = S.mood?.thought, w = S.mood?.whim, box = $('thought');
+  box.hidden = !t && !w;
+  box.innerHTML = `${t ? `<p>💭 ${esc(t)}</p>` : ''}${w ? `<div class="st-whim"><span>✨ ${esc(w.text)} <small>🪙${w.reward}</small></span><button type="button" data-w="go">Go</button><button type="button" data-w="x" aria-label="Not now">✕</button></div>` : ''}`;
+  for (const b of box.querySelectorAll('[data-w]')) b.onclick = () => (b.dataset.w === 'go' ? followWhim(w) : send({ type: 'whimDismiss' }));
+}
+// Head off to do a whim: walk to the place, queue the activity, find someone to chat to.
+function followWhim(w) {
+  if (!w) return;
+  if (w.kind === 'visit') {
+    const a = PUBLIC_AREAS.find((x) => x.name === w.area);
+    if (a) walkTo((a.x + a.w / 2) * TILE, (a.y + a.h / 2) * TILE, null, TILE * 3);
+  } else if (w.kind === 'do') {
+    const f = findUse([w.act]);
+    if (f) enqueue({ act: f.act, u: f.u }); else toast(`Nothing nearby to ${ACTIVITIES[w.act].label.toLowerCase()} with`);
+  } else if (w.kind === 'talk') {
+    let best = null, bd = Infinity;
+    for (const n of S.npcs.values()) { const d = Math.hypot(n.x - S.me.x, n.y - S.me.y); if (d < bd && !NPC_ACTS[n.act]?.hidden) { bd = d; best = n; } }
+    if (best) walkTo(best.x, best.y, () => send({ type: 'npcOpen', npc: best.id }), TILE * 2.2);
+  } else showBag();
 }
 function renderTip() {
   const box = $('needs-tip');
@@ -3424,21 +3465,24 @@ function findUse(acts) {
   }
   return best;
 }
-function queueForNeed(id) {
+function queueForNeed(id, opts = {}) {
+  const say = (t) => { if (!opts.quiet) toast(t); };
   if (id === 'hunger') {
-    if (S.carry?.food) return enqueue({ act: 'eatHere' });
+    if (S.carry?.food) return enqueue({ act: 'eatHere', auto: opts.auto });
     // Food in the bag: the most filling thing you have.
     const food = Object.keys(S.inv).filter((k) => S.inv[k] > 0 && FOODS[k]?.hunger).sort((a, b) => FOODS[b].hunger - FOODS[a].hunger)[0];
-    if (food) return enqueue({ eat: food, icon: GOODS[food]?.icon || '🍽️', label: `Eating ${GOODS[food]?.name.toLowerCase() || 'a snack'}` });
+    if (food) return enqueue({ eat: food, icon: GOODS[food]?.icon || '🍽️', label: `Eating ${GOODS[food]?.name.toLowerCase() || 'a snack'}`, auto: opts.auto });
     const f = findUse(['snack']);
-    if (!f) { toast('Nothing to eat: buy food at Rosa’s, or put a fridge in your home'); return false; }
-    return enqueue({ act: 'snack', u: f.u, then: 'eatHere' });
+    if (!f) { say('Nothing to eat: buy food at Rosa’s, or put a fridge in your home'); return false; }
+    return enqueue({ act: 'snack', u: f.u, then: 'eatHere', auto: opts.auto });
   }
   const f = findUse(NEED_ACTS[id]);
-  if (!f) { toast({ energy: 'No bed or seat nearby', bladder: 'No toilet nearby: put one in your home', hygiene: 'No shower, bath or sink nearby', fun: 'Nothing fun nearby: try a TV, books or games', health: 'Nowhere to rest nearby' }[id]); return false; }
-  return enqueue({ act: f.act, u: f.u });
+  if (!f) { say({ energy: 'No bed or seat nearby', bladder: 'No toilet nearby: put one in your home', hygiene: 'No shower, bath or sink nearby', fun: 'Nothing fun nearby: try a TV, books or games', health: 'Nowhere to rest nearby' }[id]); return false; }
+  return enqueue({ act: f.act, u: f.u, auto: opts.auto });
 }
 function enqueue(t) {
+  // Something you chose replaces whatever they were doing on their own.
+  if (!t.auto) for (const q of [...S.queue]) if (q.auto) cancelTask(q.uid);
   if (S.queue.length >= QUEUE_MAX) { toast('Your queue is full'); return false; }
   const a = ACTIVITIES[t.act];
   S.queue.push({ uid: ++queueUid, state: 'wait', icon: t.icon || a?.icon || '❔', label: t.label || a?.verb || 'Busy', ...t });
@@ -3463,7 +3507,7 @@ function clearQueue() {
 }
 function finishTask() {
   const t = S.queue.shift();
-  if (t?.then) S.queue.unshift({ uid: ++queueUid, state: 'wait', act: t.then, icon: ACTIVITIES[t.then].icon, label: ACTIVITIES[t.then].verb });
+  if (t?.then) S.queue.unshift({ uid: ++queueUid, state: 'wait', act: t.then, icon: ACTIVITIES[t.then].icon, label: ACTIVITIES[t.then].verb, auto: t.auto });
   renderQueue();
 }
 // How long an activity should take from here (in real ms).
@@ -3506,11 +3550,34 @@ function runQueue(now) {
   if (!S.walk && t.state === 'walk') { S.queue.shift(); renderQueue(); }
   renderQueue();
 }
+// ---------- free will ----------
+// Left alone for a bit (no input, nothing queued), characters look after themselves like
+// Sims do: the most urgent need, with the nearest thing that helps. Anything you do
+// takes over; Settings → Game turns it off.
+let lastInput = performance.now(), freeWillAt = 0;
+for (const ev of ['pointerdown', 'keydown']) addEventListener(ev, () => { lastInput = performance.now(); }, { capture: true, passive: true });
+const freeWillOn = () => store.get('freewill') !== '0';
+const FREE_AT = { bladder: 35, hunger: 40, energy: 30, hygiene: 30, fun: 35 };
+const freeFailed = {};
+function freeWill(now) {
+  if (now - freeWillAt < 2000 || !freeWillOn() || !S.needs) return;
+  freeWillAt = now;
+  if (S.queue.length || S.act || S.walk || S.mode !== 'walk' || S.talk || S.ride || bag?.isOpen() || modalKind || cityOpen() || now - lastInput < 8000) return;
+  const h = worldClock(serverNow(), S.epoch).hours, night = h >= 22 || h < 5;
+  let best = null;
+  for (const [id, at0] of Object.entries(FREE_AT)) {
+    const at = id === 'energy' && night ? 75 : at0, v = S.needs[id];
+    if (v >= at || (freeFailed[id] && now - freeFailed[id] < 60000)) continue;
+    const u = ((at - v) / at) * (id === 'bladder' ? 1.3 : 1);
+    if (!best || u > best.u) best = { id, u };
+  }
+  if (best && !queueForNeed(best.id, { auto: true, quiet: true })) freeFailed[best.id] = now;
+}
 const RING = 2 * Math.PI * 22;
 function renderQueue() {
   const el = $('queue');
   const q = S.queue;
-  el.innerHTML = q.map((t, i) => `<div class="st-task${i ? '' : ' cur'}" data-uid="${t.uid}" title="${i ? `Next: ${esc(t.label)}` : esc(t.label)}">
+  el.innerHTML = q.map((t, i) => `<div class="st-task${i ? '' : ' cur'}${t.auto ? ' auto' : ''}" data-uid="${t.uid}" title="${i ? `Next: ${esc(t.label)}` : esc(t.label)}">
       ${i ? '' : `<svg viewBox="0 0 52 52" aria-hidden="true"><circle cx="26" cy="26" r="22" stroke="#e2d6bb"/><circle class="prog" cx="26" cy="26" r="22" stroke="#4f9e3a" stroke-dasharray="${RING}" stroke-dashoffset="${RING}"/></svg>`}
       <span class="emo">${t.icon}</span>
       <button type="button" class="x" aria-label="Cancel ${esc(t.label)}">✕</button>
@@ -3527,7 +3594,7 @@ function tickQueue(now) {
   el.querySelector('.prog')?.setAttribute('stroke-dashoffset', String(RING * (1 - p)));
   el.title = `${t.label} · ${Math.round(p * 100)}%`;
   const sub = el.querySelector('.sub');
-  if (sub) sub.textContent = S.queue[1] ? `Then ${S.queue[1].label.toLowerCase()}` : t.state === 'do' ? `${Math.max(1, Math.ceil((t.dur - (now - t.t0)) / 1000))}s left` : 'Up next';
+  if (sub) sub.textContent = S.queue[1] ? `Then ${S.queue[1].label.toLowerCase()}` : t.auto && t.state !== 'do' ? 'On their own (free will)' : t.state === 'do' ? `${Math.max(1, Math.ceil((t.dur - (now - t.t0)) / 1000))}s left` : 'Up next';
 }
 
 // What you can do with an item right now: eating needs a plate in your hands, and
@@ -4502,7 +4569,7 @@ if (new URLSearchParams(location.search).has('debug')) {
     plotToClient: (lx, ly, h = 0, plotId = S.myPlot) => { const d = S.plots[plotId]; return view.toScreen(d.x + lx, S.level * LEVEL_H + h, d.y + ly); },
     worldToClient: (x, z, h = 0) => view.toScreen(x, h, z),
     tileToClient: (tx, ty) => view.toScreen(tx + 0.5, 0, ty + 0.5),
-    setLevel, cycleWalls, turnCamera, setMode, send, nearestUsable, usableAt, showCity: () => showCity(), showBag: () => showBag(), showSettings: (t) => showSettings(t), audio: () => audio, season: (id) => { S.seasonOverride = id; },
+    setLevel, cycleWalls, turnCamera, setMode, send, nearestUsable, usableAt, showCity: () => showCity(), showBag: () => showBag(), showSettings: (t) => showSettings(t), queueForNeed: (id, o) => queueForNeed(id, o), freeWill: () => { freeWillAt = 0; freeWill(performance.now()); }, audio: () => audio, season: (id) => { S.seasonOverride = id; },
   };
 }
 
