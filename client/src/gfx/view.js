@@ -296,7 +296,7 @@ export class View {
   // (a flat top-down sleeper lying on the bed, head at the bed's head end), { kind: 'hidden' }.
   // The old string forms 'sit' and 'lie' (a turned upright sprite) still work.
   actor(id, x, z, dirWorld, moving, look, now, vis = true, y = 0, pet = null, pose = null) {
-    const kind = typeof pose === 'string' ? pose : pose?.kind || null;
+    let kind = typeof pose === 'string' ? pose : pose?.kind || null;
     const lie = kind === 'lie';
     let a = this.actors.get(id);
     if (!a) {
@@ -318,6 +318,27 @@ export class View {
     const along = a.vec[0] * g.rx + a.vec[1] * g.rz, away = a.vec[0] * g.fx + a.vec[1] * g.fz;
     const dir = Math.abs(along) > Math.abs(away) * 1.05 ? (along > 0 ? 3 : 2) : away > 0 ? 1 : 0;
     const frame = moving ? Math.floor(now / (pet ? 100 : moving === 'run' ? 80 : 130)) % 4 : 0;
+    // Lying down (pose.head / pose.foot = world points at each end of the body): the
+    // villager tips back onto the sofa or bed as a camera-facing figure, so they look as
+    // solid lying down as standing up. Getting up plays it backwards.
+    if (!pet && look) {
+      const lieNow = kind === 'lieDown' || (kind === 'sleep' && pose?.head);
+      const key = lieNow ? `${pose.head.x.toFixed(2)},${pose.head.z.toFixed(2)}` : '';
+      if (lieNow && a.lieKey !== key) { a.lieKey = key; a.lieT = now; a.liePose = pose; }
+      if (!lieNow && a.lieKey) { a.lieKey = ''; a.upT = now; }
+      const down = lieNow ? Math.min(1, (now - a.lieT) / 900) : 0;
+      const up = !lieNow && a.upT && now - a.upT < 650 ? 1 - (now - a.upT) / 650 : 0;
+      const LP = lieNow ? pose : a.liePose;
+      // In bed, once settled, they're under the covers (the quilt card below).
+      if ((lieNow && !(kind === 'sleep' && down >= 1)) || up > 0) {
+        if (a.lookRef !== look) { a.lookRef = look; a.look = sanitizeLook(look); }
+        this.lying(a, LP, lieNow ? down : up, now, vis);
+        a.blob.isVisible = false;
+        if (a.sleep) a.sleep.isVisible = false;
+        return;
+      }
+      if (a.lieMode) { a.lieMode = false; a.tex = null; }
+    }
     let spr;
     if (pet) spr = pet.animal ? animalSprite(pet.animal, dir, frame, pet.sit ? 'sit' : null) : petSprite(pet.idx, dir, frame, pet.sit);
     else {
@@ -357,6 +378,48 @@ export class View {
     a.blob.isVisible = vis && !kind; // no ground shadow while sitting or lying on things
     if (sleep) this.sleeper(a, x, y, z, pose, vis);
     else if (a.sleep) a.sleep.isVisible = false;
+  }
+
+  // A villager lying down (or partway, t 0..1 from sitting on the edge to flat out).
+  lying(a, P, t, now, vis) {
+    const H = P.head, F = P.foot;
+    const right = this.snap?.right || new Vector3(1, 0, 0), upv = this.snap?.up || new Vector3(0, 1, 0);
+    // The body's direction (feet → head) as the camera sees it.
+    const v = new Vector3(H.x - F.x, H.y - F.y, H.z - F.z);
+    const vr = Vector3.Dot(v, right), vu = Vector3.Dot(v, upv);
+    const headLeft = vr < 0;
+    const flat = Math.atan2(vu, Math.abs(vr));              // tilt of the body on screen
+    const proj = Math.hypot(vr, vu);
+    const ease = (u) => u * u * (3 - 2 * u);
+    const sit = t < 0.35;                                    // first they sit on the edge…
+    const k = sit ? 0 : ease((t - 0.35) / 0.65);              // …then lie back
+    const breathe = Math.floor(now / 900) % 2;
+    const spr = sit ? personSprite(a.look, 0, 0, 'sit', 'lap', 0) : personSprite(a.look, headLeft ? 3 : 2, 0, null, k > 0.6 ? 'rest' : 'lap', breathe);
+    const tex = texOf(spr.cv);
+    a.lieMats ||= new Map();
+    let m = a.lieMats.get(tex);
+    if (!m) { m = new TyMaterial({ kind: 'sprite', map: tex, alphaTest: 0.5 }); a.lieMats.set(tex, m); }
+    a.sprite.material = m;
+    a.tex = tex; a.lieMode = true;
+    const sx = (spr.cv.width / TEXEL) * PERSON_SCALE, sy = (spr.cv.height / TEXEL) * PERSON_SCALE;
+    // Upright (pi/2) tipping to the body's angle; the figure's length follows the furniture
+    // as the camera sees it (shorter when you look along it).
+    const target = headLeft ? Math.PI / 2 - flat : -(Math.PI / 2 - flat);
+    const rot = sit ? 0 : target * k;
+    const len = sit ? 1 : 1 + (Math.max(0.55, Math.min(1.15, proj / (sy * 0.85))) - 1) * k;
+    spriteGeo(sx, sy * len, 0.5, sit ? 1 + spr.dy / spr.cv.height : 0.55, rot, a.geo);
+    a.sprite.updateVerticesData('position', a.geo.pos, false, false);
+    // From the edge of the seat to the middle of the body.
+    const mx = (H.x + F.x) / 2, my = (H.y + F.y) / 2, mz = (H.z + F.z) / 2;
+    const ex = P.edge?.x ?? mx, ez = P.edge?.z ?? mz, ey = P.edge?.y ?? my - 0.3;
+    const g = sit ? 0 : k;
+    const px0 = ex + (mx - ex) * g, py0 = sit ? ey : ey + (my + 0.05 - ey) * g, pz0 = ez + (mz - ez) * g;
+    // The figure is a card facing the camera; slide it towards the camera (the camera is
+    // orthographic, so it stays exactly where it is on screen) so the cushions and the
+    // mattress it lies on don't cut through it.
+    const toCam = this.camera.position.subtract(new Vector3(px0, py0, pz0)).normalize().scale(sit ? 0.35 : 0.9);
+    a.sprite.position.set(px0 + toCam.x, py0 + toCam.y, pz0 + toCam.z);
+    a.sprite.isVisible = vis;
   }
 
   // Someone in bed, seen from above: a flat card on the mattress under the quilt art.

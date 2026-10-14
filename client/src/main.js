@@ -3598,8 +3598,27 @@ function itemUnder(p) {
   const [ax, ay] = hit.key.split(',').map(Number), [w, h] = footprint(hit.obj.t, hit.obj.r || 0);
   return { t: hit.obj.t, r: hit.obj.r || 0, c: hit.obj.c || 0, cx: plot.x + ax + w / 2, cz: plot.y + ay + h / 2 };
 }
-// Long seats you can stretch out on for a nap: how high the cushion is.
-const LIE_ON = { sofa: 0.57, loveseat: 0.58, hammock: 0.68 };
+// Where someone lies on each bed or seat (tiles from the item's centre, along its front
+// f and across it s): head and foot ends of the body, and the spot on the edge where
+// they sit down first. y = height above the floor.
+const FRONT = [[0, 1], [-1, 0], [0, -1], [1, 0]];
+const LIE_ON = {
+  bed: (c, f, s) => ({ head: [c, f, -0.62, 0, 0.66], foot: [c, f, 0.6, 0, 0.6], edge: [c, s, 0.42, 0, 0.42] }),
+  bunkbed: (c, f, s) => ({ head: [c, f, -0.62, 0, 0.66], foot: [c, f, 0.6, 0, 0.6], edge: [c, s, 0.42, 0, 0.42] }),
+  sofa: (c, f, s) => ({ head: [c, s, -0.72, 0.05, 0.66], foot: [c, s, 0.72, 0.05, 0.62], edge: [c, f, 0.32, 0, 0.45] }),
+  loveseat: (c, f, s) => ({ head: [c, s, -0.72, 0.05, 0.7], foot: [c, s, 0.72, 0.05, 0.64], edge: [c, f, 0.32, 0, 0.5] }),
+  hammock: (c, f, s, r) => (r % 2 ? { head: [c, [0, 1], -0.72, 0, 0.8], foot: [c, [0, 1], 0.72, 0, 0.74], edge: [c, [1, 0], 0.3, 0, 0.55] }
+    : { head: [c, [1, 0], -0.72, 0, 0.8], foot: [c, [1, 0], 0.72, 0, 0.74], edge: [c, [0, 1], 0.3, 0, 0.55] }),
+  recliner: (c, f) => ({ head: [c, f, -0.3, 0, 0.95], foot: [c, f, 0.62, 0, 0.5], edge: [c, f, 0.2, 0, 0.45] }),
+  beanbag: (c, f) => ({ head: [c, f, -0.28, 0, 0.55], foot: [c, f, 0.55, 0, 0.18], edge: [c, f, 0.1, 0, 0.3] }),
+};
+// A point: centre c, moved d along unit vector u (and e along the other axis), at height y.
+const at3 = ([c, u, d, e, y]) => ({ x: c.x + u[0] * d + u[1] * e, y, z: c.z + u[1] * d - u[0] * e });
+function liePoints(it) {
+  const f = FRONT[it.r] || FRONT[0], s = [f[1], -f[0]], c = { x: it.cx, z: it.cz };
+  const L = LIE_ON[it.t](c, f, s, it.r);
+  return { head: at3(L.head), foot: at3(L.foot), edge: at3(L.edge) };
+}
 // What the hands do for each activity (people.js draws the arms with a little skeleton).
 const ACT_ARMS = {
   eat: 'eat', eatHere: 'eat', snack: 'stir', cook: 'stir', grill: 'stir', read: 'read', tv: 'lap', sit: 'lap', nap: 'lap',
@@ -3617,12 +3636,12 @@ function actPose(p) {
     // Under the covers: a flat picture of them asleep, laid on the mattress (breathing,
     // and rolling over now and then).
     const [w, h] = footprint(it.t, it.r);
-    return { y: 0.56, at: { x: it.cx, z: it.cz }, pose: { kind: 'sleep', r: it.r, w, h } };
+    return { y: 0.56, at: { x: it.cx, z: it.cz }, pose: { kind: 'sleep', r: it.r, w, h, ...liePoints(it) } };
   }
-  if (a === 'nap' && it && LIE_ON[it.t] != null) {
-    // Stretched out along the sofa in their clothes, head on the armrest.
-    const [w, h] = footprint(it.t, it.r);
-    return { y: LIE_ON[it.t], at: { x: it.cx, z: it.cz }, pose: { kind: 'sleep', lie: true, r: (it.r + 1) % 4, w, h } };
+  if (a === 'nap' && it && LIE_ON[it.t]) {
+    // Stretched out on the sofa (or recliner, beanbag, hammock): they sit on the edge,
+    // then lie back, head at one end and feet at the other.
+    return { y: 0, at: { x: it.cx, z: it.cz }, pose: { kind: 'lieDown', ...liePoints(it) } };
   }
   return { y: SEAT_Y[it?.t] ?? 0.08, pose: { kind: 'sit', arms: ACT_ARMS[a] || 'lap' } };
 }
@@ -3894,6 +3913,7 @@ function render(now) {
       return;
     }
     const pose = actPose(p);
+    if (pose?.pose?.head) for (const k of ['head', 'foot', 'edge']) pose.pose[k] = { ...pose.pose[k], y: pose.pose[k].y + h };
     view.actor(p.id, pose?.at ? pose.at.x : U(p.x), pose?.at ? pose.at.z : U(p.y), p.dir, p.running ? 'run' : p.moving, p.look, now, pose?.vis ?? true, h + (pose?.y || 0), null, pose?.pose || null);
   };
   for (const p of S.players.values()) drawPerson(p, hOf(p));

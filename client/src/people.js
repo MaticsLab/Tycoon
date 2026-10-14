@@ -130,6 +130,7 @@ function handsFront(arms, y0, F, f, frame) {
     case 'carry': return { l: [-2.5, y0 + 6], r: [2.5, y0 + 6], prop: ['plate', 0, y0 + 6] };
     case 'whittle': return { l: [-2, y0 + 7], r: [1 + (f % 2), y0 + 6], prop: ['stick', -2, y0 + 7] };
     case 'lap': return { l: [-4.5, y0 + 9.5], r: [4.5, y0 + 9.5] };
+    case 'rest': return { l: [-1.5, y0 + 6], r: [1.5, y0 + 6] };
     default: return { l: [-5.5, y0 + 8 - SWAY[frame]], r: [5.5, y0 + 8 + SWAY[frame]] };
   }
 }
@@ -147,6 +148,7 @@ function handSide(arms, y0, F, f, frame) {
     case 'carry': return { h: [4.5, y0 + 6], prop: ['plate', 5, y0 + 6] };
     case 'whittle': return { h: [4, y0 + 6 + (f % 2)], prop: ['stick', 4, y0 + 6] };
     case 'lap': return { h: [3.5, y0 + 8] };
+    case 'rest': return { h: [2.5, y0 + 6.5] };
     default: return { h: [0.5 + SWAY[frame] * 2, y0 + 8] };
   }
 }
@@ -652,6 +654,7 @@ function paint(c, L, dir, frame, pose = null, arms = null, f = 0) {
     arm(c, L, 0.5, y0 + 1.5, H.h[0], H.h[1], 1);
     if (H.prop) prop(c, H.prop[0], H.prop[1], H.prop[2], f);
     face(c, L, F, 3);
+    if (arms === 'rest') { r(c, 1, F + 4, 2, 2, L.K[2]); r(c, 1, F + 5, 2, 1, LASH); }
     brows(c, L, F, 3);
     faceAcc(c, L, F, 3);
     hairSide(c, L, F);
@@ -662,6 +665,7 @@ function paint(c, L, dir, frame, pose = null, arms = null, f = 0) {
     torsoFront(c, L, y0, dir === 1);
     if (dir === 0) armsFront(c, L, y0, F, frame, arms, f, false);
     face(c, L, F, dir);
+    if (dir === 0 && arms === 'rest') { for (const x of [-3, 1]) { r(c, x, F + 4, 2, 2, L.K[2]); r(c, x, F + 5, 2, 1, LASH); } }
     if (dir === 0) brows(c, L, F, 0);
     faceAcc(c, L, F, dir);
     hairFront(c, L, F, dir === 1);
