@@ -8,6 +8,9 @@ You can also befriend villagers whose personalities change based on how you trea
 
 ## Features
 
+- **Shops you browse yourself.** In any player or villager shop, click a shelf to see it up close: the goods sit on the spots with price tags hanging underneath. Add what you want to your **cart** (the cart button appears on the HUD while you're in a shop), walk to the next shelf (or use ‹ ›), then open the cart and **Pay** once; the owner's till gets the money. Leave the shop without paying and the cart is put back. Owners see the same shelf in owner mode: tap an empty spot to stock it from the bag (up to 10 at the item's usual price), tap a stocked spot to change its price or take it back, and keep an eye on the till.
+- **The shopkeeper's window.** "Shop" in a villager chat opens their shop window: everything they sell as cards with big sprites and gold price chips, a details column with amount, total and what you'll have left, and a Sell tab for shopkeepers who buy (Rosa). "Back to chat" returns to the conversation.
+- **A gold coin** (pixel art) shows wherever money appears: the HUD, shops, shelves, the bag, City Hall and messages.
 - **A 3D village that still looks like pixel art.** The world renders at low resolution and is scaled up with sharp pixels.
   Ground, walls, floors and roofs use hand-painted pixel textures.
   Characters, NPCs, trees and crops are pixel sprites that always face the camera (the "HD-2D" look).
@@ -93,7 +96,7 @@ You can also befriend villagers whose personalities change based on how you trea
 - **Every villager has their own voice.** Rosa calls you "dear" and asks if you've eaten; Otto speaks in clipped grunts; Bram BOOMS; Willa talks in footnotes; Bea says "literally" and "no cap". Each one's diction and catchphrases go into every AI prompt (one-to-one chats, group conversations, day plans, offers), so they sound like themselves wherever you meet them.
 - **Join a conversation.** Walk up to villagers who are chatting and a **💬 Join …'s conversation** chip appears (clicking one of them works too). The group chat panel shows everyone's lines, and when you say something, whoever would naturally answer replies to you by name. How you come across changes how each of them feels about you. Walk away to leave.
 - **Villagers have wallets.** They earn a daily wage from their job plus whatever their shop sells, and spend it on land, building materials, decorations and shopping. Their chat popup's About drawer shows any business they run (and who with).
-- **Cheats for trying it out:** `venture <npc> [partner] [kind]` builds a villager shop right away, `convo <npc> <npc> [npc]` starts a conversation, `seekme <npc>` sends a villager over to you.
+- **Cheats for trying it out:** `time <hour>` sets the time of day, `venture <npc> [partner] [kind]` builds a villager shop right away, `convo <npc> <npc> [npc]` starts a conversation, `seekme <npc>` sends a villager over to you.
 - **Twenty villagers.** Besides Rosa (grocer), Otto (carpenter), Juniper (gardener) and Mabel (City Clerk), the village is home to:
   - Hazel the fisher, Bram the blacksmith, Willa the librarian and Doc Ellis;
   - young Pip, Marigold the florist, Gus at the Saloon and Theo the musician;

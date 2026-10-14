@@ -2026,3 +2026,37 @@ test('villager agents live freely: over a day they visit, chat, shop and chase t
   assert.ok(convos >= 1, 'got talking');
   assert.ok(Object.keys(game.agents.s.ventures).length >= 1, 'somebody started a venture');
 });
+
+
+test('shop carts: pick from several shelves, pay once, owners get paid', async () => {
+  const { HOUR_MS } = await import('../../shared/needs.js');
+  const { worldClock } = await import('../../shared/world.js');
+  const { game, join } = setup();
+  const a = await join({ name: 'Ana' });
+  const lila = game.npcs.lila;
+  lila.s.wallet = 4000;
+  const v = game.agents.found(lila, ['lila'], 'diner');
+  const lot = game.agents.chooseLot(lila, 'diner');
+  game.agents.buyLot(lila, v, lot);
+  for (let st = 0; st < 3; st++) game.agents.finishStage(lila, v, st);
+  const h = worldClock(game.now(), game.epoch).hours;
+  game.epoch -= ((11 - h + 24) % 24) * HOUR_MS;
+  const shelves = Object.entries(lot.obj).filter(([, o]) => o.stock?.length);
+  assert.ok(shelves.length >= 1);
+  const items = shelves.flatMap(([k, o]) => o.stock.slice(0, 2).map((sl) => { const [lx, ly] = k.split(',').map(Number); return { level: 0, lx, ly, item: sl.item, price: sl.price, n: 1 }; }));
+  const total = items.reduce((x, i) => x + i.price, 0);
+  const s = a.session();
+  // Outside the shop: no.
+  await a.send({ type: 'buyCart', plotId: lot.id, items });
+  assert.equal(a.last('error').msg, 'Pay inside the shop');
+  s.x = (lot.x + v.site.x + 2.5) * TILE; s.y = (lot.y + v.site.y + 2.5) * TILE;
+  const coins = s.profile.coins, wallet = lila.s.wallet;
+  // A changed price is caught.
+  await a.send({ type: 'buyCart', plotId: lot.id, items: [{ ...items[0], price: items[0].price + 1 }] });
+  assert.match(a.last('error').msg, /price/);
+  await a.send({ type: 'buyCart', plotId: lot.id, items });
+  assert.equal(s.profile.coins, coins - total);
+  assert.equal(lila.s.wallet, wallet + total);
+  assert.ok(a.last('cartPaid'));
+  for (const i of items) assert.ok(s.profile.inv[i.item] >= 1);
+});

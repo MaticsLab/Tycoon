@@ -6,7 +6,7 @@
 import { ITEMS, GOODS } from '../../shared/catalog.js';
 import { NPCS } from '../../shared/npcs.js';
 import { objAt, levelView, footprint } from '../../shared/plot.js';
-import { TILE, MAP_W, worldClock } from '../../shared/world.js';
+import { TILE, MAP_W, worldClock, plotIdAtPixel } from '../../shared/world.js';
 import { HOUR_MS } from '../../shared/needs.js';
 import { connected } from '../../shared/farm.js';
 import { LICENCE_FEE, RECIPES, STAFF, sellable, valueOf, slotsOf, isMachine, priceAppeal, shopOpen } from '../../shared/business.js';
@@ -123,7 +123,9 @@ export class Business {
     const [w, h] = footprint(hit.obj.t, hit.obj.r || 0);
     const x0 = (plot.x + ax) * TILE, y0 = (plot.y + ay) * TILE;
     const dx = Math.max(x0 - s.x, 0, s.x - (x0 + w * TILE)), dy = Math.max(y0 - s.y, 0, s.y - (y0 + h * TILE));
-    if ((s.level || 0) !== level || Math.hypot(dx, dy) > TILE * 1.8) { s.send({ type: 'error', msg: `Walk up to the ${ITEMS[hit.obj.t].name.toLowerCase()} first` }); return null; }
+    // Owners can work any shelf from inside their own shop (the shelf window switches shelves).
+    const inside = own && plotIdAtPixel(this.game.world, s.x, s.y) === plot.id;
+    if (!inside && ((s.level || 0) !== level || Math.hypot(dx, dy) > TILE * 1.8)) { s.send({ type: 'error', msg: `Walk up to the ${ITEMS[hit.obj.t].name.toLowerCase()} first` }); return null; }
     return { plot, view, hit, level };
   }
 
@@ -185,6 +187,53 @@ export class Business {
     this.game.bag(s, slot.item, n);
     this.sold(owner, plot, hit, slot, n, s.profile.name);
     s.send({ type: 'toast', text: `🛍️ Bought ${n} × ${GOODS[slot.item].name} for 🪙${cost}` });
+  }
+
+  // Pay for a whole cart at once (from anywhere inside the shop).
+  buyCart(s, { plotId, items }) {
+    const g = this.game, plot = g.plots[plotId];
+    if (!plot?.biz || !Array.isArray(items) || !items.length || items.length > 40) return;
+    if (plotIdAtPixel(g.world, s.x, s.y) !== plot.id) return s.send({ type: 'error', msg: 'Pay inside the shop' });
+    if (plot.owner === s.profile.id) return s.send({ type: 'error', msg: 'That’s your own stock' });
+    const v = plot.venture ? g.agents.s.ventures[plot.venture] : null;
+    const owner = v ? null : this.ownerProfile(plot);
+    if (!v && (!owner?.biz || owner.biz.plotId !== plot.id)) return;
+    const { hours } = worldClock(g.now(), g.epoch);
+    const open = v ? shopOpen(plot.biz, hours, false) : this.isOpen(owner, plot);
+    if (!open) return s.send({ type: 'error', msg: `“${plot.biz.name}” is closed right now` });
+    // Check every line first: still there, enough of it, same price.
+    const lines = [];
+    for (const it of items) {
+      const view = levelView(plot, it.level === 1 ? 1 : 0);
+      const obj = view.obj[`${it.lx},${it.ly}`];
+      const slot = obj?.stock?.find((x) => x.item === it.item);
+      const n = Math.floor(it.n);
+      if (!slot || !(n >= 1)) return s.send({ type: 'error', msg: `${GOODS[it.item]?.name || 'Something'} has sold out` });
+      if (slot.price !== it.price) return s.send({ type: 'error', msg: `The price of ${GOODS[it.item].name} just changed: check your cart` });
+      const taken = lines.filter((l) => l.slot === slot).reduce((a, l) => a + l.n, 0);
+      if (slot.n < taken + n) return s.send({ type: 'error', msg: `Only ${slot.n} ${GOODS[it.item].name} left` });
+      lines.push({ obj, slot, n });
+    }
+    const total = lines.reduce((a, l) => a + l.slot.price * l.n, 0);
+    if (s.profile.coins < total) return s.send({ type: 'error', msg: 'Not enough coins' });
+    g.coins(s, -total);
+    let count = 0;
+    for (const { obj, slot, n } of lines) {
+      const item = slot.item, cost = slot.price * n;
+      g.bag(s, item, n);
+      count += n;
+      if (v) {
+        slot.n -= n;
+        if (slot.n <= 0) { obj.stock.splice(obj.stock.indexOf(slot), 1); if (!obj.stock.length) delete obj.stock; }
+        g.agents.pay(v, cost, s.profile.name, item);
+      } else this.sold(owner, plot, { obj }, slot, n, s.profile.name);
+    }
+    if (v) {
+      g.plotChanged(plot);
+      for (const id of v.owners) { const o = g.npcs[id]; o.feel(s.profile, 0.4, g.now(), `${s.profile.name} shopped at ${v.name}`, g.epoch); g.hearts(s.profile, o); }
+    }
+    s.send({ type: 'cartPaid', plotId, total, count });
+    s.send({ type: 'toast', text: `🛍️ Paid 🪙${total} for ${count} item${count > 1 ? 's' : ''}` });
   }
 
   // Money in the till (the owner gets it even when they're away).

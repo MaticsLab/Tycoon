@@ -272,6 +272,7 @@ export class Game {
       case 'stock': return this.biz.stock(s, msg);
       case 'restock': return this.biz.restock(s, msg);
       case 'buyStock': return this.biz.buy(s, msg);
+      case 'buyCart': return this.biz.buyCart(s, msg);
       case 'craft': return this.biz.craft(s, msg);
       case 'collect': return this.biz.collect(s, msg);
       case 'questDecline': return this.life.decline(s, msg);
@@ -1179,7 +1180,7 @@ export class Game {
     const off = (v) => ['false', 'off', '0', 'no'].includes(v);
     if (!c) return;
     if (c === 'help') {
-      return say('testingcheats true · venture <npc> [partner] [kind] · convo <npc> <npc> · seekme <npc> · money <amount> · motherlode · kaching · rosebud · freerealestate on/off · bb.enablefreebuild · tp cityhall|park|fair|square · fillneeds · needs <need> <0-100> · give <item> <n>');
+      return say('testingcheats true · time <hour> · venture <npc> [partner] [kind] · convo <npc> <npc> · seekme <npc> · money <amount> · motherlode · kaching · rosebud · freerealestate on/off · bb.enablefreebuild · tp cityhall|park|fair|square · fillneeds · needs <need> <0-100> · give <item> <n>');
     }
     if (c === 'testingcheats') {
       if (on(args[0])) { s.cheats.testing = true; return say('Cheats are enabled.'); }
@@ -1217,6 +1218,15 @@ export class Game {
         for (const id of ids.slice(1)) { const n = this.npcs[id]; n.x = this.npcs[ids[0]].x + TILE * (1 + Math.random()); n.y = this.npcs[ids[0]].y; n.path = null; n.clearAgenda?.(); }
         const c = this.agents.start(ids, null, '', true);
         return say(c ? `Conversation ${c.id} started` : 'They’re busy');
+      }
+      case 'time': {
+        const h = Number(args[0]);
+        if (!(h >= 0 && h < 24)) return say('Usage: time <hour 0-23>');
+        const cur = worldClock(this.now(), this.epoch).hours;
+        this.epoch -= (((h - cur) % 24 + 24) % 24) * HOUR_MS;
+        this.mark('meta');
+        this.broadcast({ type: 'epoch', epoch: this.epoch });
+        return say(`It’s now ${h}:00`);
       }
       case 'seekme': {
         const n = this.npcs[args[0]];

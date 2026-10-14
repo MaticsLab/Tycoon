@@ -42,10 +42,13 @@ import { FOUNTAIN } from '@shared/world.js';
 import { applyNature, wildKind, treeStage, fruitReady, HITS, TOOL_FOR, weatherAt } from '@shared/nature.js';
 import { drawLook, personSprite } from './people.js';
 import { makeGroupUI } from './groupui.js';
+import { makeShopUI } from './shopui.js';
+import { installCoins } from './coin.js';
 import { sanitizeLook, randomLook, PETS } from '@shared/look.js';
 import { httpBase, signInGuest, signIn, signUp, getSession, signOut } from './auth.js';
 
 const $ = (id) => document.getElementById(id);
+let shopUI = null; // shops, shelves and the cart (set up below)
 const store = {
   get(k) { try { return localStorage.getItem('tycoon.' + k); } catch { return null; } },
   set(k, v) { try { v == null ? localStorage.removeItem('tycoon.' + k) : localStorage.setItem('tycoon.' + k, v); } catch { /* private mode */ } },
@@ -307,6 +310,7 @@ function onMessage(m) {
       if (cityOpen()) showCity();
       break;
     case 'sale': saleFx(m); break;
+    case 'cartPaid': shopUI.paid(); break;
     case 'nature': {
       if ((m.cut || []).length === 1 && Math.hypot((m.cut[0] % MAP_W + 0.5) * TILE - S.me.x, (Math.floor(m.cut[0] / MAP_W) + 0.5) * TILE - S.me.y) < TILE * 3) audio.sfx(world.tiles[m.cut[0]] === T.ROCK ? 'mine' : 'fell');
       for (const i of m.cut || []) if (world.tiles[i] === T.TREE || world.tiles[i] === T.ROCK) { const x = i % MAP_W, y = Math.floor(i / MAP_W); chips(x, y, world.tiles[i] === T.TREE ? 'tree' : 'rock', 14); world.tiles[i] = T.GRASS; }
@@ -352,7 +356,7 @@ function onMessage(m) {
       indexPlots(world, S.plots);
       plotsDirty = true;
       if (m.plot.id === S.myPlot) S.dropped = null;
-      if (S.stockRedraw && (modalKind === 'stock' || modalKind === 'browse')) S.stockRedraw();
+      shopUI.refresh();
       if (S.mode === 'build') refreshPreview();
       if (modalKind === 'store') ui.showStore();
       if (modalKind === 'lot' && m.plot.id === S.myPlot) showLot();
@@ -392,7 +396,6 @@ function onMessage(m) {
       S.qual = m.qual || {};
       bag?.refresh();
       updateHud();
-      if (S.stockRedraw && modalKind === 'stock') S.stockRedraw();
       if (S.mode === 'build' && S.cat === 'special') renderItems();
       if (S.talk?.extra) renderExtra();
       if (modalKind === 'store') ui.showStore();
@@ -580,6 +583,7 @@ function updateHud() {
   syncCoins();
   syncBuildBtn();
   refreshTrayAffordability();
+  shopUI?.refresh();
 }
 
 function fmtClock() {
@@ -819,10 +823,12 @@ function npcSaid(m) {
   S.talk.view = { ...S.talk.view, ...m };
   S.talk.lines.push({ who: 'them', text: m.text });
   for (const c of m.changes || []) S.talk.lines.push({ who: 'note', text: `✨ ${c}` });
+  if (shopUI.shopNpc() === m.npc) shopUI.said(m.text);
   renderStatus(); renderAbout(); renderLog(); renderExtra();
 }
 
 function closeTalk() {
+  if (shopUI?.shopNpc()) shopUI.closeShop();
   if (S.talk) send({ type: 'npcClose', npc: S.talk.npc });
   S.talk = null;
   $('npcpanel').hidden = true;
@@ -833,6 +839,13 @@ $('npc-close').onclick = closeTalk;
 const group = makeGroupUI({
   S, send,
   where: (c) => { const a = publicAreaAt(Math.floor(c.x / TILE), Math.floor(c.y / TILE)); if (a) return a.name; const pid = plotIdAtPixel(world, c.x, c.y), p = pid >= 0 ? S.plots[pid] : null; return p?.biz?.name || p?.name || ''; },
+});
+// Shops: the shopkeeper's window, self-serve shelves and the cart (and the gold coin).
+installCoins();
+shopUI = makeShopUI({
+  S, send, toast, thumb: (id) => itemThumb(id), world, serverNow,
+  onBackToChat: () => { if (S.talk) { $('npcpanel').hidden = false; renderExtra(); } },
+  onClose: () => closeTalk(),
 });
 
 // Header status: friendship hearts (each 20 points, filling part-way), how close you
@@ -1016,7 +1029,7 @@ function renderExtra() {
   box.appendChild(list);
 }
 $('npc-city').onclick = () => showCity();
-$('npc-shop').onclick = () => { S.talk.extra = S.talk.extra === 'shop' ? null : 'shop'; renderExtra(); };
+$('npc-shop').onclick = () => { S.talk.extra = null; renderExtra(); $('npcpanel').hidden = true; shopUI.openShop(S.talk.view); };
 $('npc-gift').onclick = () => { S.talk.extra = S.talk.extra === 'gift' ? null : 'gift'; renderExtra(); };
 $('npc-form').onsubmit = (e) => {
   e.preventDefault();
@@ -2862,6 +2875,7 @@ addEventListener('keydown', (e) => {
   if (k === 'escape' && S.mode === 'build' && !S.held && !S.chain && !drag && HOLD_KINDS.includes(S.tool.kind)) { S.tool = { kind: 'select' }; syncStrip(); renderItems(); refreshPreview(); return; }
   if (k === 'escape' && (S.held || S.chain)) { S.held = null; S.chain = null; if (S.tool.kind === 'movehouse' || S.tool.kind === 'blueprint') S.tool = { kind: 'none' }; syncStrip(); renderItems(); refreshPreview(); return; }
   if (k === 'escape' && !$('usemenu').hidden) { closeUseMenu(); return; }
+  if (k === 'escape' && shopUI.escape()) return;
   if (k === 'escape') { if (drag) { drag = null; refreshPreview(); } else if (S.talk && (S.talk.extra || S.talk.about)) escTalk(); else { setMode('walk'); closeTalk(); closeModal(); toggleMap(false); } }
   if (k === 'b') $('btn-build').click();
   if (k === 'q') turnCamera(-1);
@@ -3303,6 +3317,7 @@ function update(dt) {
   runQueue(performance.now());
   freeWill(performance.now());
   group.frame(performance.now());
+  shopUI.frame(performance.now());
   if (S.queue.length) tickQueue(performance.now());
   checkViewKey();
   // Steering: the stick / keys, or a tap-to-walk path.
@@ -3573,7 +3588,7 @@ const freeFailed = {};
 function freeWill(now) {
   if (now - freeWillAt < 2000 || !freeWillOn() || !S.needs) return;
   freeWillAt = now;
-  if (S.queue.length || S.act || S.walk || S.mode !== 'walk' || S.talk || S.ride || group.isOpen() || bag?.isOpen() || modalKind || cityOpen() || now - lastInput < 8000) return;
+  if (S.queue.length || S.act || S.walk || S.mode !== 'walk' || S.talk || S.ride || group.isOpen() || shopUI.isOpen() || bag?.isOpen() || modalKind || cityOpen() || now - lastInput < 8000) return;
   const h = worldClock(serverNow(), S.epoch).hours, night = h >= 22 || h < 5;
   let best = null;
   for (const [id, at0] of Object.entries(FREE_AT)) {
@@ -3757,65 +3772,7 @@ function shopAction(u, act) {
   const at = { plotId: u.plot.id, level: u.level, lx: u.lx, ly: u.ly };
   if (act === 'shop:collect') return send({ type: 'collect', ...at });
   if (act === 'shop:make') return showMake(u, at);
-  if (act === 'shop:stock') return showStock(u, at);
-  if (act === 'shop:browse') return showBrowse(u, at, o);
-}
-const shelfOf = (u) => (u.level ? u.plot.l1 : u.plot).obj[u.key];
-
-// Owner: what's on this shelf, prices, and adding goods from the bag.
-function showStock(u, at) {
-  const body = openModal('stock', `📦 ${ITEMS[u.t].name}`);
-  const draw = () => {
-    body.innerHTML = '';
-    const o = shelfOf(u);
-    const stock = o?.stock || [];
-    body.insertAdjacentHTML('beforeend', `<p class="muted">${stock.length}/${slotsOf(u.t)} kinds of goods. Customers buy more when prices are fair (around the value shown).</p>`);
-    stock.forEach((sl, i) => {
-      const row = itemRow(sl.item, `×${sl.n} on the shelf · worth about 🪙${valueOf(sl.item)}`, []);
-      const price = document.createElement('input');
-      price.type = 'number'; price.min = 1; price.value = sl.price; price.className = 'price';
-      price.addEventListener('keydown', (e) => e.stopPropagation());
-      price.onchange = () => send({ type: 'restock', ...at, slot: i, price: +price.value });
-      const take = document.createElement('button'); take.textContent = 'Take back';
-      take.onclick = () => send({ type: 'restock', ...at, slot: i, take: true });
-      row.append(document.createTextNode('🪙'), price, take);
-      body.appendChild(row);
-    });
-    const goods = Object.entries(S.inv).filter(([k, n]) => n > 0 && sellable(k));
-    body.insertAdjacentHTML('beforeend', '<h3>Add from your bag</h3>');
-    if (!goods.length) body.insertAdjacentHTML('beforeend', '<p class="muted">Nothing to sell yet: harvest crops, or make products in machines (Build → Shop & Machines).</p>');
-    for (const [k, n] of goods) {
-      const row = itemRow(k, `×${n} in your bag · worth about 🪙${valueOf(k)}`, []);
-      const qty = document.createElement('input'); qty.type = 'number'; qty.min = 1; qty.max = n; qty.value = n; qty.className = 'qty';
-      const price = document.createElement('input'); price.type = 'number'; price.min = 1; price.value = stock.find((x) => x.item === k)?.price || valueOf(k); price.className = 'price';
-      for (const i of [qty, price]) i.addEventListener('keydown', (e) => e.stopPropagation());
-      const add = document.createElement('button'); add.textContent = 'Put out';
-      add.onclick = () => send({ type: 'stock', ...at, item: k, n: +qty.value, price: +price.value });
-      row.append(qty, document.createTextNode(' × 🪙'), price, add);
-      body.appendChild(row);
-    }
-  };
-  draw();
-  S.stockRedraw = draw;
-}
-
-// Customers: buy off someone's shelf.
-function showBrowse(u, at, o) {
-  const owner = u.plot.biz;
-  const body = openModal('browse', `🛍️ ${owner?.name || 'Shop'}`);
-  const draw = () => {
-    body.innerHTML = '';
-    const stock = shelfOf(u)?.stock || [];
-    const { hours } = worldClock(serverNow(), S.epoch);
-    const tillManned = [...S.players.values()].some((p) => p.id === u.plot.owner && p.act === 'cashier');
-    if (!shopOpen(owner, hours, tillManned)) body.insertAdjacentHTML('beforeend', `<p class="warn">Closed right now${owner?.staff ? ` (${STAFF[owner.staff].name} works ${OPEN_HOURS[0]} AM – ${OPEN_HOURS[1] - 12} PM)` : ''}.</p>`);
-    if (!stock.length) body.insertAdjacentHTML('beforeend', '<p class="muted">This shelf is empty.</p>');
-    stock.forEach((sl, i) => {
-      body.appendChild(itemRow(sl.item, `×${sl.n} · 🪙${sl.price} each`, [[`Buy 1 · 🪙${sl.price}`, () => send({ type: 'buyStock', ...at, slot: i, n: 1 }), S.coins < sl.price]]));
-    });
-  };
-  draw();
-  S.stockRedraw = draw;
+  if (act === 'shop:stock' || act === 'shop:browse') return shopUI.openShelf(u);
 }
 
 // Owner: start a machine on a recipe.
@@ -3876,7 +3833,6 @@ function saleFx(m) {
   const reg = Object.entries(plot.obj).find(([, o]) => o.t === 'register');
   const [lx, ly] = reg ? reg[0].split(',').map(Number) : [plot.w / 2, plot.h / 2];
   saleFxs.push({ x: plot.x + lx + 0.5, z: plot.y + ly + 1.6, coins: m.coins, icon: GOODS[m.item]?.icon || '🛍️', t: performance.now(), who: m.who, look: shopperLook(m.who) });
-  if (S.stockRedraw && (modalKind === 'stock' || modalKind === 'browse')) S.stockRedraw();
 }
 const shopperLooks = new Map();
 function shopperLook(who) {
@@ -4581,7 +4537,7 @@ if (new URLSearchParams(location.search).has('debug')) {
     plotToClient: (lx, ly, h = 0, plotId = S.myPlot) => { const d = S.plots[plotId]; return view.toScreen(d.x + lx, S.level * LEVEL_H + h, d.y + ly); },
     worldToClient: (x, z, h = 0) => view.toScreen(x, h, z),
     tileToClient: (tx, ty) => view.toScreen(tx + 0.5, 0, ty + 0.5),
-    setLevel, cycleWalls, turnCamera, setMode, send, nearestUsable, usableAt, showCity: () => showCity(), showBag: () => showBag(), showSettings: (t) => showSettings(t), queueForNeed: (id, o) => queueForNeed(id, o), freeWill: () => { freeWillAt = 0; freeWill(performance.now()); }, audio: () => audio, season: (id) => { S.seasonOverride = id; },
+    setLevel, cycleWalls, turnCamera, setMode, send, nearestUsable, usableAt, showCity: () => showCity(), showBag: () => showBag(), showSettings: (t) => showSettings(t), queueForNeed: (id, o) => queueForNeed(id, o), openShelf: (plotId, level, key) => shopUI.openShelf({ plot: S.plots[plotId], level, key }), freeWill: () => { freeWillAt = 0; freeWill(performance.now()); }, audio: () => audio, season: (id) => { S.seasonOverride = id; },
   };
 }
 
