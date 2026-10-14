@@ -43,9 +43,11 @@ function legs(c, L, dir, frame) {
   }
   // side view (facing right; left is mirrored): far leg, then near leg. Each foot swings
   // forward and back with the stride, the lifted one tucked up a little at the knee.
-  const swing = [0, 2.5, 0, -2.5][frame], lift = [0, 1, 0, 1][frame];
-  leg(c, L, -0.5, -9, -swing, -2 - (swing < 0 ? lift : 0), false);
-  leg(c, L, 0, -9, swing, -2 - (swing > 0 ? lift : 0), true);
+  // The hip dips a little mid-stride so both feet still reach the ground.
+  const swing = [0, 2.2, 0, -2.2][frame], lift = [0, 1, 0, 1][frame];
+  const hy = -2 - Math.sqrt(Math.max(0, (2 * LEG_B) ** 2 - swing * swing));
+  leg(c, L, -0.5, hy, -swing, -2 - (swing < 0 ? lift : 0), false);
+  leg(c, L, 0, hy, swing, -2 - (swing > 0 ? lift : 0), true);
   if (!dress) { r(c, -3, -10, 6, 3, P[2]); r(c, -3, -10, 6, 1, P[3]); }
 }
 
@@ -90,14 +92,22 @@ function arm(c, L, sx, sy, tx, ty, bend, far = false) {
   return j;
 }
 // One side-on leg: hip → knee → ankle, a shoe at the ankle pointing forward (+x).
-function leg(c, L, hx, hy, tx, ty, near) {
-  const j = ik(hx, hy, tx, ty, 4.2, 4.2, -1);
+// Thigh and shin are each LEG_B long: a straight standing leg from the hip (row -9.2) to
+// the ankle (row -2, the top of the shoe). knee: put the knee exactly there (sitting,
+// kneeling); otherwise IK bends it forwards. back: the shoe points backwards (a knee
+// on the ground, toes behind).
+const LEG_B = 3.6;
+function leg(c, L, hx, hy, tx, ty, near, knee = null, back = false) {
+  const j = knee ? { ex: knee[0], ey: knee[1], hx: tx, hy: ty } : ik(hx, hy, tx, ty, LEG_B, LEG_B, -1);
   const P = L.P, dress = L.shirt.kind === 'dress', t = near ? 2 : 1;
   const col = dress ? L.K[t] : P[t], edge = dress ? L.K[t - 1] : P[t - 1];
   bone(c, hx, hy, j.ex, j.ey, 3, col, edge);
   bone(c, j.ex, j.ey, j.hx, j.hy, 3, col, edge);
   const ax = Math.round(j.hx), ay = Math.round(j.hy);
-  r(c, ax - 2, ay, 4, 2, SHOE[t]); r(c, ax - 2, ay, 4, 1, SHOE[t === 2 ? 2 : 2]); px(c, ax + 1, ay + 1, SHOE[0]);
+  // shoe: heel under the ankle, toe forward (or back), dark sole underneath
+  const x0 = back ? ax - 3 : ax - 1;
+  r(c, x0, ay, 4, 1, SHOE[t]); r(c, x0, ay + 1, 4, 1, SHOE[1]);
+  px(c, back ? x0 : x0 + 3, ay + 1, SHOE[0]); px(c, back ? x0 + 3 : x0, ay, SHOE[2]);
 }
 
 // Little props held in the hands.
@@ -131,6 +141,7 @@ function handsFront(arms, y0, F, f, frame) {
     case 'whittle': return { l: [-2, y0 + 7], r: [1 + (f % 2), y0 + 6], prop: ['stick', -2, y0 + 7] };
     case 'lap': return { l: [-4.5, y0 + 9.5], r: [4.5, y0 + 9.5] };
     case 'rest': return { l: [-1.5, y0 + 6], r: [1.5, y0 + 6] };
+    case 'pet': return { l: [-4.5, y0 + 9], r: [2 + (f % 2) * 2, y0 + 12] };
     default: return { l: [-5.5, y0 + 8 - SWAY[frame]], r: [5.5, y0 + 8 + SWAY[frame]] };
   }
 }
@@ -149,6 +160,7 @@ function handSide(arms, y0, F, f, frame) {
     case 'whittle': return { h: [4, y0 + 6 + (f % 2)], prop: ['stick', 4, y0 + 6] };
     case 'lap': return { h: [3.5, y0 + 8] };
     case 'rest': return { h: [2.5, y0 + 6.5] };
+    case 'pet': return { h: [6 + (f % 2) * 1.5, y0 + 11.5] };
     default: return { h: [0.5 + SWAY[frame] * 2, y0 + 8] };
   }
 }
@@ -194,9 +206,20 @@ function legsSitting(c, L, dir) {
     return;
   }
   // side view facing right: hip on the seat, thigh straight out, shin down to the floor
-  leg(c, L, 0, -6.5, 5, -2, false);
-  leg(c, L, -0.5, -6.5, 4.5, -2, true);
+  leg(c, L, -0.5, -6, 4, -2, false, [3.5, -6]);
+  leg(c, L, 0, -6, 4.5, -2, true, [4, -6]);
   if (!dress) { r(c, -3, -9, 6, 3, P[2]); r(c, -3, -9, 6, 1, P[3]); }
+}
+
+// Kneeling (petting a pet, crouching to sit down): side-on, the front foot flat with
+// its knee up and the back knee on the ground, toes behind. From the front or back it
+// reads like a low crouch, so it borrows the seated legs.
+const KNEEL_DROP = 3;
+function legsKneel(c, L, dir) {
+  if (dir === 0 || dir === 1) return legsSitting(c, L, dir);
+  leg(c, L, -0.5, -6.2, -4, -2, false, [-0.5, -2.2], true);
+  leg(c, L, 0, -6.2, 3, -2, true, [3, -5.5]);
+  if (L.shirt.kind !== 'dress') { r(c, -3, -7.2, 6, 2, L.P[2]); r(c, -3, -7.2, 6, 1, L.P[3]); }
 }
 
 // ---------- torso & arms ----------
@@ -638,14 +661,14 @@ function hatAcc(c, L, F, dir) {
 function paint(c, L, dir, frame, pose = null, arms = null, f = 0) {
   const side = dir === 2 || dir === 3;
   if (dir === 2) { c.scale(-1, 1); dir = 3; }
-  const sit = pose === 'sit';
-  if (sit) frame = 0;
+  const sit = pose === 'sit', kneel = pose === 'kneel';
+  if (sit || kneel) frame = 0;
   if (sit && !arms) arms = 'lap';
   const bob = frame % 2 ? -1 : 0;
-  const drop = sit ? SIT_DROP : 0;
+  const drop = sit ? SIT_DROP : kneel ? KNEEL_DROP : 0;
   const y0 = -18 + bob + drop;       // torso top
   const F = -28 + bob + drop;        // face top
-  if (sit) legsSitting(c, L, dir); else legs(c, L, dir, frame);
+  if (sit) legsSitting(c, L, dir); else if (kneel) legsKneel(c, L, dir); else legs(c, L, dir, frame);
   if (side) {
     // far arm behind the body, near arm in front
     const H = handSide(arms, y0, F, f, frame);
@@ -656,6 +679,7 @@ function paint(c, L, dir, frame, pose = null, arms = null, f = 0) {
     if (H.prop) prop(c, H.prop[0], H.prop[1], H.prop[2], f);
     face(c, L, F, 3);
     if (arms === 'rest') { r(c, 1, F + 4, 2, 2, L.K[2]); r(c, 1, F + 5, 2, 1, LASH); }
+    if ((arms === 'eat' || arms === 'drink') && f % 2) px(c, 2, F + 8, '#6a2a2a');
     brows(c, L, F, 3);
     faceAcc(c, L, F, 3);
     hairSide(c, L, F);
@@ -666,6 +690,7 @@ function paint(c, L, dir, frame, pose = null, arms = null, f = 0) {
     torsoFront(c, L, y0, dir === 1);
     if (dir === 0) armsFront(c, L, y0, F, frame, arms, f, false);
     face(c, L, F, dir);
+    if (dir === 0 && (arms === 'eat' || arms === 'drink') && f % 2) { r(c, -1, F + 7, 2, 2, '#6a2a2a'); }
     if (dir === 0 && arms === 'rest') { for (const x of [-3, 1]) { r(c, x, F + 4, 2, 2, L.K[2]); r(c, x, F + 5, 2, 1, LASH); } }
     if (dir === 0) brows(c, L, F, 0);
     faceAcc(c, L, F, dir);

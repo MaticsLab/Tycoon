@@ -3916,9 +3916,17 @@ function render(now) {
       view.actor(p.id, U(p.x) + bx, U(p.y) + bz, p.dir, false, p.look, now, true, h + 0.62, null, { kind: 'sit' });
       return;
     }
-    const pose = actPose(p);
+    let pose = actPose(p);
+    // Petting your pet: kneel down facing it and stroke it.
+    const pet = pets.get(p.id);
+    let facing = p.dir;
+    if (!pose && pet && pet.heartUntil > now && !p.moving && Math.hypot(pet.x - p.x, pet.y - p.y) < TILE * 3) {
+      pose = { pose: { kind: 'kneel', arms: 'pet' } };
+      const dx = pet.x - p.x, dz = pet.y - p.y;
+      facing = Math.abs(dx) > Math.abs(dz) ? (dx > 0 ? 3 : 2) : dz > 0 ? 0 : 1;
+    }
     if (pose?.pose?.head) for (const k of ['head', 'foot', 'edge']) pose.pose[k] = { ...pose.pose[k], y: pose.pose[k].y + h };
-    view.actor(p.id, pose?.at ? pose.at.x : U(p.x), pose?.at ? pose.at.z : U(p.y), p.dir, p.running ? 'run' : p.moving, p.look, now, pose?.vis ?? true, h + (pose?.y || 0), null, pose?.pose || null);
+    view.actor(p.id, pose?.at ? pose.at.x : U(p.x), pose?.at ? pose.at.z : U(p.y), facing, p.running ? 'run' : p.moving, p.look, now, pose?.vis ?? true, h + (pose?.y || 0), null, pose?.pose || null);
   };
   for (const p of S.players.values()) drawPerson(p, hOf(p));
   for (const n of S.npcs.values()) {

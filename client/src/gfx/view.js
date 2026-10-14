@@ -343,7 +343,13 @@ export class View {
     if (pet) spr = pet.animal ? animalSprite(pet.animal, dir, frame, pet.sit ? 'sit' : null) : petSprite(pet.idx, dir, frame, pet.sit);
     else {
       if (a.lookRef !== look) { a.lookRef = look; a.look = sanitizeLook(look); }
-      spr = personSprite(a.look, dir, frame, kind === 'sit' ? 'sit' : null, pose?.arms || null, Math.floor(now / 320) % 4);
+      // Sitting down and getting up pass through a quick crouch, so nobody snaps into
+      // (or out of) a chair.
+      const seated = kind === 'sit';
+      if (seated !== !!a.seated) { a.seated = seated; a.seatT = now; }
+      const crouch = a.seatT && now - a.seatT < (seated ? 260 : 220);
+      const legsPose = crouch ? 'kneel' : seated ? 'sit' : kind === 'kneel' ? 'kneel' : null;
+      spr = personSprite(a.look, dir, legsPose ? 0 : frame, legsPose, crouch ? (seated ? 'lap' : null) : pose?.arms || null, Math.floor(now / 320) % 4);
     }
     const tex = texOf(spr.cv);
     if (a.tex !== tex || a.lie !== lie) {
@@ -375,7 +381,7 @@ export class View {
     const sleep = kind === 'sleep' && !pet;
     a.sprite.isVisible = vis && !sleep && kind !== 'hidden';
     a.blob.position.set(x, y, z);
-    a.blob.isVisible = vis && !kind; // no ground shadow while sitting or lying on things
+    a.blob.isVisible = vis && (!kind || kind === 'kneel'); // no ground shadow while sitting or lying on things
     if (sleep) this.sleeper(a, x, y, z, pose, vis);
     else if (a.sleep) a.sleep.isVisible = false;
   }
