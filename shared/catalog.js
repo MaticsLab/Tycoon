@@ -239,8 +239,9 @@ export const ITEMS = {
   // them to things that need them (needs: 'water' | 'power').
   spout:         { name: 'Ground Spout',   cat: 'utility', layer: 'obj', price: 60, solid: true, utility: 'water', shop: 'mabel' },
   powerbox:      { name: 'Power Box',      cat: 'utility', layer: 'obj', price: 90, solid: true, rot: 'face', utility: 'power', shop: 'mabel' },
-  pipe:          { name: 'Water Pipe',     cat: 'utility', layer: 'obj', price: 3, flat: true, carries: 'water' },
-  cable:         { name: 'Power Cable',    cat: 'utility', layer: 'obj', price: 3, flat: true, carries: 'power' },
+  // Pipes and cables are buried: they run under crops, floors and furniture (plot.under).
+  pipe:          { name: 'Water Pipe',     cat: 'utility', layer: 'under', price: 3, carries: 'water' },
+  cable:         { name: 'Power Cable',    cat: 'utility', layer: 'under', price: 3, carries: 'power' },
   sprinkler:     { name: 'Sprinkler',      cat: 'utility', layer: 'obj', price: 45, needs: 'water', reach: 1 },
   bigsprinkler:  { name: 'Big Sprinkler',  cat: 'utility', layer: 'obj', price: 120, needs: 'water', reach: 2 },
   harvester:     { name: 'Auto-Harvester', cat: 'utility', layer: 'obj', price: 260, solid: true, needs: 'power', reach: 3 },

@@ -76,6 +76,22 @@ export function occupancy(view) {
 }
 export const occChanged = (plot) => { occCache.delete(plot); if (plot.l1) occCache.delete(plot.l1); };
 
+// Buried pipes and cables (plot.under[item][tile] = 1). Older saves kept them as
+// ground-floor objects: move those underground. Returns true if anything moved.
+export function buryPipes(plot) {
+  let moved = false;
+  for (const [k, o] of Object.entries(plot.obj || {})) {
+    if (ITEMS[o.t]?.layer !== 'under') continue;
+    ((plot.under ||= {})[o.t] ||= {})[k] = 1;
+    delete plot.obj[k];
+    moved = true;
+  }
+  for (const [k, o] of Object.entries(plot.l1?.obj || {})) if (ITEMS[o.t]?.layer === 'under') { delete plot.l1.obj[k]; moved = true; }
+  if (moved) occChanged(plot);
+  return moved;
+}
+export const underAt = (plot, id, lx, ly) => !!plot.under?.[id]?.[key(lx, ly)];
+
 export function objAt(view, lx, ly) {
   const k = occupancy(view).get(key(lx, ly));
   return k ? { key: k, obj: view.obj[k] } : null;
@@ -167,7 +183,7 @@ export function roadEditError(world, plot, tiles, on) {
     if (roadIn(world, plot, lx, ly) === on) continue;
     if (on) {
       const k = key(lx, ly);
-      if (plot.floor[k] || objAt(plot, lx, ly) || plot.l1?.floor[k] || objAt(plot.l1 || { obj: {} }, lx, ly)) return 'Clear the land first';
+      if (plot.floor[k] || objAt(plot, lx, ly) || Object.values(plot.under || {}).some((t) => t[k]) || plot.l1?.floor[k] || objAt(plot.l1 || { obj: {} }, lx, ly)) return 'Clear the land first';
       for (const [d, x, y] of [['h', lx, ly], ['h', lx, ly + 1], ['v', lx, ly], ['v', lx + 1, ly]]) {
         for (let l = 0; l < LEVELS; l++) if (wallAt(plot, l, d, x, y)) return 'A wall is in the way';
       }
@@ -294,6 +310,13 @@ export function placementError(plot, lx, ly, itemId, r = 0, level = 0, world = n
     if (isSoil(view.floor[k]) && here) return 'Clear it first';
     return null;
   }
+  if (item.layer === 'under') {
+    if (level) return 'Pipes and cables are buried under the ground floor';
+    if (!inInterior(plot, lx, ly)) return 'Outside your plot';
+    if (roadIn(world, plot, lx, ly)) return roadMsg;
+    if (plot.under?.[itemId]?.[key(lx, ly)]) return 'Already there';
+    return null;
+  }
   if (item.layer !== 'obj') return 'Use the wall tools for that';
   if (!canRotate(itemId) && r) return 'That item can’t be rotated';
   if (item.stairs && level) return 'Stairs go on the ground floor';
@@ -374,6 +397,7 @@ function eachContent(plot, fn) {
       for (const [tx, ty] of tilesOf(o.t, o.r || 0, x, y)) fn('tile', tx, ty);
     }
   }
+  for (const tiles of Object.values(plot.under || {})) for (const k of Object.keys(tiles)) { const [x, y] = k.split(',').map(Number); fn('tile', x, y); }
   for (const k of Object.keys(plot.walls || {})) { const e = parseEdge(k); fn(e.d, e.x, e.y); }
   for (const rf of plot.roofs || []) { fn('tile', rf.x, rf.y); fn('tile', rf.x + rf.w - 1, rf.y + rf.h - 1); }
 }
@@ -400,6 +424,7 @@ export function shiftContent(plot, dx, dy) {
   const remap = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [sk(k), v]));
   plot.floor = remap(plot.floor); plot.obj = remap(plot.obj);
   if (plot.l1) plot.l1 = { floor: remap(plot.l1.floor), obj: remap(plot.l1.obj) };
+  if (plot.under) plot.under = Object.fromEntries(Object.entries(plot.under).map(([id, tiles]) => [id, remap(tiles)]));
   plot.walls = Object.fromEntries(Object.entries(plot.walls || {}).map(([k, v]) => {
     const e = parseEdge(k);
     return [edgeKey(e.l, e.d, e.x + dx, e.y + dy), v];

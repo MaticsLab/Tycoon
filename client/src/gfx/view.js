@@ -267,13 +267,13 @@ export class View {
     const g = this.ground();
     // Cheap change check: the server bumps a plot's rev on every edit (plus its size,
     // owner and content counts in case a plot was replaced). Returns true if rebuilt.
-    const counts = [state.floor, state.obj, state.l1?.floor, state.l1?.obj, state.walls].map((o) => (o ? Object.keys(o).length : 0)).join('.');
-    const sig = JSON.stringify([state.rev ?? 0, state.x, state.y, state.w, state.h, state.owner, counts, (state.roofs || []).length, opts.variant || '', opts.cut, opts.maxLevel, opts.roofs, opts.crops, this.quadrant, opts.entrance]);
+    const counts = [state.floor, state.obj, state.l1?.floor, state.l1?.obj, state.walls, state.under?.pipe, state.under?.cable].map((o) => (o ? Object.keys(o).length : 0)).join('.');
+    const sig = JSON.stringify([state.rev ?? 0, state.x, state.y, state.w, state.h, state.owner, counts, (state.roofs || []).length, opts.variant || '', opts.cut, opts.maxLevel, opts.roofs, opts.crops, this.quadrant, opts.entrance, !!opts.under]);
     let p = this.plots.get(state.id);
     if (p && p.sig === sig) return false;
     this.removePlot(state.id);
     const cards = new BillboardSet();
-    const built = buildPlot(state, { cut: { mode: opts.cut, fx: g.fx, fz: g.fz }, maxLevel: opts.maxLevel, roofs: opts.roofs, cards, now: opts.now, entrance: opts.entrance });
+    const built = buildPlot(state, { cut: { mode: opts.cut, fx: g.fx, fz: g.fz }, maxLevel: opts.maxLevel, roofs: opts.roofs, cards, now: opts.now, entrance: opts.entrance, under: opts.under });
     cards.build(this.basis());
     freeze(built.group);
     p = { group: built.group, cards, lights: built.lights, sig };

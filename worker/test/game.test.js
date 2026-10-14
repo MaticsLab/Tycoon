@@ -1326,6 +1326,21 @@ test('farm life: drop and give, City Hall water and power, sprinklers, harvester
   a.send({ type: 'place', plotId: 0, lx: 7, ly: 11, item: 'cable' });
   a.send({ type: 'place', plotId: 0, lx: 6, ly: 11, item: 'harvester' });
   assert.ok(connected(plot, '6,11'));
+  // Pipes are buried: a long run under a crop still reaches a far sprinkler, and you
+  // can dig a pipe back up.
+  for (let x = 3; x <= 13; x++) if (x !== 4) a.send({ type: 'place', plotId: 0, lx: x, ly: 13, item: 'pipe' });
+  a.send({ type: 'place', plotId: 0, lx: 4, ly: 13, item: 'pipe' });
+  a.send({ type: 'place', plotId: 0, lx: 4, ly: 13, item: 'pipe' }); // already there
+  assert.equal(plot.obj['4,13'], undefined, 'pipes are not ground objects');
+  a.send({ type: 'place', plotId: 0, lx: 9, ly: 13, item: 'soil' });
+  a.send({ type: 'place', plotId: 0, lx: 9, ly: 13, item: 'seed_carrot' });
+  assert.equal(plot.obj['9,13'].t, 'seed_carrot', 'a crop on top of a pipe');
+  a.send({ type: 'place', plotId: 0, lx: 14, ly: 13, item: 'sprinkler' });
+  assert.ok(connected(plot, '14,13'), 'water runs under the crop to the far sprinkler');
+  a.send({ type: 'remove', plotId: 0, lx: 11, ly: 13, under: 'pipe' });
+  assert.ok(!plot.under.pipe['11,13']);
+  assert.ok(!connected(plot, '14,13'), 'cut the line, the sprinkler stops');
+  a.send({ type: 'remove', plotId: 0, lx: 14, ly: 13 });
   advance(3100); game.tick();
   assert.equal(sa.profile.inv.carrot, 2, 'harvested both ripe carrots');
   assert.equal(plot.obj['5,12'].t, 'seed_carrot', 'and replanted');
@@ -1800,4 +1815,13 @@ test('every villager has a cottage on Maple Lane they can walk home to', async (
       }
     }
   }
+});
+
+test('old saves: pipes and cables placed as objects are buried on load', async () => {
+  const { buryPipes } = await import('../../shared/plot.js');
+  const plot = { obj: { '1,1': { t: 'pipe' }, '2,1': { t: 'cable' }, '3,1': { t: 'sprinkler' } }, floor: {} };
+  assert.ok(buryPipes(plot));
+  assert.deepEqual(plot.under, { pipe: { '1,1': 1 }, cable: { '2,1': 1 } });
+  assert.deepEqual(Object.keys(plot.obj), ['3,1']);
+  assert.ok(!buryPipes(plot));
 });

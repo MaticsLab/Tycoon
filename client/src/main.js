@@ -7,6 +7,7 @@ import {
   LEVELS, wallError, lineEdges, rectEdges, roofError, roofAt, edgeKey,
   indexPlots, landError, contentFits, mergedRect, splitRects, hasContent, LAND_PRICE,
   stepLevel, heightAt, roadEditError, roadIn, plotEntrance, occChanged, wallRun, parseEdge, wallHeight, wallLine, lineEdges2, HEIGHT_ORDER, HEIGHT_NAMES,
+  underAt,
 } from '@shared/plot.js';
 import { ITEMS, GOODS, CATEGORIES, cropStage, isWet, itemName } from '@shared/catalog.js';
 import { FARMHANDS, TRACTOR_MODES, SEEDS, connected, networks, UTILITIES, QUALITY, ANIMALS, seasonOf, seasonDay, inSeason, growsAt, seasonsLabel } from '@shared/farm.js';
@@ -1133,7 +1134,15 @@ function renderMe(body) {
 }
 
 // ---------- Build mode (Sims-style) ----------
-const LAYER_KIND = { wall: 'wall', feature: 'feature', floor: 'floor', roof: 'roof', obj: 'obj' };
+const LAYER_KIND = { wall: 'wall', feature: 'feature', floor: 'floor', roof: 'roof', obj: 'obj', under: 'obj' };
+// Pipes and cables are laid in runs: an L from where you press to where you let go.
+const isLine = (id) => ITEMS[id]?.layer === 'under';
+function lineTiles(a, b) {
+  const out = [], sx = Math.sign(b[0] - a[0]), sy = Math.sign(b[1] - a[1]);
+  for (let x = a[0]; ; x += sx) { out.push([x, a[1]]); if (x === b[0]) break; }
+  if (sy) for (let y = a[1] + sy; ; y += sy) { out.push([b[0], y]); if (y === b[1]) break; }
+  return out;
+}
 const toolOf = (id) => ({ kind: LAYER_KIND[ITEMS[id].layer], id });
 
 // The catalog: a rail of groups on the left, the group's categories as tabs, a two-row
@@ -1750,6 +1759,15 @@ function previewInner() {
     const bad = !wall ? 'Point at a wall' : edges.some((e) => !plot.walls?.[edgeKey(S.level, ...e)]) ? 'Needs two wall segments side by side' : coinsErr(S.freeBuild ? 0 : d.price);
     ghost.walls(edges, def, S.level, !bad, false, wall?.m);
     tip(`${d.name} · 🪙${d.price}${wall?.f ? ` · replaces ${ITEMS[wall.f].name}` : ''}`, bad);
+  } else if (t.kind === 'obj' && isLine(t.id)) {
+    const q = pickLocal(hover.cx, hover.cy);
+    if (!q) return;
+    const run = lineTiles(drag?.start || tileOf(q), drag?.cur || tileOf(q));
+    if (run.length === 1 && underAt(plot, t.id, ...run[0])) { ghost.tiles(run, def, S.level, false, 0.3); tip(`Dig up this ${d.name.toLowerCase()} · +🪙${d.price}`); return; }
+    const todo = run.filter(([x, y]) => !placementError(plot, x, y, t.id, 0, S.level, world));
+    const bad = !todo.length ? placementError(plot, ...run[0], t.id, 0, S.level, world) : S.freeBuild ? null : coinsErr(d.price * todo.length);
+    ghost.tiles(run, def, S.level, !bad, 0.3);
+    tip(`${d.name} · ${todo.length} × 🪙${d.price}${drag ? '' : ' · drag to lay a run, tap one to dig it up'}`, bad);
   } else if (t.kind === 'obj') {
     const q = pickLocal(hover.cx, hover.cy);
     if (!q) return;
@@ -1844,6 +1862,8 @@ function removeUndo(plot, target, base) {
     const [ax, ay] = hit.key.split(',').map(Number);
     return [{ type: 'place', ...base, lx: ax, ly: ay, item: hit.obj.t, r: hit.obj.r || 0 }];
   }
+  const dug = !S.level && buriedAt(plot, target.lx, target.ly);
+  if (dug) return [{ type: 'place', ...base, lx: target.lx, ly: target.ly, item: dug }];
   const f = v.floor[key(target.lx, target.ly)];
   return f ? [{ type: 'floorRect', ...base, x: target.lx, y: target.ly, w: 1, h: 1, item: f }] : [];
 }
@@ -2483,7 +2503,8 @@ function removeLabel(plot, target) {
   if (target.roof) return 'roof';
   const v = levelView(plot, S.level);
   const hit = objAt(v, target.lx, target.ly);
-  return hit ? ITEMS[hit.obj.t].name : ITEMS[v.floor[key(target.lx, target.ly)]]?.name || 'floor';
+  const dug = !hit && !S.level && buriedAt(plot, target.lx, target.ly);
+  return hit ? ITEMS[hit.obj.t].name : dug ? ITEMS[dug].name : ITEMS[v.floor[key(target.lx, target.ly)]]?.name || 'floor';
 }
 
 // The road tools: the tiles under the drag that would change, and why not if refused.
@@ -2570,9 +2591,11 @@ function removeTarget(h) {
     for (let j = 0; j < hh; j++) for (let i = 0; i < w; i++) tiles.push([ax + i, ay + j]);
     return { lx, ly, tiles };
   }
-  if (view_.floor[key(lx, ly)]) return { lx, ly, tiles: [[lx, ly]] };
+  if ((!S.level && buriedAt(plot, lx, ly)) || view_.floor[key(lx, ly)]) return { lx, ly, tiles: [[lx, ly]] };
   return null;
 }
+// The pipe or cable buried at a ground tile (the sledgehammer digs it up before the floor).
+const buriedAt = (plot, lx, ly) => Object.keys(plot.under || {}).find((id) => plot.under[id][key(lx, ly)]) || null;
 
 function commit(h) {
   actionSent = [];
@@ -2628,6 +2651,20 @@ function commit(h) {
     const had = plot.walls[edgeKey(S.level, ...edge)].f;
     pushUndo(d.name, had ? [{ type: 'feature', ...base, d: edge[0], x: edge[1], y: edge[2], f: had }] : [{ type: 'remove', ...base, edge, featureOnly: true }]);
     out({ type: 'feature', ...base, d: edge[0], x: edge[1], y: edge[2], f: t.id });
+  } else if (t.kind === 'obj' && isLine(t.id)) {
+    const q = pickLocal(h.cx, h.cy);
+    if (!q) return;
+    const run = lineTiles(drag?.start || tileOf(q), drag?.cur || tileOf(q));
+    // A tap on a pipe that's already there digs it up.
+    if (run.length === 1 && underAt(plot, t.id, ...run[0])) {
+      pushUndo(`digging up ${d.name}`, [{ type: 'place', ...base, lx: run[0][0], ly: run[0][1], item: t.id }]);
+      return out({ type: 'remove', ...base, lx: run[0][0], ly: run[0][1], under: t.id });
+    }
+    const todo = run.filter(([x, y]) => !placementError(plot, x, y, t.id, 0, S.level, world));
+    if (!todo.length) { const err = placementError(plot, ...run[0], t.id, 0, S.level, world); if (err && err !== 'Already there') toast(err); return; }
+    if (!S.freeBuild && d.price * todo.length > S.coins) return toast('Not enough coins — sell some crops!');
+    pushUndo(d.name, todo.map(([x, y]) => ({ type: 'remove', ...base, lx: x, ly: y, under: t.id })));
+    for (const [x, y] of todo) out({ type: 'place', ...base, lx: x, ly: y, item: t.id });
   } else if (t.kind === 'obj') {
     const q = pickLocal(h.cx, h.cy);
     if (!q) return;
@@ -2879,6 +2916,7 @@ cv.addEventListener('pointerdown', (e) => {
     const q = pickLocal(hover.cx, hover.cy);
     if (q && S.tool.kind === 'remove' && !S.held) drag = { start: tileOf(q), cur: tileOf(q) };
     else if (q && S.tool.kind === 'wall' && (S.wallTool === 'chain' || S.wallTool === 'paint')) drag = null;
+    else if (q && S.tool.kind === 'obj' && isLine(S.tool.id) && !S.held) drag = { start: tileOf(q), cur: tileOf(q) };
     else if (q && ['wall', 'floor', 'roof', 'pave', 'dig'].includes(S.tool.kind)) drag = { start: S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q), cur: S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q) };
     else if (['resize', 'merge', 'split'].includes(S.tool.kind)) {
       const plot = myDef(), w = pickWorld(e.clientX, e.clientY);
@@ -2935,7 +2973,7 @@ cv.addEventListener('pointermove', (e) => {
     if (drag && drag.start) {
       const q = pickLocal(hover.cx, hover.cy);
       if (q) drag.cur = S.tool.kind === 'wall' ? cornerOf(q) : tileOf(q);
-      if (q && S.tool.kind === 'remove') drag.cur = tileOf(q);
+      if (q && (S.tool.kind === 'remove' || S.tool.kind === 'obj')) drag.cur = tileOf(q);
     }
     refreshPreview();
     return;
@@ -3179,7 +3217,7 @@ let lastHeld = null;
 let lastPlotSync = 0;
 function plotOpts(id) {
   const base = { cut: 'up', maxLevel: LEVELS - 1, roofs: true, now: serverNow() };
-  if (S.mode === 'build' && id === S.myPlot) return { ...base, cut: S.wallMode, maxLevel: S.level, roofs: S.wallMode === 'up' };
+  if (S.mode === 'build' && id === S.myPlot) return { ...base, cut: S.wallMode, maxLevel: S.level, roofs: S.wallMode === 'up', under: S.level === 0 };
   // Walking inside a house: cut the walls away and hide what's above, Sims-style.
   if (S.me && plotIdAtPixel(world, S.me.x, S.me.y) === id) {
     // Upstairs (or climbing): show both floors, cut away, no roof.

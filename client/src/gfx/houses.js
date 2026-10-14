@@ -10,6 +10,7 @@ import { Geo, box, quad, toMesh, node, lambert as mkLambert, basic as mkBasic } 
 import { objectSprite, cropSprite, treeSprite } from '../sprites.js';
 import { treeStage } from '@shared/nature.js';
 import { goodsBoxes } from './goods.js';
+import { networks } from '@shared/farm.js';
 import { FENCE_MODELS } from './models-fences.js';
 
 export { LEVEL_H }; // floor-to-floor height (shared with the game rules)
@@ -57,6 +58,80 @@ const stoneMat = () => mat('stoneplinth', () => lambert({ map: stoneTex() }));
 const glowMat = () => mat('lanternglow', () => mkBasic({ color: '#ffd27a' }));
 const awnMat = (a, b) => mat(`awn|${a}|${b}`, () => lambert({ map: awningTex(a, b), alphaTest: 0.5, doubleSided: true }));
 const signMat = (text) => mat(`sign|${text}`, () => lambert({ map: signTex(text, 128, 20), doubleSided: true }));
+
+// Buried pipes and cables. In build mode (show) they're drawn as joined runs on the
+// ground: a line between neighbouring tiles, never a lonely cross, and a spur into
+// anything on the line that needs or supplies it. Live lines (joined to the spout or
+// power box) are bright, dead ones grey. Otherwise they're out of sight, except a short
+// stub where a line comes up out of the ground into a sprinkler or machine.
+const LINE = {
+  pipe: { kind: 'water', off: 0.42, w: 0.1, h: 0.045, live: '#4f93d6', dead: '#7d8790', joint: '#2f5f8f', ring: '#d6a73c' },
+  cable: { kind: 'power', off: 0.6, w: 0.06, h: 0.035, live: '#e8b52a', dead: '#6b6457', joint: '#2b2723', ring: '#2b2723' },
+};
+function buried(batch, plot, ox, oz, show) {
+  const nets = networks(plot);
+  const users = new Map(); // tile -> kind of line it takes or gives
+  for (const [k, o] of Object.entries(plot.obj)) {
+    const d = ITEMS[o.t], kind = d?.needs || d?.utility;
+    if (!kind) continue;
+    const [x, y] = k.split(',').map(Number);
+    const [w, h] = footprint(o.t, o.r || 0);
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) users.set(`${x + i},${y + j}`, { kind, k, w, h, x, y });
+  }
+  for (const [id, tiles] of Object.entries(plot.under || {})) {
+    const L = LINE[id];
+    if (!L) continue;
+    const has = (x, y) => !!tiles[`${x},${y}`];
+    const takes = (x, y) => users.get(`${x},${y}`)?.kind === L.kind;
+    for (const k of Object.keys(tiles)) {
+      const [x, y] = k.split(',').map(Number);
+      const live = nets[L.kind]?.has(k);
+      const col = colorMat(live ? L.live : L.dead), jm = colorMat(L.joint);
+      const cx = ox + x + L.off, cz = oz + y + L.off;
+      const arms = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dy]) => has(x + dx, y + dy) || takes(x + dx, y + dy));
+      if (show) {
+        const y0 = 0.02;
+        batch.add(jm, boxAt(cx - L.w * 0.75, y0, cz - L.w * 0.75, L.w * 1.5, L.h + 0.01, L.w * 1.5));
+        for (const [dx, dy] of arms) {
+          // Half-way to the neighbour's line (the offset is the same on every tile, so
+          // neighbouring runs meet in one straight line).
+          const len = has(x + dx, y + dy) ? 0.5 : 0.75; // half-way to the next pipe, or into the sprinkler
+          if (dx) batch.add(col, boxAt(dx > 0 ? cx : cx - len, y0, cz - L.w / 2, len, L.h, L.w));
+          else batch.add(col, boxAt(cx - L.w / 2, y0, dy > 0 ? cz : cz - len, L.w, L.h, len));
+        }
+        if (!arms.length) batch.add(col, boxAt(cx - 0.18, y0, cz - L.w / 2, 0.36, L.h, L.w));
+        if (takes(x, y)) batch.add(colorMat(L.ring), boxAt(cx - L.w, y0, cz - L.w, L.w * 2, L.h + 0.03, L.w * 2));
+      }
+    }
+    if (show) continue;
+    // Out of build mode: a stub out of the ground into each thing on the line.
+    const done = new Set();
+    for (const [t, u] of users) {
+      if (u.kind !== L.kind || done.has(u.k)) continue;
+      const [tx, ty] = t.split(',').map(Number);
+      const from = has(tx, ty) ? [tx, ty, 0, 0] : [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => [tx + dx, ty + dy, dx, dy]).find(([nx, ny]) => has(nx, ny) && !users.get(`${nx},${ny}`));
+      if (!from) continue;
+      done.add(u.k);
+      const live = nets[L.kind]?.has(`${from[0]},${from[1]}`);
+      const col = colorMat(live ? L.live : L.dead), dirt = colorMat('#5a4128');
+      const [, , dx, dy] = from;
+      const bx = ox + tx + 0.5, bz = oz + ty + 0.5;
+      if (!dx && !dy) {
+        // Comes straight up under it: a collar on the ground.
+        batch.add(dirt, boxAt(bx - 0.16, 0, bz + 0.12, 0.32, 0.03, 0.14));
+        batch.add(col, boxAt(bx - L.w / 2, 0, bz + 0.1, L.w, 0.1, L.w));
+        continue;
+      }
+      // A short run from the edge of its tile back into the ground on the line's side,
+      // with a little mound of dug earth where it goes under.
+      const ex = bx + dx * 0.7, ez = bz + dy * 0.7;
+      if (dx) batch.add(col, boxAt(Math.min(bx + dx * 0.12, ex), 0.01, bz - L.w / 2, Math.abs(ex - bx) - 0.12, L.h, L.w));
+      else batch.add(col, boxAt(bx - L.w / 2, 0.01, Math.min(bz + dy * 0.12, ez), L.w, L.h, Math.abs(ez - bz) - 0.12));
+      batch.add(dirt, boxAt(ex - 0.11, 0, ez - 0.11, 0.22, 0.05, 0.22));
+      batch.add(colorMat('#6e5133'), boxAt(ex - 0.07, 0.05, ez - 0.07, 0.14, 0.02, 0.14));
+    }
+  }
+}
 
 function facade(batch, group, lights, plot, F) {
   const x0 = plot.x, z0 = plot.y, x1 = plot.x + plot.w, z1 = plot.y + plot.h, H = WALL_H;
@@ -436,6 +511,7 @@ export function buildPlot(plot, opts) {
     }
   }
 
+  buried(furn, plot, ox, oz, !!opts.under);
   furn.build(group, { noCast: materials().glowMat });
 
   // "For sale" sign where the plot meets the road

@@ -6,8 +6,7 @@ import { ITEMS, GOODS, CROPS, START_COINS, cropStage, isWet, isSoil, itemName } 
 import {
   key, inInterior, tilesOf, footprint, objAt, featurePair, wallRun, featureWidth, occChanged, placementError, canStand, levelView, canRotate,
   edgeKey, parseEdge, wallError, wallTouchesFeet, roofError, roofAt, indexPlots, roadIn, roadEditError, plotEntrance,
-  landError, contentFits, shiftContent, mergedRect, splitRects, hasContent, LAND_PRICE, stepLevel,
-} from '../../shared/plot.js';
+  landError, contentFits, shiftContent, mergedRect, splitRects, hasContent, LAND_PRICE, stepLevel, buryPipes } from '../../shared/plot.js';
 import { NPCS, heartsOf, HEART_GIFTS } from '../../shared/npcs.js';
 import { HOUR_MS, NEEDS, ACTIVITIES, FOODS, PLATES, sanitizeNeeds, usesOf, advanceNeeds, activityDone, fullNeeds } from '../../shared/needs.js';
 import { sanitizeLook, randomLook, shirtColor } from '../../shared/look.js';
@@ -94,6 +93,8 @@ export class Game {
     // The village shops (walk-in buildings) are rebuilt from their layout every start.
     for (const id of Object.keys(this.plots)) if (Number(id) >= TOWN_PLOT_BASE) delete this.plots[id];
     for (const p of townShopPlots(saved.city?.projects || [])) this.plots[p.id] = p;
+    // Pipes and cables used to be ground objects; they're buried now.
+    for (const p of Object.values(this.plots)) if (buryPipes(p)) { p.rev = (p.rev || 0) + 1; this.dirtyLater = [...(this.dirtyLater || []), `plot:${p.id}`]; }
     indexPlots(this.world, this.plots);
     // v3 -> v4: roads got wider and plots lost their fences. Plots keep their place;
     // anything now standing on a public road is packed up and refunded.
@@ -595,7 +596,10 @@ export class Game {
       if (s.profile.coins + refund < def.price) return s.send({ type: 'error', msg: 'Not enough coins' });
     }
     if (def.solid && !level && this.someoneOn(plot, tilesOf(item, r, lx, ly))) return s.send({ type: 'error', msg: 'Someone is standing there' });
-    if (def.layer === 'floor') {
+    if (def.layer === 'under') {
+      ((plot.under ||= {})[item] ||= {})[k] = 1;
+      if (!free) this.coins(s, -def.price);
+    } else if (def.layer === 'floor') {
       const refund = view.floor[k] ? ITEMS[view.floor[k]].price : 0;
       view.floor[k] = item;
       if (!free) this.coins(s, refund - def.price);
@@ -779,7 +783,7 @@ export class Game {
 
   // The sledgehammer. Targets, in order: { edge: [d,x,y] } a wall (or just its door/window
   // with featureOnly), { roof: true } the roof over a tile, else the object then floor on a tile.
-  remove(s, { plotId, lx, ly, level = 0, edge, featureOnly, roof }) {
+  remove(s, { plotId, lx, ly, level = 0, edge, featureOnly, roof, under }) {
     const plot = this.ownPlot(s, plotId);
     if (!plot) return;
     const refundOn = !s.cheats.build;
@@ -805,8 +809,17 @@ export class Game {
       if (refundOn) this.coins(s, ITEMS[rf.m].price * rf.w * rf.h);
       return this.plotChanged(plot);
     }
+    // Dig up a buried pipe or cable (the pipe tool on a tile that has one, or the
+    // sledgehammer on bare ground).
+    const dig = (id) => {
+      delete plot.under[id][key(lx, ly)];
+      if (refundOn) this.coins(s, ITEMS[id].price);
+      return this.plotChanged(plot);
+    };
+    if (under) return !level && plot.under?.[under]?.[key(lx, ly)] ? dig(under) : undefined;
     const view = levelView(plot, level);
     const hit = objAt(view, lx, ly);
+    if (!hit && !level) { const id = Object.keys(plot.under || {}).find((t) => plot.under[t][key(lx, ly)]); if (id) return dig(id); }
     if (hit?.obj.animals?.length) return s.send({ type: 'error', msg: `Sell or move out the animals first (tap the ${ITEMS[hit.obj.t].name.toLowerCase()})` });
     if (hit) {
       if (hit.obj.inv) this.social.emptyInto(s, hit.obj);
@@ -904,6 +917,8 @@ export class Game {
         coins += ITEMS[f]?.price || 0;
       }
     }
+    for (const [id, tiles] of Object.entries(plot.under || {})) coins += (ITEMS[id]?.price || 0) * Object.keys(tiles).length;
+    plot.under = {};
     if (!terrain) {
       for (const w of Object.values(plot.walls)) coins += (ITEMS[w.m]?.price || 0) + (ITEMS[w.f]?.price || 0);
       for (const rf of plot.roofs) coins += (ITEMS[rf.m]?.price || 0) * rf.w * rf.h;

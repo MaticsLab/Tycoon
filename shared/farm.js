@@ -105,24 +105,23 @@ export function networks(plot) {
   const c = netCache.get(plot);
   if (c?.sig === sig) return c.nets;
   const nets = { water: new Set(), power: new Set() };
-  const kindAt = new Map(); // tile -> { carries/utility kind }
-  for (const [k, o] of Object.entries(plot.obj)) {
-    const d = ITEMS[o.t];
-    const kind = d?.utility || d?.carries;
-    if (!kind) continue;
-    const [x, y] = k.split(',').map(Number);
-    for (const [tx, ty] of tilesOf(o.t, o.r || 0, x, y)) kindAt.set(key(tx, ty), { kind, src: !!d.utility });
-  }
   for (const kind of ['water', 'power']) {
     if (!plot.util?.[kind]) continue;
-    const net = nets[kind];
-    const stack = [...kindAt].filter(([, v]) => v.kind === kind && v.src).map(([k]) => k);
-    for (const k of stack) net.add(k);
+    // Buried lines of this kind, flooded out from the source (spout / power box): a
+    // pipe under or next to the source is live, and so is every pipe joined to it.
+    const lines = new Set();
+    for (const [id, tiles] of Object.entries(plot.under || {})) if (ITEMS[id]?.carries === kind) for (const k of Object.keys(tiles)) lines.add(k);
+    const net = nets[kind], stack = [];
+    for (const [k, o] of Object.entries(plot.obj)) {
+      if (ITEMS[o.t]?.utility !== kind) continue;
+      const [x, y] = k.split(',').map(Number);
+      for (const [tx, ty] of tilesOf(o.t, o.r || 0, x, y)) { net.add(key(tx, ty)); stack.push([tx, ty]); }
+    }
     while (stack.length) {
-      const [x, y] = stack.pop().split(',').map(Number);
+      const [x, y] = stack.pop();
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const n = key(x + dx, y + dy);
-        if (!net.has(n) && kindAt.get(n)?.kind === kind) { net.add(n); stack.push(n); }
+        if (lines.has(n) && !net.has(n)) { net.add(n); stack.push([x + dx, y + dy]); }
       }
     }
   }
