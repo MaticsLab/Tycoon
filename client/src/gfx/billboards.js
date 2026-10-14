@@ -35,7 +35,10 @@ export class BillboardSet {
   // spr: a baked sprite { cv, dx, dy } (see sprites.js bake()). (ax, ay) is the ground
   // contact point in the sprite's local pixel coordinates; (x, y, z) its world position.
   add(spr, ax, ay, x, y, z, { shadow = 0, scale = 1 } = {}) {
-    this.items.push({ spr, ax, ay, x, y, z, scale });
+    // Overlapping cards side by side sit at exactly the same depth from the camera and
+    // would z-fight (flickering trees): give each a tiny fixed nudge so one always wins.
+    const h = Math.imul(Math.round(x * 16) ^ Math.imul(Math.round(z * 16), 40503), 2654435761) >>> 0;
+    this.items.push({ spr, ax, ay, x, y, z, scale, bias: ((h % 1000) / 1000) * 0.02 });
     if (shadow) this.shadows.push([x, y, z, shadow]);
     this.meshes = null;
   }
@@ -52,7 +55,8 @@ export class BillboardSet {
           const px = k === 1 || k === 2 ? W : 0, py = k >= 2 ? H : 0;
           const u = ((px - cx) / TEXEL) * it.scale, v = ((cy - py) / TEXEL) * it.scale;
           const o = i * 12 + k * 3;
-          pos[o] = it.x + R.x * u + U.x * v; pos[o + 1] = it.y + R.y * u + U.y * v; pos[o + 2] = it.z + R.z * u + U.z * v;
+          const b = it.bias || 0;
+          pos[o] = it.x + R.x * u + U.x * v + B.x * b; pos[o + 1] = it.y + R.y * u + U.y * v + B.y * b; pos[o + 2] = it.z + R.z * u + U.z * v + B.z * b;
           nor[o] = B.x; nor[o + 1] = B.y; nor[o + 2] = B.z;
         }
       });

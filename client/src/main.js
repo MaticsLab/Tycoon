@@ -1,5 +1,5 @@
 import {
-  generateWorld, applyRoads, plotIdAtPixel, worldClock, darkness,
+  generateWorld, applyRoads, plotIdAtPixel, worldClock, darkness, publicAreaAt,
   TILE, MAP_W, MAP_H, LANE, PLAYER_SPEED, RUN_MULT, WORLD_VERSION, DAY_MS, T,
 } from '@shared/world.js';
 import {
@@ -716,19 +716,19 @@ function openTalk(v) {
   setMode('walk');
   const def = NPCS[v.npc];
   if (!S.talk || S.talk.npc !== v.npc) {
-    S.talk = { npc: v.npc, view: v, extra: null, waiting: false, lines: [] };
-    $('npc-name').textContent = `${def.icon} ${def.name}`;
+    S.talk = { npc: v.npc, view: v, extra: null, about: false, waiting: false, lines: [] };
+    $('npc-name').textContent = def.name;
     $('npc-role').textContent = def.role;
+    $('npc-input').placeholder = `Say something to ${def.name}…`;
     drawLook($('npc-portrait'), def.look, { crop: 'bust' });
   }
   S.talk.view = v;
   S.talk.offer = null;
-  $('npc-role').textContent = v.doing ? `${def.role} · ${v.doing}` : def.role;
   if (v.say) S.talk.lines.push({ who: 'them', text: v.say });
   $('npcpanel').hidden = false;
   $('npc-shop').hidden = !(v.sells.length || v.buys.length);
   $('npc-city').hidden = !def.clerk;
-  renderStatus(); renderLog(); renderExtra(); renderQuestCard();
+  renderStatus(); renderAbout(); renderLog(); renderExtra(); renderQuestCard();
 }
 
 // Requests in the talk panel: a new one they're asking for, or yours in progress.
@@ -805,7 +805,7 @@ function npcSaid(m) {
   S.talk.view = { ...S.talk.view, ...m };
   S.talk.lines.push({ who: 'them', text: m.text });
   for (const c of m.changes || []) S.talk.lines.push({ who: 'note', text: `✨ ${c}` });
-  renderStatus(); renderLog(); renderExtra();
+  renderStatus(); renderAbout(); renderLog(); renderExtra();
 }
 
 function closeTalk() {
@@ -816,42 +816,63 @@ function closeTalk() {
 }
 $('npc-close').onclick = closeTalk;
 
+// Header status: friendship hearts (each 20 points, filling part-way), how close you
+// are, their mood and where they are.
+const HEART = (fill, stroke) => `<svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.4C.9 8 3 4 6.8 4c2.2 0 3.7 1.2 5.2 3 1.5-1.8 3-3 5.2-3C21 4 23.1 8 21.6 11.6 19.5 16.4 12 21 12 21z" fill="${fill}" stroke="${stroke}" stroke-width="1.8" stroke-linejoin="round"/></svg>`;
+const LEVELS_OF_FRIENDSHIP = [[80, 'Best friends'], [60, 'Close friends'], [40, 'Good friends'], [20, 'Acquaintances'], [0, 'Strangers']];
+const MOOD_DOT = { delighted: ['#4fb83a', '#dff3cf'], happy: ['#7cc25a', '#e3f4d6'], calm: ['#e0b84a', '#fbefc9'], upset: ['#e08a3a', '#fbe1c9'], angry: ['#d9443a', '#fbd6d2'] };
+function npcWhere(id) {
+  const n = S.npcs.get(id);
+  if (!n) return '';
+  const pid = plotIdAtPixel(world, n.x, n.y), plot = pid >= 0 ? S.plots[pid] : null;
+  if (plot?.town) return `At ${plot.name}`;
+  if (plot?.owner) return `At ${plot.owner === S.me.id ? 'your place' : `${plot.ownerName || 'a neighbour'}’s`}`;
+  const area = publicAreaAt(Math.floor(n.x / TILE), Math.floor(n.y / TILE));
+  return area ? `At ${area.name}` : 'Out and about';
+}
 function renderStatus() {
   const v = S.talk.view;
-  const hearts = v.hearts ?? Math.max(0, Math.min(5, Math.round((v.affinity + 100) / 40)));
-  const parts = [
-    `<span>${v.mood.emoji} ${esc(v.mood.label)}</span>`,
-    `<span title="Friendship">${'❤️'.repeat(hearts)}${'🤍'.repeat(5 - hearts)} ${esc(v.friendship)}</span>`,
-    ...v.personality.map((w) => `<span class="trait">${esc(w)}</span>`),
-  ];
-  if (v.likes) parts.push(`<span>💝 loves ${esc(v.likes.join(', '))}</span>`);
-  if (v.dating) parts.push('<span>💕 sweethearts</span>');
-  $('npc-status').innerHTML = parts.join('');
-  if (v.canDate) {
-    const b = document.createElement('button');
-    b.className = 'chip'; b.textContent = v.dating ? '💕 Spend the afternoon together' : '💕 Ask out';
-    b.onclick = () => { send({ type: 'date', npc: S.talk.npc }); S.talk.waiting = true; renderLog(); };
-    $('npc-status').appendChild(b);
-  }
+  const pts = Math.max(0, Math.min(100, v.affinity || 0));
+  const level = v.affinity < -15 ? v.friendship[0].toUpperCase() + v.friendship.slice(1) : LEVELS_OF_FRIENDSHIP.find(([at]) => pts >= at)[1];
+  const hearts = [0, 1, 2, 3, 4].map((i) => {
+    const f = Math.max(0, Math.min(1, (pts - i * 20) / 20));
+    return `<span class="nc-heart">${HEART('#ead9b4', '#c9a978')}<span class="fill" style="width:${f * 100}%">${HEART('#e0453a', '#a82a22')}</span></span>`;
+  }).join('');
+  const [dot, ring] = MOOD_DOT[v.mood.label] || MOOD_DOT.calm;
+  const where = npcWhere(S.talk.npc);
+  $('npc-status').innerHTML = `<span class="nc-hearts" title="Friendship ${Math.round(pts)}/100" role="img" aria-label="Friendship ${Math.round(pts)} of 100">${hearts}</span>
+    <i class="dot"></i><span class="nc-level">${esc(v.dating ? 'Sweethearts' : level)}</span>
+    <i class="dot"></i><span class="nc-mood"><i style="background:${dot};box-shadow:0 0 0 2px ${ring}"></i>${esc(v.mood.label[0].toUpperCase() + v.mood.label.slice(1))}</span>
+    ${where ? `<i class="dot"></i><span class="nc-where">${esc(where)}</span>` : ''}`;
+  $('npc-date').hidden = !v.canDate;
+  $('npc-date').textContent = v.dating ? '💕 Spend the afternoon together' : '💕 Ask out';
+}
+// The About drawer: personality, and what they love (once you're good friends).
+function renderAbout() {
+  const t = S.talk, box = $('npc-aboutbox');
+  box.hidden = !t.about;
+  $('npc-about').setAttribute('aria-pressed', String(!!t.about));
+  if (!t.about) return;
+  const v = t.view;
+  box.innerHTML = `<b>PERSONALITY</b><div class="nc-chips">${v.personality.map((w) => `<span class="nc-chip">${esc(w)}</span>`).join('')}</div>
+    <b>LOVES</b><div class="nc-chips">${v.likes ? v.likes.map((w) => `<span class="nc-chip love">${esc(w)}</span>`).join('') : 'Become good friends to find out.'}</div>`;
 }
 
 function renderLog() {
   const log = $('npc-log');
   log.innerHTML = '';
-  for (const l of S.talk.lines.slice(-30)) {
+  for (const l of S.talk.lines.slice(-40)) {
     const d = document.createElement('div');
     d.className = `line ${l.who}`;
     d.textContent = l.text;
     log.appendChild(d);
   }
-  if (S.talk.waiting) {
-    const d = document.createElement('div');
-    d.className = 'thinking';
-    d.textContent = `${NPCS[S.talk.npc].name} is thinking…`;
-    log.appendChild(d);
-  }
+  if (S.talk.waiting) log.insertAdjacentHTML('beforeend', `<div class="typing" aria-label="${esc(NPCS[S.talk.npc].name)} is typing"><i></i><i></i><i></i></div>`);
   log.scrollTop = log.scrollHeight;
+  syncSay();
 }
+function syncSay() { $('npc-say').classList.toggle('off', !$('npc-input').value.trim() || !!S.talk?.waiting); }
+$('npc-input').addEventListener('input', syncSay);
 
 const iconCache = {};
 function cloneCanvas(src) {
@@ -922,7 +943,8 @@ function renderExtra() {
   $('npc-gift').classList.toggle('sel', t?.extra === 'gift');
   if (!t?.extra) { box.hidden = true; return; }
   box.hidden = false;
-  box.innerHTML = '';
+  box.innerHTML = `<div class="nc-trayhead"><b>${t.extra === 'gift' ? 'PICK A GIFT FROM YOUR BAG' : 'SHOP'}</b><button type="button">${t.extra === 'gift' ? 'Cancel' : 'Close'}</button></div>`;
+  box.querySelector('.nc-trayhead button').onclick = () => { t.extra = null; renderExtra(); };
   const list = document.createElement('div');
   list.className = 'list';
   if (t.extra === 'shop') {
@@ -950,17 +972,25 @@ function renderExtra() {
     }
     list.insertAdjacentHTML('beforeend', '<p class="muted">Prices depend on how generous they feel, how much they like you, and the market: sell lots of one crop and its price drops for a while.</p>');
   } else {
-    const gifts = Object.entries(S.inv).filter(([k]) => GOODS[k]);
-    if (!gifts.length) list.insertAdjacentHTML('beforeend', '<p class="muted">Your bag has nothing to give. Rosa sells gifts, and crops make nice presents too.</p>');
+    const gifts = Object.entries(S.inv).filter(([k, n]) => GOODS[k] && n > 0);
+    list.className = 'nc-gifts';
+    if (!gifts.length) list.innerHTML = '<p class="empty">Your bag has nothing to give. Rosa sells gifts, and crops make nice presents too.</p>';
+    // Loved gifts are only marked once you know (good friends: see About).
+    const loves = new Set(t.view.likes ? NPCS[t.npc].likes : []);
     for (const [k, n] of gifts) {
-      list.appendChild(itemRow(k, `you have ${n}`, [['Give', () => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `nc-gift${loves.has(k) ? ' loved' : ''}`;
+      b.innerHTML = `${GOODS[k].icon} ${esc(GOODS[k].name)} <small>×${n}</small>${loves.has(k) ? '<em>Loves</em>' : ''}`;
+      b.onclick = () => {
         if (t.waiting) return;
         t.waiting = true;
-        t.lines.push({ who: 'me', text: `🎁 gives ${GOODS[k].name}` });
+        t.lines.push({ who: 'note', text: `You gave ${NPCS[t.npc].name} ${GOODS[k].name}${loves.has(k) ? ' · they love it!' : ''}` });
         t.extra = null;
         renderLog(); renderExtra();
         send({ type: 'gift', npc: t.npc, item: k });
-      }]]));
+      };
+      list.appendChild(b);
     }
   }
   box.appendChild(list);
@@ -975,10 +1005,19 @@ $('npc-form').onsubmit = (e) => {
   S.talk.lines.push({ who: 'me', text });
   S.talk.waiting = true;
   $('npc-input').value = '';
+  syncSay();
   renderLog();
   send({ type: 'npcTalk', npc: S.talk.npc, text });
 };
-$('npc-input').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTalk(); e.stopPropagation(); });
+// Esc closes the gift picker or About first, then the panel.
+function escTalk() {
+  if (S.talk?.extra) { S.talk.extra = null; renderExtra(); return; }
+  if (S.talk?.about) { S.talk.about = false; renderAbout(); return; }
+  closeTalk();
+}
+$('npc-input').addEventListener('keydown', (e) => { if (e.key === 'Escape') escTalk(); e.stopPropagation(); });
+$('npc-about').onclick = () => { S.talk.about = !S.talk.about; renderAbout(); };
+$('npc-date').onclick = () => { if (S.talk.waiting) return; send({ type: 'date', npc: S.talk.npc }); S.talk.waiting = true; renderLog(); };
 
 // ---------- Modal: bag and account ----------
 let modalKind = null;
@@ -2829,7 +2868,7 @@ addEventListener('keydown', (e) => {
   if (k === 'escape' && S.mode === 'build' && !S.held && !S.chain && !drag && HOLD_KINDS.includes(S.tool.kind)) { S.tool = { kind: 'select' }; syncStrip(); renderItems(); refreshPreview(); return; }
   if (k === 'escape' && (S.held || S.chain)) { S.held = null; S.chain = null; if (S.tool.kind === 'movehouse' || S.tool.kind === 'blueprint') S.tool = { kind: 'none' }; syncStrip(); renderItems(); refreshPreview(); return; }
   if (k === 'escape' && !$('usemenu').hidden) { closeUseMenu(); return; }
-  if (k === 'escape') { if (drag) { drag = null; refreshPreview(); } else { setMode('walk'); closeTalk(); closeModal(); toggleMap(false); } }
+  if (k === 'escape') { if (drag) { drag = null; refreshPreview(); } else if (S.talk && (S.talk.extra || S.talk.about)) escTalk(); else { setMode('walk'); closeTalk(); closeModal(); toggleMap(false); } }
   if (k === 'b') $('btn-build').click();
   if (k === 'q') turnCamera(-1);
   if (k === 'e') turnCamera(1);

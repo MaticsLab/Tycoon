@@ -178,27 +178,31 @@
       </div>
     </div>
 
-    <div id="npcpanel" class="sheet" hidden>
-      <div class="sheet-head">
-        <canvas id="npc-portrait" class="portrait" width="64" height="64"></canvas>
-        <div class="grow">
-          <div id="npc-name"></div>
-          <div id="npc-role" class="muted"></div>
+    <div id="npcpanel" hidden role="dialog" aria-labelledby="npc-name">
+      <div class="nc-head">
+        <canvas id="npc-portrait" class="nc-portrait" width="64" height="64"></canvas>
+        <div class="nc-who">
+          <div class="nc-nameline"><span id="npc-name"></span><span id="npc-role"></span></div>
+          <div id="npc-status" class="nc-status"></div>
         </div>
-        <button id="npc-close" class="x" aria-label="Close">✕</button>
+        <button id="npc-about" class="nc-round" type="button" aria-label="About" aria-pressed="false"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v6M12 7.5v.01"/></svg></button>
+        <button id="npc-close" class="nc-round nc-x" type="button" aria-label="Close"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
-      <div id="npc-status"></div>
+      <div id="npc-aboutbox" class="nc-about" hidden></div>
       <div id="npc-quest" hidden></div>
-      <div id="npc-log"></div>
-      <div id="npc-extra" hidden></div>
-      <form id="npc-form">
-        <input id="npc-input" maxlength="160" autocomplete="off" placeholder="Say something…" />
-        <button>Say</button>
-      </form>
-      <div class="row">
-        <button id="npc-city" class="chip" hidden>🏛️ City Hall business</button>
-        <button id="npc-shop" class="chip">🛍️ Shop</button>
-        <button id="npc-gift" class="chip">🎁 Give a gift</button>
+      <div id="npc-log" class="nc-log" aria-live="polite"></div>
+      <div id="npc-extra" class="nc-tray" hidden></div>
+      <div class="nc-input">
+        <form id="npc-form">
+          <input id="npc-input" maxlength="160" autocomplete="off" placeholder="Say something…" />
+          <button id="npc-say">Say</button>
+        </form>
+        <div class="nc-actions">
+          <button id="npc-gift" class="nc-pill" type="button">🎁 Give a gift</button>
+          <button id="npc-shop" class="nc-pill" type="button">🛍️ Shop</button>
+          <button id="npc-city" class="nc-pill" type="button" hidden>🏛️ City Hall business</button>
+          <button id="npc-date" class="nc-pill" type="button" hidden>💕 Ask out</button>
+        </div>
       </div>
     </div>
 
