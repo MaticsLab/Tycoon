@@ -228,6 +228,7 @@ export class Game {
       case 'deleteBlueprint': return this.deleteBlueprint(s, msg);
       case 'placeBlueprint': return this.placeBlueprint(s, msg);
       case 'cityRun': return this.cityAction(s, () => this.city.run(s, msg.office, msg.platform, this.day()));
+      case 'cityWithdraw': return this.cityAction(s, () => this.city.withdraw(s, this.day()));
       case 'cityVote': return this.cityAction(s, () => this.city.vote(s, msg.office, msg.candidate, this.day()));
       case 'cityPropose': return this.cityAction(s, () => this.city.propose(s, msg, this.day()));
       case 'councilVote': return this.cityAction(s, () => this.city.councilVote(s, msg.id, msg.vote));

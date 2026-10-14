@@ -28,7 +28,7 @@ import { questProgress, favourToday, MAX_QUESTS } from '@shared/quests.js';
 import { RECIPES, STAFF, OPEN_HOURS, recipesFor, sellable, valueOf, slotsOf, isMachine, shopOpen } from '@shared/business.js';
 import { drawFloor, drawObject } from './sprites.js';
 import { openCreator, closeCreator } from './creator.js';
-import { renderCity } from './cityui.js';
+import { renderCity, cityOpen, closeCity } from './cityui.js';
 import { socialUI } from './social-ui.js';
 import { makeWeather, makeTreeLeaves } from './weather.js';
 import { LEAF } from './sprites.js';
@@ -294,7 +294,7 @@ function onMessage(m) {
       $('btn-editplot').hidden = !(S.biz?.plotId != null && S.homePlot != null);
       updateHud();
       if (modalKind === 'shop') showShop();
-      if (modalKind === 'city') showCity();
+      if (cityOpen()) showCity();
       break;
     case 'sale': saleFx(m); break;
     case 'nature': {
@@ -314,7 +314,7 @@ function onMessage(m) {
     case 'weather': S.weather = m.now; break;
     case 'farm':
       S.util = m.util || {}; S.hand = m.hand || null; S.market = m.market || null;
-      if (modalKind === 'city') showCity();
+      if (cityOpen()) showCity();
       break;
     case 'drop': S.drops.set(m.drop.id, m.drop); break;
     case 'dropGone': S.drops.delete(m.id); break;
@@ -349,7 +349,7 @@ function onMessage(m) {
       break;
     case 'city':
       S.city = m.city;
-      if (modalKind === 'city') showCity();
+      if (cityOpen()) showCity();
       toolInfo();
       break;
     case 'roads':
@@ -565,6 +565,7 @@ function flashCoins(text, cls) {
 }
 function updateHud() {
   $('coins').textContent = `🪙 ${S.coins}`;
+  if (cityOpen() && S.city && S.coins !== cityCoins) showCity();
   if (shownCoins != null && S.coins !== shownCoins && S.mode === 'build') { const dl = S.coins - shownCoins; flashCoins(`${dl > 0 ? '+' : '−'}${Math.abs(dl).toLocaleString()}`, dl > 0 ? 'pos' : 'neg'); }
   syncCoins();
   syncBuildBtn();
@@ -1007,11 +1008,11 @@ function openModal(kind, title) {
 function closeModal() { modalKind = null; $('modal').hidden = true; }
 $('modal-close').onclick = closeModal;
 
+let cityCoins = null;
 function showCity() {
-  const keep = modalKind === 'city' ? $('modal-body').scrollTop : 0;
-  const body = openModal('city', '🏛️ City Hall');
-  renderCity(body, { city: S.city, me: S.me, myPlot: S.homePlot ?? S.myPlot, plots: S.plots, biz: S.biz, util: S.util, hand: S.hand, coins: S.coins, send, rerender: showCity });
-  body.scrollTop = keep;
+  if (modalKind) closeModal();
+  cityCoins = S.coins;
+  renderCity({ city: S.city, me: S.me, myPlot: S.homePlot ?? S.myPlot, plots: S.plots, biz: S.biz, util: S.util, hand: S.hand, coins: S.coins, send });
 }
 
 // Players close enough to hand things to.

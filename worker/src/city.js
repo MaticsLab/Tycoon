@@ -146,6 +146,18 @@ export class City {
     return null;
   }
 
+  // Take your name off the ballot (while filing is still open).
+  withdraw(s, day) {
+    const e = this.s.election;
+    if (!e || this.phase(day) !== 'filing') return 'Filing has closed: you’re on the ballot now';
+    const i = e.candidates.findIndex((c) => c.pid === s.profile.id);
+    if (i < 0) return 'You haven’t filed';
+    e.candidates.splice(i, 1);
+    this.news(day, `${s.profile.name} has withdrawn from the race.`);
+    this.mark();
+    return null;
+  }
+
   vote(s, office, pid, day) {
     const e = this.s.election;
     if (!this.isRegistered(s)) return 'Create an account to vote';
