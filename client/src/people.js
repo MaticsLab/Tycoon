@@ -335,7 +335,7 @@ function face(c, L, F, dir) {
     r(c, -3, F, 6, 1, K[2]); r(c, -4, F + 1, 8, 7, K[2]); r(c, -3, F + 8, 5, 1, K[1]);
     r(c, -4, F + 1, 1, 7, K[1]);
     px(c, 4, F + 4, K[2]); px(c, 4, F + 5, K[1]);             // nose
-    px(c, 3, F + 7, K[1]); px(c, 2, F + 7, '#a8503e');         // lips
+    px(c, 3, F + 7, K[1]); px(c, 2, F + 7, L.body === 1 ? '#b8434a' : '#9c4a45'); // lips
     px(c, 1, F + 4, E[1]); px(c, 2, F + 4, EYE_W); px(c, 1, F + 5, E[0]);
     if (L.body === 1) px(c, 2, F + 3, LASH);
     r(c, -1, F + 9, 3, 1, K[1]);                               // neck
@@ -350,7 +350,8 @@ function face(c, L, F, dir) {
   px(c, 1, F + 4, E[1]); px(c, 2, F + 4, EYE_W); px(c, 1, F + 5, E[0]);
   if (L.body === 1) { px(c, -4, F + 4, LASH); px(c, 3, F + 4, LASH); }
   // A small, soft smile (no nose pixel: it read as a spot above the lip).
-  const lip = L.body === 1 ? '#d4807a' : '#c98f80';
+  // A deeper rose than the skin, so the mouth reads on every skin tone.
+  const lip = L.body === 1 ? '#b8434a' : '#9c4a45';
   px(c, -1, F + 7, lip); px(c, 0, F + 7, lip);
 }
 

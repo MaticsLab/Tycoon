@@ -181,7 +181,7 @@ You can also befriend villagers whose personalities change based on how you trea
   - lanterns by the door that glow at night, and a front step;
   - Otto's brick chimney.
 
-  Rosa has a market stall, a produce cart, barrels and crates piled with produce, flower buckets, a chalkboard and bunting out front, a fishmonger's stall sits by the pond, and Otto has porch chairs, a dresser and an OPEN sign, with benches, planters and lamps around the fountain.
+  Rosa has a market stall, a produce cart and flower buckets out front, a fishmonger's stall sits by the pond, and Otto has a rocking chair and an OPEN sign; the square is kept roomy, with benches, planters and lamps around the fountain.
 - **Woods, chopping and mining.** Groves of trees and rocky outcrops cover the open land. Buy an **axe** or a **pickaxe** from Juniper, walk up and tap **🪓 Chop tree** / **⛏️ Break rock**, or tap the tree itself; if you're far away, you walk over first.
   - A tree takes 3 swings (3–5 wood, sometimes an oak sapling) and a rock takes 4 (2–4 stone). Otto buys wood and stone.
   - Claiming land clears it, and the wood and stone go to you.
@@ -191,7 +191,7 @@ You can also befriend villagers whose personalities change based on how you trea
 - **Weather and ambience.**
   - **Forecast:** a daily forecast for the whole village brings rain (sometimes a thunderstorm with lightning in summer) or snow in winter, for part of the day.
   - **Rain** darkens the sky and waters every outdoor crop (not the ones in greenhouses).
-  - **By season:** blossom petals drift down in spring, fireflies glow on summer nights, and leaves fall in autumn.
+  - **By season:** petals and leaves fall from the actual trees around you, in each tree's own colours (pink petals from blossom trees in spring, red, orange and gold leaves from autumn maples, the odd green leaf in summer), flutter down, rest on the ground and fade. Fireflies glow on summer nights.
   - **Cloud shadows** drift slowly over the land.
 - **Music and sound** are all synthesized in the browser, with no audio files.
   - **Music:** four calm, looping pieces, one per season, that crossfade when the season turns:
@@ -212,7 +212,7 @@ You can also befriend villagers whose personalities change based on how you trea
     Everything is muffled when you're indoors.
   - **Effects:** chopping, a tree falling, mining, fishing splashes and bites, placing and picking up, and coins when trading.
   - **Volumes:** set music, ambience and effects in ⚙️ Settings → Game.
-- **Walk-in village shops.** Rosa's Market and Otto's Furniture on the town square are real buildings: in through the glass double doors, the walls cut away like at home. Rosa's has wall shelving, shelves, produce stands, end caps, chilled cases and a bakery case, all filled with real goods you can see (turnips heaped in crates, loaves in the bakery case, milk bottles in the chiller); Otto's is a furniture showroom with a fireplace and a piano. The keepers stand behind their counters during opening hours. Tap a shelf or the register (**🛒 Shop here**), or talk to the keeper from anywhere inside, to buy and sell. The shops belong to the village: nobody can claim or edit them.
+- **Walk-in village shops.** Rosa's Market and Otto's Furniture on the town square are real buildings: in through the glass double doors, the walls cut away like at home. Rosa's is kept roomy, with a wide aisle from the door to the counter: wall shelving and shelves round the walls, a produce stand, chilled cases and a bakery case, all filled with real goods you can see (turnips heaped in crates, loaves in the bakery case, milk bottles in the chiller); Otto's is a furniture showroom with a fireplace and a piano. The keepers stand behind their counters during opening hours. Tap a shelf or the register (**🛒 Shop here**), or talk to the keeper from anywhere inside, to buy and sell. The shops belong to the village: nobody can claim or edit them.
 - **Watering.** Watered crops grow twice as fast while the soil stays wet (one in-game day; wet soil looks dark). Buy a **watering can** from Rosa and walking through your rows waters them.
 - **Water and electricity.** At City Hall, hook up **💧 water** (🪙100 setup + 🪙120 a month) or **⚡ electricity** (🪙150 + 🪙200 a month). Bills go to the city treasury every 28 days. If you can't pay, the service is cut off until you settle up at City Hall.
   - Water gives you a **ground spout** and electricity a **power box**. Place either anywhere on your plot from Build → Bag.

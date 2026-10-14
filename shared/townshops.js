@@ -16,23 +16,23 @@ const LAYOUTS = {
     keeper: [3.5, 0.6],
     // Chilled cases and a wall of jars at the back, the bakery case on the counter,
     // shelves down both walls, produce stands and end caps either side of the aisle.
+    // Kept roomy: displays round the walls and one produce stand, with a wide aisle from
+    // the door to the counter.
     obj: [
-      ['coolercase', 0, 0], ['coolercase', 1, 0], ['coolercase', 7, 0],
+      ['coolercase', 0, 0], ['coolercase', 7, 0],
       ['counter', 2, 1], ['register', 3, 1], ['bakerycase', 4, 1],
       ['wallshelf', 0, 2, 3], ['shelf', 0, 4, 3],
-      ['shelf', 7, 2, 1], ['shelf', 7, 3, 1], ['shelf', 7, 4, 1],
-      ['producestand', 1, 3], ['producestand', 5, 3],
-      ['gondola', 2, 4, 3], ['gondola', 5, 4, 1],
-      ['lamp', 0, 5], ['flowerbuckets', 1, 5], ['basketstack', 6, 5], ['houseplant', 7, 5],
+      ['shelf', 7, 2, 1], ['shelf', 7, 4, 1],
+      ['producestand', 5, 3],
+      ['houseplant', 0, 5],
     ],
     // Goods on display, shelf by shelf.
     stock: {
-      '0,0': ['milk', 'egg', 'cheese'], '1,0': ['juice', 'cake', 'honeycake'],
+      '0,0': ['milk', 'egg', 'cheese'],
       '7,0': ['juice', 'milk', 'cheese'], '4,1': ['bread', 'pie', 'cake', 'honeycake'],
       '0,2': ['jam', 'tea', 'flour', 'soup', 'turnip', 'carrot'], '0,4': ['bread', 'corn', 'wheat'],
-      '7,2': ['bouquet', 'bookgift', 'tea'], '7,3': ['wateringcan', 'hay', 'flour'], '7,4': ['wool', 'cloth', 'apple'],
-      '1,3': ['pumpkin', 'melon', 'corn', 'berry'], '5,3': ['turnip', 'carrot', 'kale', 'apple'],
-      '2,4': ['apple', 'berry', 'egg'], '5,4': ['juice', 'milk', 'jam'],
+      '7,2': ['bouquet', 'bookgift', 'tea'], '7,4': ['wool', 'cloth', 'apple'],
+      '5,3': ['pumpkin', 'melon', 'carrot', 'apple'],
     },
   },
   otto: {

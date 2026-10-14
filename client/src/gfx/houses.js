@@ -250,13 +250,14 @@ export function buildPlot(plot, opts) {
     // Neighbouring segments along the same wall line (for joined shopfronts).
     const along = (n) => plot.walls[e.d === 'h' ? edgeKey(e.l, e.d, e.x + n, e.y) : edgeKey(e.l, e.d, e.x, e.y + n)];
     const joinPrev = SHOPFRONT.has(f) && SHOPFRONT.has(along(-1)?.f), joinNext = SHOPFRONT.has(f) && SHOPFRONT.has(along(1)?.f);
+    let gap = null;
     if (low && f && ITEMS[f]?.passable) {
       // Cut-away wall with a doorway: keep the gap, so you can see where the door is.
       const pair = featureWidth2(f) ? featurePair(plot, e.l, e.d, e.x, e.y) : null;
       const a = pair ? (pair.part ? 0 : 0.1) : SHOPFRONT.has(f) && joinPrev ? 0 : 0.14;
       const b = pair ? (pair.part ? 0.9 : 1) : SHOPFRONT.has(f) && joinNext ? 1 : 0.86;
       piece(0, a, 0, H); piece(b, 1, 0, H);
-      wallPiece(batch, frameMat(fc), e, ox, oz, base, a, b, 0, 0.03, THICK + 0.04); // threshold
+      gap = [a, b]; // an open doorway: no trim (or threshold) across it
     } else if (!f || low) {
       piece(0, 1, 0, H);
     } else if (f === 'window' || f === 'window_tall') {
@@ -332,7 +333,8 @@ export function buildPlot(plot, opts) {
       }
     }
     // Dark trim along the top so walls read clearly from above.
-    wallPiece(batch, trimMat(), e, ox, oz, base, 0, 1, H - 0.05, H + 0.01, THICK + 0.02);
+    if (gap) { if (gap[0] > 0) wallPiece(batch, trimMat(), e, ox, oz, base, 0, gap[0], H - 0.05, H + 0.01, THICK + 0.02); if (gap[1] < 1) wallPiece(batch, trimMat(), e, ox, oz, base, gap[1], 1, H - 0.05, H + 0.01, THICK + 0.02); }
+    else wallPiece(batch, trimMat(), e, ox, oz, base, 0, 1, H - 0.05, H + 0.01, THICK + 0.02);
     // Remember corner posts.
     const ends = e.d === 'h' ? [[e.x, e.y], [e.x + 1, e.y]] : [[e.x, e.y], [e.x, e.y + 1]];
     for (const [cx, cz] of ends) {

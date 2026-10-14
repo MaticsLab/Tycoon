@@ -102,18 +102,25 @@ function snowy(spr) {
 }
 
 // Trees as pixel-art billboards. Returns entries for a BillboardSet.
+// Which kind of tree grows on tile (x, y) this season (the falling leaves match it).
+export function treeKindAt(world, x, y) {
+  const v = tileHash(x * 3, y * 7);
+  // The town square gets blossom trees.
+  const inSquare = x >= SQUARE.x && x < SQUARE.x + SQUARE.w && y >= SQUARE.y && y < SQUARE.y + SQUARE.h;
+  let kind = inSquare ? 'blossom' : treeKind(v);
+  // In fall, most broadleaf trees turn red, orange or gold.
+  if (world.season?.fall && kind !== 'pine') {
+    const f = tileHash(x * 11 + 5, y * 3 + 1);
+    kind = inSquare ? (f < 0.5 ? 'maple' : 'amber') : f < 0.3 ? 'maple' : f < 0.55 ? 'amber' : f < 0.75 ? 'gold' : kind;
+  }
+  return kind;
+}
+
 export function treeCards(world, set) {
   for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
     if (world.tiles[y * MAP_W + x] !== T.TREE) continue;
     const v = tileHash(x * 3, y * 7);
-    // The town square gets blossom trees.
-    const inSquare = x >= SQUARE.x && x < SQUARE.x + SQUARE.w && y >= SQUARE.y && y < SQUARE.y + SQUARE.h;
-    let kind = inSquare ? 'blossom' : treeKind(v);
-    // In fall, most broadleaf trees turn red, orange or gold.
-    if (world.season?.fall && kind !== 'pine') {
-      const f = tileHash(x * 11 + 5, y * 3 + 1);
-      kind = inSquare ? (f < 0.5 ? 'maple' : 'amber') : f < 0.3 ? 'maple' : f < 0.55 ? 'amber' : f < 0.75 ? 'gold' : kind;
-    }
+    const kind = treeKindAt(world, x, y);
     const spr = world.season?.winter ? snowy(treeSprite(v, kind)) : treeSprite(v, kind);
     // Trees are drawn 1.5x so they tower over houses and villagers.
     set.add(spr, 8, 14, x + 0.5, 0, y + 0.55, { shadow: 1.5, scale: 1.5 });

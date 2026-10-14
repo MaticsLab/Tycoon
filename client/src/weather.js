@@ -1,6 +1,6 @@
 // Weather and seasonal particles drawn over the 3D view: rain (and storms with
-// lightning), snow, falling leaves in fall, blossom petals in spring and fireflies on
-// summer nights. Screen-space and cheap: a few hundred particles at most.
+// lightning), snow and fireflies on summer nights (screen-space and cheap), plus leaves
+// and petals that drop from the actual trees around you (in the world, see below).
 export function makeWeather({ onFlash } = {}) {
   const parts = [];
   let mode = '', flash = 0;
@@ -21,7 +21,8 @@ export function makeWeather({ onFlash } = {}) {
   }
   // state: { kind: 'rain'|'storm'|'snow'|null, season: 'spring'|..., dark: 0..0.65 }
   function draw(c, W, H, now, dt, state) {
-    let kind = state.kind || (state.season === 'fall' ? 'leaves' : state.season === 'spring' ? 'petals' : state.season === 'summer' && state.dark > 0.3 ? 'fireflies' : '');
+    // (Leaves and petals fall from the trees themselves: see makeTreeLeaves below.)
+    let kind = state.kind || (state.season === 'summer' && state.dark > 0.3 ? 'fireflies' : '');
     if (kind !== mode) { mode = kind; reset(kind, W, H); }
     // The sky darkens under rain and snow clouds.
     if (kind === 'rain' || kind === 'storm' || kind === 'snow') {
@@ -65,6 +66,74 @@ export function makeWeather({ onFlash } = {}) {
     if (kind === 'storm') {
       if (flash <= 0 && Math.random() < dt * 0.08) { flash = 1; onFlash?.(); }
       if (flash > 0) { c.fillStyle = `rgba(255,255,255,${flash * 0.55})`; c.fillRect(0, 0, W, H); flash -= dt * 3.5; }
+    }
+  }
+  return { draw };
+}
+
+// Leaves and blossom petals falling from the real trees near the camera, in each tree's
+// own colours (pink petals from blossom trees in spring, red/orange/gold leaves from fall
+// maples, the odd green leaf in summer, none in winter). They spin and sway down from the
+// crown, rest on the ground for a while, then fade. Drawn in screen space each frame from
+// world positions, so they stay with their tree as the camera moves.
+// opts: { view, world, isTree(x, y), kindAt(x, y), palette: { kind: [5 colours] } }
+export function makeTreeLeaves({ view, world, isTree, kindAt, palette }) {
+  const leaves = [];
+  let acc = 0;
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const RATE = { spring: 16, summer: 2, fall: 22, winter: 0 };
+  function spawn(season, cx, cz) {
+    // A tree somewhere around the camera.
+    for (let tries = 0; tries < 40; tries++) {
+      const x = Math.floor(cx + rnd(-12, 12)), z = Math.floor(cz + rnd(-9, 9));
+      if (!isTree(x, z)) continue;
+      const kind = kindAt(x, z);
+      if (kind === 'pine') continue;
+      if (season === 'spring' && kind !== 'blossom' && Math.random() < 0.85) continue;
+      const pal = palette[kind] || palette.oak;
+      const petal = kind === 'blossom';
+      leaves.push({
+        x: x + 0.5 + rnd(-0.9, 0.9), y: rnd(1.6, 3.1), z: z + 0.55 + rnd(-0.5, 0.5),
+        vy: rnd(0.35, 0.65) * (petal ? 0.8 : 1), ph: rnd(0, 6.3), spin: rnd(-3, 3), rot: rnd(0, 6.3),
+        r: petal ? rnd(0.08, 0.11) : rnd(0.1, 0.15), c: pal[2 + Math.floor(Math.random() * 3)], dark: pal[1], petal, rest: 0, life: 1,
+      });
+      return;
+    }
+  }
+  function draw(c, now, dt, season) {
+    const rate = RATE[season] || 0;
+    const cam = view.target;
+    if (rate) {
+      acc += dt * rate;
+      while (acc >= 1 && leaves.length < 160) { acc -= 1; spawn(season, cam.x, cam.z); }
+      if (acc > 1) acc = 0;
+    }
+    // Pixels per tile right now (for the leaf size).
+    const a = view.toScreen(cam.x, 0, cam.z), b = view.toScreen(cam.x + 1, 0, cam.z);
+    const ppt = Math.hypot(b.x - a.x, b.y - a.y);
+    for (let i = leaves.length - 1; i >= 0; i--) {
+      const p = leaves[i];
+      if (p.y > 0.02) {
+        p.y = Math.max(0.02, p.y - p.vy * dt);
+        p.ph += dt * 2.2;
+        p.x += Math.sin(p.ph) * 0.35 * dt + 0.08 * dt; p.z += Math.cos(p.ph * 0.7) * 0.2 * dt;
+        p.rot += p.spin * dt;
+      } else {
+        p.rest += dt;
+        if (p.rest > 4) p.life -= dt / 1.5;
+        if (p.life <= 0 || Math.abs(p.x - cam.x) > 30 || Math.abs(p.z - cam.z) > 24) { leaves.splice(i, 1); continue; }
+      }
+      const s = view.toScreen(p.x, p.y, p.z);
+      const R = Math.max(1.5, p.r * ppt);
+      c.save();
+      c.globalAlpha = Math.max(0, p.life);
+      c.translate(s.x, s.y); c.rotate(p.rot);
+      // Fluttering: the leaf turns edge-on and back as it falls; flat once it lands.
+      c.scale(1, p.y > 0.02 ? Math.abs(Math.sin(p.ph * 1.6)) * 0.7 + 0.3 : 0.55);
+      c.fillStyle = p.c;
+      c.beginPath(); c.ellipse(0, 0, R, R * (p.petal ? 0.7 : 0.55), 0, 0, Math.PI * 2); c.fill();
+      if (!p.petal) { c.strokeStyle = p.dark; c.lineWidth = 1; c.beginPath(); c.moveTo(-R, 0); c.lineTo(R, 0); c.stroke(); }
+      c.restore();
     }
   }
   return { draw };

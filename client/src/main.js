@@ -30,7 +30,9 @@ import { drawFloor, drawObject } from './sprites.js';
 import { openCreator, closeCreator } from './creator.js';
 import { renderCity } from './cityui.js';
 import { socialUI } from './social-ui.js';
-import { makeWeather } from './weather.js';
+import { makeWeather, makeTreeLeaves } from './weather.js';
+import { LEAF } from './sprites.js';
+import { treeKindAt } from './gfx/scenery.js';
 import { createAudio } from './audio.js';
 import { FOUNTAIN } from '@shared/world.js';
 import { applyNature, wildKind, treeStage, fruitReady, HITS, TOOL_FOR, weatherAt } from '@shared/nature.js';
@@ -3998,6 +4000,7 @@ function drawOverlay(now) {
     const wx = S.weather ?? weatherAt(day, hours);
     view.overcast = wx === 'storm' ? 1 : wx ? 0.6 : 0;
     updateAudio(now, wx, day);
+    treeLeaves.draw(octx, now, Math.min(0.05, (now - (lastWeather || now)) / 1000), S.seasonOverride || seasonOf(day).id);
     weather.draw(octx, innerWidth, innerHeight, now, Math.min(0.05, (now - (lastWeather || now)) / 1000), { kind: wx, season: seasonOf(day).id, dark: darkness(serverNow(), S.epoch) });
     lastWeather = now;
   }
@@ -4495,6 +4498,11 @@ function drawTouchMarks(now) {
 // ---------- trees and rocks ----------
 const audio = createAudio({ store });
 const weather = makeWeather({ onFlash: () => audio.thunder() });
+const treeLeaves = makeTreeLeaves({
+  view, world, palette: LEAF,
+  isTree: (x, y) => x >= 0 && y >= 0 && x < world.w && y < world.h && world.tiles[y * world.w + x] === T.TREE,
+  kindAt: (x, y) => treeKindAt(world, x, y),
+});
 // Sound can only start after the player touches the page.
 for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, () => audio.start(), { passive: true });
 // What the soundscape should be right now (called every frame; cheap).

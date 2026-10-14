@@ -98,18 +98,16 @@ function publicDecor(season) {
   add('noticeboard', 136, 35); add('ballotbox', 141, 35); add('mailbox', 134, 37);
   // Town square: the village notice board (player market) and a post box.
   add('noticeboard', 54, 55); add('mailbox', 57, 57);
-  // Out in front of the shops: Rosa's market stall, produce cart, barrels and crates
-  // piled with produce; Otto's porch chairs, a dresser and his OPEN sign.
-  add('barreldisplay', 43, 51, 0, ['apple', 'wheat']); add('marketstall', 44, 51, 0, ['pumpkin', 'melon', 'corn', 'apple']); add('chalkboard', 46, 51);
-  add('producecart', 49, 51, 0, ['turnip', 'carrot', 'kale', 'berry']); add('flowerbuckets', 51, 51); add('cratestack', 52, 51, 0, ['carrot', 'turnip']);
-  add('bunting', 44, 52); add('bunting', 49, 52);
-  add('rockingchair', 68, 51); add('armchair', 69, 51); add('opensign', 70, 51); add('dresser', 73, 51); add('flowerbed', 74, 51); add('bush', 75, 51);
-  add('basketstack', 76, 51); add('parasol', 67, 53);
+  // Out in front of the shops (kept light, so the square has room to breathe): Rosa's
+  // market stall, produce cart and flower buckets; Otto's rocking chair and OPEN sign.
+  add('marketstall', 44, 51, 0, ['pumpkin', 'melon', 'corn', 'apple']);
+  add('producecart', 49, 51, 0, ['turnip', 'carrot', 'kale', 'berry']); add('flowerbuckets', 51, 51);
+  add('rockingchair', 68, 51); add('opensign', 70, 51); add('flowerbed', 74, 51);
   // A fishmonger's stall by the pond.
   add('fishstall', 43, 56, 0, ['trout', 'bass', 'sunfish']);
-  // Benches round the fountain, and planters and lamps along the square.
-  add('bench', 50, 57); add('bench', 68, 57); add('flowerbed', 44, 60); add('flowerbed', 77, 60); add('lamppost', 42, 51); add('lamppost', 78, 51);
-  add('bench', 64, 48); add('flowerbed', 54, 48); add('flowerbed', 65, 48); add('lamppost', 54, 46); add('lamppost', 65, 46);
+  // A bench either side of the fountain, and lamps at the corners of the square.
+  add('bench', 50, 57); add('bench', 68, 57); add('lamppost', 42, 51); add('lamppost', 78, 51);
+  add('lamppost', 54, 46); add('lamppost', 65, 46);
   for (const x of [126, 152]) add('bench', x, 37);
   // Willow Park
   for (const [x, y] of [[121, 47], [121, 58], [156, 47], [156, 58], [138, 46], [138, 59]]) add('lamppost', x, y);
@@ -127,12 +125,9 @@ function publicDecor(season) {
   }
   if (!season.halloween) return out;
   // Halloween: jack-o'-lanterns, hay bales, cauldrons and a little graveyard.
-  for (const [x, y] of [[42, 47], [77, 47], [56, 52], [63, 52], [55, 58], [65, 58], [52, 59], [67, 59], [59, 60], [60, 60]]) add('jackolantern', x, y);
-  for (const [x, y] of [[59, 46], [61, 46], [43, 46], [72, 59], [77, 46]]) add('pumpkin_deco', x, y);
-  for (const [x, y] of [[54, 59], [64, 59]]) add('haybale', x, y);
-  add('cauldron', 66, 52); add('cauldron', 53, 52);
-  for (const [x, y] of [[42, 48], [74, 56]]) add('cornstalks', x, y);
-  add('scarecrow', 70, 58);
+  for (const [x, y] of [[56, 52], [63, 52], [59, 60], [60, 60]]) add('jackolantern', x, y);
+  for (const [x, y] of [[43, 46], [77, 46]]) add('pumpkin_deco', x, y);
+  add('haybale', 54, 59); add('cauldron', 66, 52);
   for (const [x, y] of [[129, 36], [146, 36], [133, 39], [144, 39]]) add('jackolantern', x, y);
   for (const [x, y] of [[125, 34], [153, 34]]) add('cornstalks', x, y);
   // graveyard in the fair's south-east corner

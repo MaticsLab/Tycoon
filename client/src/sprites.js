@@ -362,7 +362,7 @@ function fountain(d, x, y) {
 }
 
 // ---------- trees ----------
-const LEAF = {
+export const LEAF = {
   oak: ['#1f4f22', '#2d6a2c', '#3f8a35', '#58a842', '#7cc457'],
   oak2: ['#1d4a2b', '#285f35', '#367a40', '#4b9850', '#6db86a'],
   blossom: ['#7d3c62', '#a65384', '#cf78a8', '#eba2c8', '#ffd2e8'],
