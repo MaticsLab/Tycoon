@@ -4138,7 +4138,9 @@ function updateMap(now) {
   const labels = Object.values(S.plots).filter((p) => p.owner).map((p) => ({
     text: p.farm ? `${p.farm} Farm` : `${p.ownerName}'s`, x: p.x + p.w / 2, y: p.y + 1.6, mine: p.id === S.myPlot,
   }));
-  minimap.draw(people, labels);
+  // Market stalls this week (faded while the keeper's away).
+  const markers = Object.values(S.plots).filter((p) => p.stall).map((p) => ({ x: p.x + 1, y: p.y + 1, icon: '🧺', text: `${p.name}${p.biz?.closed ? ' · closed' : ''}`, dim: !!p.biz?.closed }));
+  minimap.draw(people, labels, markers);
 }
 function placeMinimap() {
   const tb = $('topbar').getBoundingClientRect();

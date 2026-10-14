@@ -77,13 +77,14 @@ export class Minimap {
   }
 
   // people: [{ x, y (world px), dir, kind: 'me'|'player'|'npc'|'pet', name }]
-  draw(people, labels) {
-    this.follow(this.small, this.layers.small, people, 4);
-    if (!this.big.closest('[hidden]')) this.render(this.big, this.layers.big, people, 6, true, labels);
+  // markers: [{ x, y (tiles), icon, text, dim }] (market stalls)
+  draw(people, labels, markers = []) {
+    this.follow(this.small, this.layers.small, people, 4, markers);
+    if (!this.big.closest('[hidden]')) this.render(this.big, this.layers.big, people, 6, true, labels, markers);
   }
 
   // The corner map: a square window that follows you around (you stay in the middle).
-  follow(cv, layer, people, s) {
+  follow(cv, layer, people, s, markers = []) {
     if (!layer) return;
     const N = 128; // canvas pixels: 32 tiles across
     if (cv.width !== N) { cv.width = N; cv.height = N; }
@@ -94,18 +95,20 @@ export class Minimap {
     g.fillStyle = '#244a22'; g.fillRect(0, 0, N, N); // the forest beyond the edge
     g.drawImage(layer, -ox, -oy);
     g.save(); g.translate(-ox, -oy);
+    for (const m of markers) pin(g, m, s * 0.9, false, s);
     for (const p of people.filter((q) => q.kind !== 'me')) dot(g, p, s * 0.6, false, s);
     if (me) dot(g, me, s * 0.6, false, s);
     g.restore();
   }
 
-  render(cv, layer, people, s, detailed, labels) {
+  render(cv, layer, people, s, detailed, labels, markers = []) {
     if (!layer) return;
     if (cv.width !== layer.width) { cv.width = layer.width; cv.height = layer.height; }
     const g = cv.getContext('2d');
     g.imageSmoothingEnabled = false;
     g.drawImage(layer, 0, 0);
     g.textAlign = 'center'; g.textBaseline = 'middle';
+    for (const m of markers) pin(g, m, s * 1.8, false, s);
     for (const p of people.filter((q) => q.kind !== 'me')) dot(g, p, s, detailed);
     const me = people.find((q) => q.kind === 'me');
     if (me) dot(g, me, s, detailed);
@@ -119,6 +122,7 @@ export class Minimap {
         label(g, a.name, cx, cy + s * 1.6, s * 1.9, '#fff');
       }
       for (const l of labels) label(g, l.text, l.x * s, l.y * s, s * 1.5, l.mine ? '#ffe36e' : '#f4efe2');
+      for (const m of markers) pin(g, m, s * 1.8, true, s);
     }
   }
 }
@@ -150,4 +154,21 @@ function dot(g, p, s, detailed, scale = s) {
     g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); g.stroke();
   }
   if (detailed && p.name && p.kind !== 'pet') label(g, p.name, x, y - r - s * 1.3, s * 1.5, DOT[p.kind]);
+}
+
+// A map pin with an emoji (a market stall): a round badge on a little stem, faded when
+// it's closed, with its name on the big map.
+function pin(g, m, s, withText, scale = s) {
+  const x = m.x * scale, y = m.y * scale, r = s * 1.9;
+  g.save();
+  g.globalAlpha = m.dim ? 0.55 : 1;
+  if (!withText) {
+    g.fillStyle = m.dim ? '#8f7a5c' : '#e0a82e'; g.strokeStyle = '#3a2716'; g.lineWidth = Math.max(1, s / 3);
+    g.beginPath(); g.moveTo(x, y + r * 1.9); g.lineTo(x - r * 0.55, y + r * 0.6); g.lineTo(x + r * 0.55, y + r * 0.6); g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = '#fbf3dc';
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.font = `${r * 1.25}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(m.icon, x, y + r * 0.08);
+  } else if (m.text) label(g, m.text, x, y - r * 1.6, scale * 1.6, m.dim ? '#d8ccb4' : '#ffe9a8');
+  g.restore();
 }
