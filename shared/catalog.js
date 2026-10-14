@@ -325,7 +325,7 @@ export const CROPS = {
 // Watered crops grow twice as fast while the soil is wet: o.wf..o.wu is the current wet
 // spell, o.b the head start banked from earlier ones.
 
-export const START_COINS = 500;
+export const START_COINS = 1000; // see shared/economy.js (PLAYER_START)
 
 export const itemName = (id) => ITEMS[id]?.name || GOODS[id]?.name || id;
 

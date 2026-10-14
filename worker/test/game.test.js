@@ -310,7 +310,7 @@ test('villagers live their day: walk to planned places, sit, sleep indoors, meet
       // Arrived somewhere: standing on walkable ground, on their bench, or indoors.
       const place = PLACES[n.step.place];
       if (act?.pose === 'sit' && place.seat) assert.deepEqual([n.x, n.y], [place.seat[0] * TILE, place.seat[1] * TILE], `${n.id} on the bench`);
-      else if (!act?.hidden) assert.ok(canStand(game.world, game.plots, n.x, n.y) || Math.hypot(n.x - place.x * TILE, n.y - place.y * TILE) < 4, `${n.id} ${n.act} at ${n.x},${n.y}`);
+      else if (!act?.hidden) assert.ok(canStand(game.world, game.plots, n.x, n.y) || Math.hypot(n.x - place.x * TILE, n.y - place.y * TILE) < TILE * 1.2, `${n.id} ${n.act} at ${n.x},${n.y}` /* (friends meet a step to either side) */);
     }
   }
   for (const id of Object.keys(game.npcs)) {
@@ -1154,7 +1154,7 @@ test('businesses: licence, shop plot, shelves, the till, machines, clerks and cu
   b.send({ type: 'buyStock', plotId: 1, lx: 3, ly: 3, slot: 0 });
   assert.equal(sb.profile.inv.jam, 1);
   assert.equal(sb.profile.coins, 1000 - 140);
-  assert.equal(sa.profile.coins, ca + 140 + 14);
+  assert.equal(sa.profile.coins, ca + 140 - Math.round(140 * 0.05) + 14); // (less 5% sales tax, plus the tip)
   assert.equal(shop.obj['3,3'].stock[0].n, 2);
   // Ben can't run Ana's till.
   stand(game, b, 1, 6, 4);
@@ -1521,7 +1521,7 @@ test('village life: fishing, trading, notice board, mail, co-op farms, storage',
   b.send({ type: 'tradeOk' });
   assert.equal(sa.profile.inv.turnip, 6);
   assert.equal(sb.profile.inv.turnip, 4);
-  assert.equal(sb.profile.coins, 400);
+  assert.equal(sb.profile.coins, START_COINS - 100);
 
   // The notice board: Ana posts turnips, Ben buys two (Ana gets paid and a letter).
   sa.x = 100 * TILE; sa.y = 43 * TILE;
@@ -1618,7 +1618,9 @@ test('village calendar: festivals, goals, newspaper, friendship, loans, tax and 
   while (worldClock(game.now(), game.epoch).hours < 18.2) { advance(HOUR_MS / 4); game.tick(); }
   assert.ok(ev.judged);
   const prize = sa.profile.mail.find((m) => m.from === 'The Festival Committee');
-  assert.equal(prize.coins, 500);
+  // The pool: City Hall's sponsorship plus every entry fee (villagers enter too); first takes half.
+  assert.ok(game.events.s.fest.pool >= 400);
+  assert.equal(prize.coins, Math.round(game.events.s.fest.pool * 0.5));
   assert.deepEqual(prize.items, { trophy: 1 });
   a.send({ type: 'mailTake', id: prize.id });
   a.send({ type: 'place', plotId: 0, lx: 3, ly: 3, item: 'trophy' });
@@ -1939,7 +1941,7 @@ test('villager agents: partner up, buy a lot, build a shop in stages and sell to
   await a.send({ type: 'buyStock', plotId: lot.id, lx, ly, slot: 0, n: 1 });
   assert.equal(s.profile.coins, coins - price);
   assert.ok(s.profile.inv[item] >= 1);
-  assert.ok(lila.s.wallet + rosa.s.wallet >= wallets + price - 1);
+  assert.ok(lila.s.wallet + rosa.s.wallet >= wallets + price * 0.95 - 2);
   // It all survives a restart.
   const saved = Game.fromEntries(Object.entries(game.takeDirty()));
   const again = new Game(saved);
@@ -2053,7 +2055,7 @@ test('shop carts: pick from several shelves, pay once, owners get paid', async (
   assert.match(a.last('error').msg, /price/);
   await a.send({ type: 'buyCart', plotId: lot.id, items });
   assert.equal(s.profile.coins, coins - total);
-  assert.equal(lila.s.wallet, wallet + total);
+  assert.ok(Math.abs(lila.s.wallet - (wallet + total * 0.95)) <= items.length, 'paid, less sales tax');
   assert.ok(a.last('cartPaid'));
   for (const i of items) assert.ok(s.profile.inv[i.item] >= 1);
 });
@@ -2096,7 +2098,7 @@ test('market stalls: a few villagers sell from a stall each week and call out to
   s.profile.coins = 10_000;
   await a.send({ type: 'offerAccept', id: offer.id });
   assert.ok(s.profile.inv[offer.item] >= 1);
-  assert.equal(n.s.wallet, wallet + offer.price);
+  assert.equal(n.s.wallet, wallet + offer.price - Math.round(offer.price * 0.05));
   // Calls out once, not every time you pass.
   const count = a.inbox.filter((m) => m.type === 'npcOffer').length;
   for (let i = 0; i < 80; i++) { advance(100); game.tick(); }
@@ -2152,7 +2154,7 @@ test('players rent a market stall for the week, sell from it while away, and get
   const anaCoins = sa.profile.coins;
   await b.send({ type: 'buyCart', plotId: st.id, items: [{ level: 0, lx: 0, ly: 1, item: 'turnip', price: 20, n: 2 }] });
   assert.ok(b.last('cartPaid'), JSON.stringify(b.last('error')));
-  assert.equal(sa.profile.coins, anaCoins + 40);
+  assert.equal(sa.profile.coins, anaCoins + 40 - 2); // less 5% sales tax
   assert.equal(plot().obj['0,1'].stock.find((x) => x.item === 'turnip').n, 4);
   // The shelf survives a restart.
   const again = new Game(Game.fromEntries(Object.entries(game.takeDirty())));
@@ -2164,4 +2166,87 @@ test('players rent a market stall for the week, sell from it while away, and get
   assert.equal(mail.from, 'The Market');
   assert.deepEqual(mail.items, { turnip: 4, berry: 3 });
   assert.ok(!Object.values(game.plots).some((p) => p.renter === sa.profile.id));
+});
+
+test('the village economy: treasury, real wages, taxes, permits, jobs, savings and the books', async () => {
+  const { HOUR_MS } = await import('../../shared/needs.js');
+  const { worldClock, CIVIC } = await import('../../shared/world.js');
+  const E = await import('../../shared/economy.js');
+  const { game, join, advance } = setup();
+  const a = await join({ name: 'Ana' });
+  const s = a.session();
+  // The richer start.
+  assert.equal(s.profile.coins, E.PLAYER_START);
+  assert.ok(game.city.s.treasury >= E.TREASURY_START);
+  assert.equal(game.city.s.taxRate, E.PROPERTY_TAX);
+  assert.equal(game.npcs.rosa.s.wallet >= E.startWallet('rosa'), true);
+  assert.ok(game.npcs.pip.s.wallet < game.npcs.rosa.s.wallet);
+  // A new day: public servants are paid by the treasury, Lila by Rosa.
+  const t0 = game.city.s.treasury, mabel = game.npcs.mabel.s.wallet, lila = game.npcs.lila.s.wallet;
+  game.econ.newDay(game.day() + 1);
+  assert.ok(game.npcs.mabel.s.wallet >= mabel + E.LIVELIHOODS.mabel.pay - E.LIVING);
+  assert.ok(game.npcs.lila.s.wallet >= lila + E.LIVELIHOODS.lila.pay - E.LIVING);
+  assert.ok(game.city.s.books.out.payroll > 0 && game.city.s.treasury < t0 + 1000);
+  // Selling at a villager's shop pays them (less sales tax, which goes to City Hall).
+  const tax0 = game.city.s.books.in.salesTax || 0;
+  standBy(game, a, 'otto');
+  const otto = game.npcs.otto.s.wallet;
+  s.profile.coins = 5000;
+  await a.send({ type: 'buy', npc: 'otto', item: 'piano' });
+  assert.ok(game.npcs.otto.s.wallet > otto, 'Otto got paid');
+  assert.ok((game.city.s.books.in.salesTax || 0) > tax0, 'sales tax collected');
+  // A request's reward comes out of the asker's pocket.
+  const rosa = game.npcs.rosa.s.wallet;
+  const q = { id: 'x1', npc: 'rosa', kind: 'visit', reward: 60, status: 'active' };
+  s.profile.quests = [q];
+  game.life.complete(s, q, 'Thanks!', null);
+  assert.equal(game.npcs.rosa.s.wallet, rosa - 60);
+  // The first roof needs a building permit.
+  a.send({ type: 'claim', plotId: 0 });
+  const plot = game.plots[0];
+  const c0 = s.profile.coins;
+  a.send({ type: 'roof', plotId: 0, x: 1, y: 1, w: 2, h: 2, m: 'roof_red' });
+  assert.ok(plot.permit);
+  assert.equal(game.city.s.books.in.permit, E.BUILD_PERMIT);
+  assert.ok(s.profile.coins <= c0 - E.BUILD_PERMIT);
+  // City jobs: take a shift at City Hall, do it, get paid by the treasury.
+  const h = worldClock(game.now(), game.epoch).hours;
+  game.epoch -= ((10 - h + 24) % 24) * HOUR_MS;
+  s.x = (CIVIC.x + 5) * TILE; s.y = (CIVIC.y + 12) * TILE;
+  const job = game.city.s.board.jobs.find((j) => j.kind === 'sweeper');
+  assert.ok(job && job.left > 0);
+  a.send({ type: 'jobTake', id: job.id });
+  const sh = a.last('shift').shift;
+  assert.equal(sh.spots.length, E.CITY_JOBS.sweeper.spots);
+  a.send({ type: 'jobDo', i: 0 });
+  assert.match(a.last('error').msg, /Walk over/);
+  const before = s.profile.coins, jobs0 = game.city.s.books.out.jobs || 0;
+  sh.spots.forEach((sp, i) => { s.x = sp.x * TILE; s.y = sp.y * TILE; a.send({ type: 'jobDo', i }); });
+  assert.equal(s.profile.coins, before + E.CITY_JOBS.sweeper.pay);
+  assert.equal((game.city.s.books.out.jobs || 0) - jobs0, E.CITY_JOBS.sweeper.pay);
+  assert.equal(a.last('shift').shift, null);
+  // Savings: deposit at City Hall, interest on the first day of the week, withdraw.
+  s.x = (CIVIC.x + 5) * TILE; s.y = (CIVIC.y + 12) * TILE;
+  a.send({ type: 'bankDeposit', amount: 1000 });
+  assert.equal(s.profile.savings, 1000);
+  let d = game.day() + 1; while ((d - 1) % 7) d++;
+  game.econ.newDay(d);
+  assert.equal(s.profile.savings, 1010);
+  a.send({ type: 'bankWithdraw', amount: 1010 });
+  assert.equal(s.profile.savings, 0);
+  // Villagers work city shifts too, and get paid when they finish.
+  const pip = game.npcs.pip, pw = pip.s.wallet;
+  game.econ.postJobs(game.day());
+  game.agents.goJob(pip, 10);
+  assert.equal(pip.agenda?.kind, 'job');
+  pip.clearAgenda();
+  assert.ok(pip.s.wallet > pw, 'Pip got paid for the shift');
+  // Every coin is on the books, and the history keeps a week of it.
+  game.econ.newDay(d + 1);
+  const [prev, last] = game.city.s.books.history.slice(-2);
+  assert.equal(prev.in.deposits, 1000);
+  assert.equal(last.out.withdrawals, 1010);
+  assert.equal(last.out.interest, 10);
+  assert.ok(game.city.view(game.day(), s.profile).econ.wealth.length >= 15);
+  advance(1);
 });

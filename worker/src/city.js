@@ -60,7 +60,12 @@ export class City {
   }
   onEnterArea(name) { this.s.stats.visits[name] = (this.s.stats.visits[name] || 0) + 1; this.statsDirty = true; }
   onCoins(delta) { if (delta > 0) this.s.stats.econ.earned += delta; else this.s.stats.econ.spent -= delta; this.statsDirty = true; }
-  onLand(cost) { this.s.treasury += cost; this.s.stats.econ.land += cost; this.mark(); }
+  // Money paid to City Hall (kind: a ledger category, see shared/economy.js).
+  onLand(cost, kind = 'land') {
+    if (this.game.econ) this.game.econ.income(kind, cost); else this.s.treasury += cost;
+    if (kind === 'land') this.s.stats.econ.land += cost;
+    this.mark();
+  }
 
   // ---------- clock ----------
   // Called every tick with the current village day.
@@ -194,6 +199,11 @@ export class City {
       if (!Number.isInteger(price) || price < 1 || price > 20) return 'Land price must be 1 to 20 coins a tile';
       p.price = price;
       p.title ||= `Set the price of land to 🪙${price} a tile`;
+    } else if (kind === 'salesTax') {
+      const pct = Number(msg.rate);
+      if (!Number.isInteger(pct) || pct < 0 || pct > 15) return 'Sales tax must be 0% to 15%';
+      p.rate = pct;
+      p.title ||= `Set sales tax to ${pct}%`;
     } else if (kind === 'tax') {
       const rate = Number(msg.rate);
       if (!Number.isInteger(rate) || rate < 0 || rate > 20) return 'Property tax must be 0 to 20 coins per 10 tiles a month';
@@ -264,10 +274,11 @@ export class City {
       if (plot) this.game.closeRoadsOn(plot);
     } else if (p.kind === 'landPrice') this.s.landPrice = p.price;
     else if (p.kind === 'tax') this.s.taxRate = p.rate;
+    else if (p.kind === 'salesTax') this.s.salesTax = p.rate / 100;
     else if (p.kind === 'road') {
       const plan = ROAD_PLANS[p.plan], cost = this.roadCost(plan);
       if (this.s.treasury < cost) { p.status = 'failed'; this.news(day, `${p.title}: passed, but the treasury can’t afford it yet (🪙${this.s.treasury} of 🪙${cost}).`); this.mark(); return; }
-      this.s.treasury -= cost;
+      this.game.econ.spend('roads', cost);
       const roads = this.game.roads, add = new Set(roads.add), del = new Set(roads.del);
       for (let y = plan.y; y < plan.y + plan.h; y++) for (let x = plan.x; x < plan.x + plan.w; x++) {
         const i = y * MAP_W + x;
@@ -285,7 +296,8 @@ export class City {
         this.mark();
         return;
       }
-      this.s.treasury -= pr.cost;
+      this.game.econ.spend('projects', pr.cost);
+      this.game.econ.payBuilders(pr.cost);
       this.s.projects.push(p.project);
       this.game.addTownPlots();
       this.game.addGossip('City Hall', `The ${pr.name} has been built at ${pr.where}!`);
@@ -363,7 +375,7 @@ export class City {
     if (this.s.treasury < amount) return `The treasury only has 🪙${this.s.treasury} to lend`;
     const friend = (this.game.npcs.mabel?.affinity(p) || 0) >= 80;
     const owed = Math.round(amount * (friend ? 1 : 1 + LOAN_RATE));
-    this.s.treasury -= amount;
+    this.game.econ.spend('loans', amount);
     p.loan = { owed, due: day + MONTH_DAYS, took: amount };
     this.game.coins(s, amount);
     this.game.markProfile(p);
@@ -377,7 +389,7 @@ export class City {
     amount = Math.min(p.loan.owed, Math.floor(Number(amount)) || p.loan.owed, p.coins);
     if (!(amount > 0)) return 'Not enough coins';
     this.game.coins(s, -amount);
-    this.s.treasury += amount;
+    this.game.econ.income('loans', amount);
     p.loan.owed -= amount;
     if (p.loan.owed <= 0) { p.loan = null; s.send({ type: 'toast', text: '🏦 Loan paid off. Thank you!' }); }
     this.game.markProfile(p);
@@ -390,7 +402,7 @@ export class City {
     for (const p of Object.values(g.profiles)) {
       if (p.loan && day >= p.loan.due) {
         const take = Math.min(p.coins, p.loan.owed);
-        if (take) { g.farm.pay(p, -take); this.s.treasury += take; p.loan.owed -= take; }
+        if (take) { g.farm.pay(p, -take); g.econ.income('loans', take); p.loan.owed -= take; }
         if (p.loan.owed <= 0) p.loan = null;
         else { p.loan.owed = Math.round(p.loan.owed * 1.1); p.loan.due = day + 7; g.social?.mail(p, { from: 'City Hall', text: `Your loan is overdue: you still owe 🪙${p.loan.owed} (10% late fee). It’s due again on day ${p.loan.due}.` }); }
         g.markProfile(p);
@@ -400,7 +412,7 @@ export class City {
         const tax = Math.round((tiles * this.s.taxRate) / 10);
         if (tax) {
           const take = Math.min(p.coins, tax);
-          if (take) { g.farm.pay(p, -take); this.s.treasury += take; }
+          if (take) { g.farm.pay(p, -take); g.econ.income('propertyTax', take); }
           g.social?.mail(p, { from: 'City Hall', text: take < tax ? `Property tax: 🪙${tax} for ${tiles} tiles. You could only pay 🪙${take}; the council has kindly let the rest go this time.` : `Property tax paid: 🪙${tax} for ${tiles} tiles (🪙${this.s.taxRate} per 10 tiles). Thank you for keeping the village lovely!` });
           g.markProfile(p);
         }
@@ -468,6 +480,7 @@ export class City {
     return {
       day, landPrice: S.landPrice, treasury: S.treasury, term: S.term, seats: SEATS,
       taxRate: S.taxRate || 0, projects: S.projects || [], roads: Object.fromEntries(Object.entries(ROAD_PLANS).map(([id, p]) => [id, { built: this.roadBuilt(p), cost: this.roadCost(p) }])), loan: forProfile?.loan || null, loanMax: LOAN_MAX, loanRate: LOAN_RATE,
+      econ: this.game.econ?.view() || null, jobs: forProfile && this.game.econ ? this.game.econ.boardView(forProfile) : null, savings: forProfile?.savings || 0,
       officials: S.officials,
       election: e && {
         n: e.n, founding: e.founding, phase: this.phase(day), filingEnd: e.filingEnd, votingEnd: e.votingEnd,

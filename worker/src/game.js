@@ -20,6 +20,8 @@ import { Fishing } from './fishing.js';
 import { Events } from './events.js';
 import { Nature } from './nature.js';
 import { Agents, applyHomeEdits } from './agents.js';
+import { Economy } from './economy.js';
+import { BUILD_PERMIT } from '../../shared/economy.js';
 import { VENTURES, AMBITIONS } from '../../shared/agents.js';
 import { townShopPlots, TOWN_PLOT_BASE } from '../../shared/townshops.js';
 import { waterCrop, WET_MS, QUALITY, ANIMALS } from '../../shared/farm.js';
@@ -143,6 +145,7 @@ export class Game {
     this.dirty = new Set(saved.meta && !this.freshLand ? [] : ['meta']);
     if (this.freshLand) for (const id of Object.keys(this.plots)) this.dirty.add(`plot:${id}`);
     for (const k of this.dirtyLater || []) this.dirty.add(k);
+    this.econ = new Economy(this);
     // Wild trees and rocks (cleared from land people own).
     this.nature = new Nature(this, saved.nature);
     for (const p of Object.values(this.plots)) if (p.owner) this.nature.clearPlot(p);
@@ -274,6 +277,11 @@ export class Game {
       case 'buyStock': return this.biz.buy(s, msg);
       case 'buyCart': return this.biz.buyCart(s, msg);
       case 'stallRent': return this.agents.rent(s, msg);
+      case 'jobTake': return this.cityAction(s, () => this.econ.take(s, msg));
+      case 'jobQuit': return this.econ.quit(s);
+      case 'jobDo': return this.econ.work(s, msg);
+      case 'bankDeposit': return this.cityAction(s, () => this.econ.deposit(s, msg.amount));
+      case 'bankWithdraw': return this.cityAction(s, () => this.econ.withdraw(s, msg.amount));
       case 'craft': return this.biz.craft(s, msg);
       case 'collect': return this.biz.collect(s, msg);
       case 'questDecline': return this.life.decline(s, msg);
@@ -462,6 +470,7 @@ export class Game {
     this.markProfile(s.profile);
     for (const n of Object.values(this.npcs)) if (n.talkingTo === s.profile.id) n.talkingTo = null;
     for (const c of this.agents.convos.values()) if (c.players.has(s.profile.id)) this.agents.leave(s, { id: c.id });
+    if (this.econ.shifts.has(s.profile.id)) this.econ.quit(s);
     this.broadcast({ type: 'leave', id: s.profile.id });
   }
 
@@ -798,10 +807,13 @@ export class Game {
     plot.roofs ||= [];
     const err = roofError(plot, x, y, w, h, level, this.world) || (plot.roofs.length >= 12 ? 'Too many roofs' : null);
     if (err) return s.send({ type: 'error', msg: err });
-    const cost = s.cheats.build ? 0 : def.price * w * h;
-    if (cost > s.profile.coins) return s.send({ type: 'error', msg: `Not enough coins (needs 🪙${cost})` });
+    // The first roof on a plot needs a building permit from City Hall.
+    const permit = !plot.permit && !s.cheats.build && !plot.town ? BUILD_PERMIT : 0;
+    const cost = (s.cheats.build ? 0 : def.price * w * h) + permit;
+    if (cost > s.profile.coins) return s.send({ type: 'error', msg: `Not enough coins (needs 🪙${cost}${permit ? `, including the 🪙${permit} building permit` : ''})` });
     plot.roofs.push({ x, y, w, h, l: level, m });
     this.coins(s, -cost);
+    if (permit) { plot.permit = true; this.econ.income('permit', permit); s.send({ type: 'toast', text: `📜 Building permit issued by City Hall (🪙${permit}). Build away!` }); }
     this.plotChanged(plot);
   }
 
@@ -1501,6 +1513,7 @@ export class Game {
     const price = n.price(s.profile, item, true) * qty;
     if (s.profile.coins < price) return s.send({ type: 'error', msg: 'Not enough coins' });
     this.coins(s, -price);
+    this.econ.wallet(n.id, this.econ.taxSale(price)); // the shopkeeper's takings (less sales tax)
     this.bag(s, item, qty);
     this.trade(s, n, 0.5, `${s.profile.name} bought from me`, `Thank you kindly! Enjoy your ${itemName(item)}.`);
   }
@@ -1514,6 +1527,8 @@ export class Game {
     const unit = n.price(s.profile, item, false);
     const took = this.bag(s, item, -qty, 0, true); // the best ones first
     const price = took.reduce((a, k, q) => a + k * Math.round(unit * QUALITY[q].mult), 0);
+    // They pay you out of their own pocket, then sell it on (to visitors and wholesalers) for a little more.
+    this.econ.wallet(n.id, -price + this.econ.taxSale(Math.round(price * 1.1)));
     this.farm.onSold(item, qty, s.profile);
     this.count(s.profile, 'sold', qty);
     this.coins(s, price);
@@ -1727,6 +1742,7 @@ export class Game {
     if (this.city.dirtyView && now - (this.lastCitySend || 0) > 1000) { this.lastCitySend = now; this.sendCity(); }
     if (this.city.statsDirty && now - (this.lastCitySave || 0) > 30_000) { this.lastCitySave = now; this.city.statsDirty = false; this.mark('city'); }
     this.biz.tick(now);
+    this.econ.tick(now);
     this.farm.tick(now);
     this.events.tick(now);
     this.nature.tick(now);

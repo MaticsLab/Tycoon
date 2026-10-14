@@ -288,8 +288,12 @@ export class Life {
     const p = s.profile;
     q.status = 'done';
     q.doneDay = this.game.day();
-    this.game.coins(s, q.reward);
     const giver = this.npcs[q.npc];
+    // The reward comes out of their own pocket (the village chips in if they're short).
+    const own = giver ? Math.min(q.reward, Math.max(0, Math.round(giver.s.wallet || 0))) : 0;
+    if (giver) this.game.econ.wallet(giver.id, -own);
+    const rest = q.reward - own ? this.game.econ.spend('grants', q.reward - own) : 0;
+    this.game.coins(s, own + rest);
     const changes = giver ? giver.feel(p, 2, this.game.now(), `${p.name} did me a favour`, this.game.epoch) : [];
     if (giver) this.game.hearts(p, giver);
     if (giver) { giver.rel(p).affinity = Math.min(100, giver.rel(p).affinity + 6); this.game.mark(`npc:${giver.id}`); }

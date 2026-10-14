@@ -311,6 +311,7 @@ function onMessage(m) {
       break;
     case 'sale': saleFx(m); break;
     case 'cartPaid': shopUI.paid(); break;
+    case 'shift': S.shift = m.shift; renderShift(); lastAction = ''; break;
     case 'nature': {
       if ((m.cut || []).length === 1 && Math.hypot((m.cut[0] % MAP_W + 0.5) * TILE - S.me.x, (Math.floor(m.cut[0] / MAP_W) + 0.5) * TILE - S.me.y) < TILE * 3) audio.sfx(world.tiles[m.cut[0]] === T.ROCK ? 'mine' : 'fell');
       for (const i of m.cut || []) if (world.tiles[i] === T.TREE || world.tiles[i] === T.ROCK) { const x = i % MAP_W, y = Math.floor(i / MAP_W); chips(x, y, world.tiles[i] === T.TREE ? 'tree' : 'rock', 14); world.tiles[i] = T.GRASS; }
@@ -587,6 +588,23 @@ function updateHud() {
 }
 
 const fmtHour = (h) => `${((Math.floor(h) + 11) % 12) + 1} ${h % 24 < 12 ? 'AM' : 'PM'}`;
+// Your city or helper shift: the nearest spot still to do, if you're at it.
+function shiftSpot() {
+  if (!S.shift || !S.me) return -1;
+  let best = -1, bd = 1.4;
+  S.shift.spots.forEach((sp, i) => { if (sp.done) return; const d = Math.hypot(sp.x - S.me.x / TILE, sp.y - S.me.y / TILE); if (d < bd) { bd = d; best = i; } });
+  return best;
+}
+function renderShift() {
+  const el = $('shiftcard'), sh = S.shift;
+  el.hidden = !sh;
+  if (!sh) return;
+  const done = sh.spots.filter((x) => x.done).length;
+  const mins = Math.max(0, Math.round((sh.until - serverNow()) / 60000));
+  el.innerHTML = `<span class="sc-ic">${sh.icon}</span><span><b>${esc(sh.name)}</b>${done}/${sh.spots.length} done · 🪙${sh.pay} · ${mins} min left</span><button type="button">Quit</button>`;
+  el.querySelector('button').onclick = () => { if (confirm('Quit this shift? You won’t be paid.')) send({ type: 'jobQuit' }); };
+}
+setInterval(() => { if (S.shift) renderShift(); }, 20000);
 function fmtClock() {
   const { day, year, shownHours: h, minutes: mi } = worldClock(serverNow(), S.epoch);
   const h12 = ((h + 11) % 12) + 1;
@@ -620,6 +638,7 @@ function updateContext() {
   if (S.mode !== 'walk' || S.talk) action = '';
   else if (S.act) action = `stop:${S.act}`;
   else if (ui.fish.state) action = `ui:${ui.contextAction().id}`;
+  else if (shiftSpot() >= 0) action = `job:${shiftSpot()}`;
   else if (npc) action = `talk:${npc.id}`;
   else if (usable) action = `use:${usable.plot.id}:${usable.level}:${usable.key}:${usable.uses.join('/')}`;
   else if (ui.contextAction()) action = `ui:${ui.contextAction().id}`;
@@ -642,6 +661,7 @@ function updateContext() {
     else if (action.startsWith('ui:')) btn.textContent = ui.contextAction()?.label || '…';
     else if (action.startsWith('wild:')) btn.textContent = action.endsWith('tree') ? '🪓 Chop tree' : '⛏️ Break rock';
     else if (action.startsWith('talk')) btn.textContent = `💬 Talk to ${NPCS[action.split(':')[1]].name}`;
+    else if (action.startsWith('job:')) btn.textContent = `${S.shift.icon} ${S.shift.verb} (${S.shift.spots.filter((x) => x.done).length + 1}/${S.shift.spots.length})`;
     else if (action === 'pet') btn.textContent = `🐾 Pet your ${PETS[petOf(S.me)].kind}`;
     else if (action.startsWith('eatHeld')) { const id = action.split(':')[1]; btn.textContent = `😋 Eat ${(GOODS[id]?.name || id).toLowerCase()}`; }
     else if (action.startsWith('eatHere')) { const pl = PLATES[S.carry.food]; btn.textContent = `${pl.icon} Eat ${pl.name.toLowerCase()} here`; }
@@ -656,6 +676,7 @@ function updateContext() {
 }
 $('action').onclick = () => {
   if (lastAction.startsWith('stop')) { send({ type: 'stop' }); return; }
+  if (lastAction.startsWith('job:')) { send({ type: 'jobDo', i: Number(lastAction.split(':')[1]) }); haptic?.(10); return; }
   if (lastAction.startsWith('ui:')) { ui.runAction(lastAction.slice(3)); return; }
   if (lastAction.startsWith('wild:')) { const [, x, y] = lastAction.split(':'); swing(+x, +y); return; }
   if (lastAction.startsWith('eatHere')) { send({ type: 'use', act: 'eatHere' }); return; }
@@ -4153,6 +4174,7 @@ function updateMap(now) {
   const markers = Object.values(S.plots).filter((p) => p.stall || p.rental).map((p) => (p.rental && !p.renter
     ? { x: p.x + 1, y: p.y + 1, icon: '🏷️', text: `Stall for rent · 🪙${p.rentFee}`, dim: false }
     : { x: p.x + 1, y: p.y + 1, icon: '🧺', text: `${p.name}${p.biz?.closed ? ' · closed' : ''}`, dim: !!p.biz?.closed, mine: p.renter === S.me?.id }));
+  if (S.shift) for (const sp of S.shift.spots) if (!sp.done) markers.push({ x: sp.x, y: sp.y, icon: S.shift.icon, text: S.shift.name, mine: true });
   minimap.draw(people, labels, markers);
 }
 function placeMinimap() {
@@ -4278,6 +4300,12 @@ function drawOverlay(now) {
     if (onScreen(p)) tag(`🏡 ${st.farm ? st.farm + ' Farm' : st.ownerName}`, p.x, p.y, 11, st.owner === S.me.id ? '#ffe08a' : '#fff');
   }
   drawFarmOverlay(onScreen, now);
+  // Your shift's spots: a bobbing marker over each one still to do.
+  if (S.shift) for (const sp of S.shift.spots) {
+    if (sp.done) continue;
+    const p = view.toScreen(sp.x, 1.4 + Math.sin(now / 300 + sp.x) * 0.12, sp.y);
+    if (onScreen(p)) tag(`${S.shift.icon}${sp.label ? ` ${sp.label}` : ''}`, p.x, p.y, 14, '#ffe08a');
+  }
   drawTouchMarks(now);
   if (S.mode === 'build') { placeObjPop(); syncTimeIcon(); } else if (!$('objpop').hidden) $('objpop').hidden = true;
   drawChips(now);

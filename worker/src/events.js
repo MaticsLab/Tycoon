@@ -5,6 +5,8 @@ import { TILE, worldClock, publicAreaAt, SQUARE, FAIR } from '../../shared/world
 import { QUALITY, seasonOf, seasonDay } from '../../shared/farm.js';
 import { EVENTS, PRIZES, JUDGE_HOUR, eventOn, nextEvent, canEnter, scoreOf } from '../../shared/events.js';
 import { goalsFor, weekOf } from '../../shared/goals.js';
+import { FESTIVAL_FEE, PRIZE_SPLIT } from '../../shared/economy.js';
+import { WARES } from '../../shared/agents.js';
 
 const clean = (s, n) => String(s ?? '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, n);
 
@@ -50,6 +52,7 @@ export class Events {
     const today = this.game.day();
     const next = nextEvent(f && f.day >= today && !f.judged ? f.day : today + (f?.day === today ? 1 : 0));
     return {
+      fee: FESTIVAL_FEE, pool: f ? (f.judged ? f.pool || 0 : this.game.econ.festivalPool(f)) : 0,
       fest: f && { day: f.day, id: f.id, judged: f.judged, results: f.results, entries: Object.values(f.entries).sort((a, b) => b.score - a.score).map(({ name, item, q, score, pid }) => ({ name, item, q, score, pid })) },
       next,
     };
@@ -64,6 +67,9 @@ export class Events {
     if (area !== FAIR && area !== SQUARE) return s.send({ type: 'error', msg: 'Bring your entry to the Harvest Fair or the town square' });
     if (f.entries[s.profile.id]) return s.send({ type: 'error', msg: 'You’ve already entered: good luck!' });
     if (!canEnter(f.id, item) || !(s.profile.inv[item] > 0)) return s.send({ type: 'error', msg: `That’s not an entry for the ${EVENTS[f.id].name}` });
+    if (s.profile.coins < FESTIVAL_FEE) return s.send({ type: 'error', msg: `Entry costs 🪙${FESTIVAL_FEE} (it goes into the prize pool)` });
+    g.coins(s, -FESTIVAL_FEE);
+    f.fees = (f.fees || 0) + g.econ.income('fees', FESTIVAL_FEE);
     const took = g.bag(s, item, -1, 0, true);
     const q = took.findIndex((k) => k > 0);
     f.entries[s.profile.id] = { pid: s.profile.id, name: s.profile.name, item, q, score: scoreOf(item, q) };
@@ -76,9 +82,15 @@ export class Events {
     const g = this.game, f = this.s.fest;
     f.judged = true;
     const E = EVENTS[f.id];
+    // Villagers enter too (paying the fee like everyone else).
+    this.villagerEntries(f);
     const ranked = Object.values(f.entries).sort((a, b) => b.score - a.score);
-    f.results = ranked.slice(0, 3).map((e, i) => ({ ...e, prize: PRIZES[i] }));
+    // The prize pool: City Hall's sponsorship plus the entry fees, paid out of the treasury.
+    const pool = ranked.length ? g.econ.spend('prizes', g.econ.festivalPool(f)) : 0;
+    f.pool = pool;
+    f.results = ranked.slice(0, 3).map((e, i) => ({ ...e, prize: Math.round(pool * PRIZE_SPLIT[i]) }));
     for (const [i, e] of f.results.entries()) {
+      if (e.npc) { g.econ.wallet(e.npc, e.prize); continue; }
       const p = Object.values(g.profiles).find((x) => x.id === e.pid);
       if (!p) continue;
       g.social.mail(p, { from: 'The Festival Committee', text: `${['🥇 First', '🥈 Second', '🥉 Third'][i]} place at the ${E.name} with your ${itemName(e.item)}! Here’s your prize${i === 0 ? ' and the trophy' : ''}.`, coins: e.prize, items: i === 0 ? { trophy: 1 } : null });
@@ -90,6 +102,22 @@ export class Events {
     if (ranked.length) { g.addGossip('Juniper', `${f.results[0].name} won the ${E.name} with ${itemName(f.results[0].item)}`); this.note(`${f.results[0].name} won the ${E.name} with a ${itemName(f.results[0].item)}; ${ranked.length} entered`); }
     this.mark();
     this.broadcast();
+  }
+
+  villagerEntries(f) {
+    const g = this.game;
+    const kinds = { harvest: ['pumpkin', 'melon', 'corn', 'berry'], derby: ['trout', 'bass', 'pike', 'catfish'], bakeoff: ['pie', 'cake', 'bread', 'jam'], fair: ['bouquet', 'cheese', 'cloth', 'honeycake'] }[f.id] || [];
+    const who = Object.entries(WARES).filter(([id, w]) => g.npcs[id] && w.some((i) => kinds.includes(i) || canEnter(f.id, i))).map(([id]) => id).sort(() => Math.random() - 0.5).slice(0, 3);
+    for (const id of who) {
+      const n = g.npcs[id];
+      if (f.entries[`npc:${id}`] || (n.s.wallet || 0) < FESTIVAL_FEE + 50) continue;
+      const item = WARES[id].find((i) => canEnter(f.id, i)) || kinds[0];
+      if (!item || !canEnter(f.id, item)) continue;
+      g.econ.wallet(id, -FESTIVAL_FEE);
+      f.fees = (f.fees || 0) + g.econ.income('fees', FESTIVAL_FEE);
+      const q = Math.random() < 0.15 ? 2 : Math.random() < 0.4 ? 1 : 0;
+      f.entries[`npc:${id}`] = { pid: `npc:${id}`, npc: id, name: n.def.name, item, q, score: scoreOf(item, q) * (0.85 + Math.random() * 0.3) };
+    }
   }
 
   // ---------- goals ----------

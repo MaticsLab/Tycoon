@@ -7,6 +7,7 @@
 // an offer. When two or more get talking it's a proper group conversation: anyone
 // nearby can walk up, join in and be answered.
 import { NPCS, moodLabel } from '../../shared/npcs.js';
+import { LIVELIHOODS } from '../../shared/economy.js';
 import { VOICES, voiceOf, VENTURES, AMBITIONS, WARES, WAGE, START_WALLET, STAGES, ventureCost, DECOR, YARD_DECOR, siteFor, buildStage } from '../../shared/agents.js';
 import { ITEMS, GOODS, itemName } from '../../shared/catalog.js';
 import { slotsOf, valueOf, shopOpen, priceAppeal } from '../../shared/business.js';
@@ -88,7 +89,7 @@ export class Agents {
   wages(day) {
     if (this.s.wageDay === day) return;
     this.s.wageDay = day;
-    for (const n of Object.values(this.npcs)) { n.s.wallet = Math.round((n.s.wallet || 0) + (WAGE[n.id] || 50)); this.game.mark(`npc:${n.id}`); }
+    // (Villagers' pay and takings are handled by the economy: see economy.js.)
     for (const v of Object.values(this.s.ventures)) if (v.stage >= STAGES.length - 1) this.restock(v);
     for (const st of this.s.stalls?.list || []) this.restockStall(st);
     this.mark();
@@ -133,13 +134,16 @@ export class Agents {
       opts.push(['tend', 0.9]);
     }
     if (!v && amb && Object.keys(this.s.ventures).length < MAX_VENTURES && n.s.wallet >= ventureCost(amb.kind) * 0.45 && now > (n.s.pitchAt || 0)) opts.push(['dream', 1.4 + t.energy / 60]);
+    // Kids and anyone short of money pick up a city shift now and then.
+    const L = LIVELIHOODS[n.id];
+    if ((L?.kind === 'kid' || n.s.wallet < 400) && hours >= 8 && hours < 17) opts.push(['job', L?.kind === 'kid' ? 1.6 : 1.2]);
     opts.push(['visit', 0.6 + t.warmth / 45]);
     opts.push(['home', 0.5]);
     if (g.sessions.size) opts.push(['seek', 0.15 + t.warmth / 400]);
     if (n.s.wallet > 60) opts.push(['shop', 0.3 + t.generosity / 90]);
     let r = Math.random() * opts.reduce((a, o) => a + o[1], 0), choice = 'routine';
     for (const [k, w] of opts) { r -= w; if (r <= 0) { choice = k; break; } }
-    const fn = { scout: () => this.goScout(n, v), build: () => this.goBuild(n, v), mind: () => this.goMind(n, v), tend: () => this.goTend(n, v), dream: () => this.goDream(n, amb), visit: () => this.goVisit(n), home: () => this.goTend(n, null), seek: () => this.goSeek(n), shop: () => this.goShop(n) }[choice];
+    const fn = { scout: () => this.goScout(n, v), build: () => this.goBuild(n, v), mind: () => this.goMind(n, v), tend: () => this.goTend(n, v), dream: () => this.goDream(n, amb), visit: () => this.goVisit(n), home: () => this.goTend(n, null), job: () => this.goJob(n, hours), seek: () => this.goSeek(n), shop: () => this.goShop(n) }[choice];
     if (fn) fn();
   }
 
@@ -184,6 +188,12 @@ export class Agents {
     this.start([n.id, o.id, ...near.map((x) => x.id)], purpose);
   }
 
+  goJob(n, hours) {
+    const sh = this.game.econ.villagerShift(n, hours);
+    if (!sh) return;
+    this.bubble(n, pick(['Off to my shift!', 'Work, work, work.', `${sh.job.name}, reporting for duty!`]));
+    this.send(n, { kind: 'job', verb: `working as the ${sh.job.name.toLowerCase()}`, act: 'work', x: sh.x, y: sh.y, hours: 1.5, range: 4, onEnd: sh.pay });
+  }
   // Only friends come looking for you, now and then, with something to say.
   goSeek(n) {
     const g = this.game, now = g.now();
@@ -221,7 +231,7 @@ export class Agents {
       if (hit.sl.n <= 0) { hit.o.stock.splice(hit.o.stock.indexOf(hit.sl), 1); if (!hit.o.stock.length) delete hit.o.stock; }
       g.plotChanged(plot);
       this.payPlot(plot, o.price, s.profile.name, o.item);
-    } else { n.s.wallet += o.price; g.mark(`npc:${n.id}`); }
+    } else { n.s.wallet += g.econ.taxSale(o.price); g.mark(`npc:${n.id}`); }
     this.offers.delete(id);
     g.coins(s, -o.price);
     g.bag(s, o.item, 1);
@@ -495,7 +505,7 @@ export class Agents {
   // Money from a sale goes to the owners.
   pay(v, coins, who, item) {
     const g = this.game;
-    const share = Math.floor(coins / v.owners.length);
+    const share = Math.floor(g.econ.taxSale(coins) / v.owners.length);
     for (const id of v.owners) { this.npcs[id].s.wallet += share; g.mark(`npc:${id}`); }
     v.sales = (v.sales || 0) + coins;
     this.mark();
@@ -530,6 +540,7 @@ export class Agents {
       const st = this.s.stalls?.list.find((x) => x.id === plot.id);
       const p = Object.values(g.profiles).find((x) => x.id === plot.renter);
       if (!p || !st) return;
+      coins = g.econ.taxSale(coins);
       st.till = (st.till || 0) + coins; st.sold = (st.sold || 0) + 1;
       plot.till = st.till; plot.sold = st.sold;
       st.stock = plot.obj['0,1'].stock || [];
@@ -542,7 +553,7 @@ export class Agents {
     }
     const n = this.npcs[plot.stall];
     if (!n) return;
-    n.s.wallet += coins;
+    n.s.wallet += g.econ.taxSale(coins);
     g.mark(`npc:${n.id}`);
     g.broadcast({ type: 'sale', plotId: plot.id, item, n: 1, coins, who });
   }
@@ -683,7 +694,7 @@ export class Agents {
     if (Math.hypot(dx, dy) > TILE * 3) return s.send({ type: 'error', msg: 'Walk up to the stall first' });
     if (s.profile.coins < STALL_RENT) return s.send({ type: 'error', msg: `Renting a stall costs 🪙${STALL_RENT} for the week` });
     g.coins(s, -STALL_RENT);
-    g.city.onLand(STALL_RENT);
+    g.city.onLand(STALL_RENT, 'rent');
     Object.assign(st, { renter: s.profile.id, renterName: s.profile.name, till: 0, sold: 0, stock: [] });
     g.plots[st.id] = this.rentalPlot(st, plot);
     g.plotChanged(g.plots[st.id]);

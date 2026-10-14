@@ -181,7 +181,7 @@ export function socialUI(c) {
     if (!f || f.day !== today) {
       const nx = fv?.next;
       pane.innerHTML = nx ? `<div class="city-card">${EVENTS[nx.id].icon} Next festival: <b>${EVENTS[nx.id].name}</b> on day ${nx.day} (in ${nx.day - today} day${nx.day - today === 1 ? '' : 's'}). Bring ${EVENTS[nx.id].what}.</div>` : '';
-      pane.insertAdjacentHTML('beforeend', '<p class="muted">Festivals happen every 7th day at the Harvest Fair (or the town square). Enter before 6 PM; the top three win 🪙500 / 🪙250 / 🪙100, and first place gets a trophy.</p>');
+      pane.insertAdjacentHTML('beforeend', `<p class="muted">Festivals happen every 7th day at the Harvest Fair (or the town square). Enter before 6 PM for 🪙${fv?.fee || 25} (it goes into the prize pool, with City Hall’s sponsorship); the top three share the pool 50 / 30 / 20, and first place gets a trophy. Villagers enter too!${fv?.pool ? ` Today’s pool: 🪙${fv.pool}.` : ''}</p>`);
     }
     if (f) {
       const E = EVENTS[f.id];
@@ -189,7 +189,7 @@ export function socialUI(c) {
       card.innerHTML = `${E.icon} <b>${E.name}</b> · day ${f.day} · ${f.judged ? 'judged' : 'judging at 6 PM'}<div class="muted">Bring ${E.what}: judged on value and quality.</div>`;
       pane.appendChild(card);
       const list = f.judged ? f.results : f.entries;
-      pane.insertAdjacentHTML('beforeend', `<h3>${f.judged ? 'Winners' : 'Entries so far'}</h3>${(list || []).map((e, i) => `<div>${f.judged ? ['🥇', '🥈', '🥉'][i] : `${i + 1}.`} <b>${esc(e.name)}</b>: ${GOODS[e.item]?.icon || ''} ${esc(itemName(e.item))} ${QUALITY[e.q || 0].icon} <small class="muted">${e.score} pts${e.prize ? ` · 🪙${e.prize}` : ''}</small></div>`).join('') || '<div class="muted">No entries yet.</div>'}`);
+      pane.insertAdjacentHTML('beforeend', `<h3>${f.judged ? 'Winners' : 'Entries so far'}</h3>${(list || []).map((e, i) => `<div>${f.judged ? ['🥇', '🥈', '🥉'][i] : `${i + 1}.`} <b>${esc(e.name)}</b>: ${GOODS[e.item]?.icon || ''} ${esc(itemName(e.item))} ${QUALITY[e.q || 0].icon} <small class="muted">${Math.round(e.score)} pts${e.prize ? ` · 🪙${e.prize}` : ''}</small></div>`).join('') || '<div class="muted">No entries yet.</div>'}`);
       if (!f.judged && f.day === today && !f.entries.some((e) => e.pid === S.me.id)) {
         const opts = bagItems((k) => canEnter(f.id, k));
         if (!opts.length) pane.insertAdjacentHTML('beforeend', `<p class="muted">You have nothing to enter yet.</p>`);

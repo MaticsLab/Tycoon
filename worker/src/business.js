@@ -35,7 +35,7 @@ export class Business {
     name = clean(name, 24) || `${p.name}’s Shop`;
     if (p.coins < LICENCE_FEE) return `A business licence costs 🪙${LICENCE_FEE}`;
     this.game.coins(s, -LICENCE_FEE);
-    this.game.city.onLand(LICENCE_FEE); // fees go to the treasury
+    this.game.city.onLand(LICENCE_FEE, 'licence'); // fees go to the treasury
     p.biz = { name, plotId: null, staff: null, closed: false, since: this.game.day(), sales: { day: this.game.day(), today: 0, total: 0, items: 0 }, log: [] };
     this.game.markProfile(p);
     this.game.addGossip('City Hall', `${p.name} just opened a business called “${name}”`);
@@ -98,6 +98,7 @@ export class Business {
     if (p.biz.staff === staff) return;
     if (p.coins < st.wage) return s.send({ type: 'error', msg: `${st.name} wants today’s wage up front (🪙${st.wage})` });
     this.game.coins(s, -st.wage);
+    this.game.econ.wallet(staff, st.wage); // (villager clerks keep their wages)
     p.biz.staff = staff;
     p.biz.paidDay = this.game.day();
     this.game.markProfile(p);
@@ -250,9 +251,10 @@ export class Business {
     slot.n -= n;
     if (slot.n <= 0) { hit.obj.stock.splice(hit.obj.stock.indexOf(slot), 1); if (!hit.obj.stock.length) delete hit.obj.stock; }
     const tip = this.cashierAt(plot) ? Math.round(cost * 0.1) : 0; // a friendly face at the till earns tips
+    const kept = g.econ.taxSale(cost) + tip; // City Hall takes its sales tax
     const os = g.sessions.get(owner.id);
-    if (os) g.coins(os, cost + tip);
-    else { owner.coins += cost + tip; g.city.onCoins(cost + tip); }
+    if (os) g.coins(os, kept);
+    else { owner.coins += kept; g.city.onCoins(kept); }
     const b = owner.biz, day = g.day();
     if (b.sales.day !== day) b.sales = { ...b.sales, day, today: 0 };
     b.sales.today += cost + tip; b.sales.total += cost + tip; b.sales.items = (b.sales.items || 0) + n;
@@ -367,6 +369,7 @@ export class Business {
       b.paidDay = day;
       if (p.coins >= st.wage) {
         if (s) g.coins(s, -st.wage); else { p.coins -= st.wage; g.city.onCoins(-st.wage); }
+        g.econ.wallet(b.staff, st.wage);
       } else {
         b.staff = null;
         if (s) s.send({ type: 'toast', text: `😢 ${st.name} quit: you couldn’t pay today’s wage (🪙${st.wage}).` });

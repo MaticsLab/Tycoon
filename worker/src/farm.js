@@ -173,7 +173,7 @@ export class Farm {
     const cost = u.setup + u.monthly;
     if (p.coins < cost) return `Hooking up ${u.name.toLowerCase()} costs 🪙${cost} (🪙${u.setup} setup + the first month)`;
     this.game.coins(s, -cost);
-    this.game.city.onLand(cost);
+    this.game.city.onLand(cost, 'utilities');
     const day = this.game.day();
     p.util[kind] = { since: day, due: day + MONTH_DAYS };
     this.game.markProfile(p);
@@ -192,7 +192,7 @@ export class Farm {
     if (!cur.off) return 'Your bill is paid up';
     if (p.coins < u.monthly) return `The overdue bill is 🪙${u.monthly}`;
     this.game.coins(s, -u.monthly);
-    this.game.city.onLand(u.monthly);
+    this.game.city.onLand(u.monthly, 'utilities');
     cur.off = false;
     cur.due = this.game.day() + MONTH_DAYS;
     this.game.markProfile(p);
@@ -231,7 +231,7 @@ export class Farm {
         if (!u || cur.off || day < cur.due) continue;
         if (p.coins >= u.monthly) {
           this.pay(p, -u.monthly);
-          g.city.onLand(u.monthly);
+          g.city.onLand(u.monthly, 'utilities');
           cur.due += MONTH_DAYS;
           this.tell(p, `${u.icon} Paid this month’s ${u.name.toLowerCase()} bill: 🪙${u.monthly}`);
         } else {

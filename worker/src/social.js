@@ -193,7 +193,7 @@ export class Social {
     if (!text && !item && !coins) return s.send({ type: 'error', msg: 'Write something (or attach a gift)' });
     const g = this.game;
     g.coins(s, -(coins + POSTAGE));
-    g.city.onLand(POSTAGE);
+    g.city.onLand(POSTAGE, 'postage');
     let q = null;
     if (item) { q = g.bag(s, item, -n); g.count(s.profile, 'gift'); }
     this.mail(p, { from: s.profile.name, text, items: item ? { [item]: n } : null, q, coins });

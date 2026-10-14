@@ -40,19 +40,21 @@ const ICONS = {
   business: '<path d="M2 7 6.4 2.6A2 2 0 0 1 7.8 2h8.4a2 2 0 0 1 1.4.6L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/><path d="M2 7h20v3a2 2 0 0 1-2 2 2.7 2.7 0 0 1-2-1 2.7 2.7 0 0 1-2 1 2.7 2.7 0 0 1-2-1 2.7 2.7 0 0 1-2 1 2.7 2.7 0 0 1-2-1 2.7 2.7 0 0 1-2 1 2.7 2.7 0 0 1-2-1 2 2 0 0 1-2 1 2 2 0 0 1-2-2z"/>',
   bank: '<circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/>',
   data: '<path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/>',
+  jobs: '<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
+  economy: '<path d="M12 2v20"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
 };
 const icon = (k, size = 18) => `<svg class="ch-ic" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k]}</svg>`;
 
 const GROUPS = [
   ['Government', [['overview', 'Overview'], ['election', 'Election'], ['council', 'Council'], ['projects', 'Public projects']]],
-  ['Services', [['utilities', 'Utilities'], ['farmhands', 'Farmhands'], ['business', 'Business'], ['bank', 'Bank & taxes']]],
-  ['Records', [['data', 'Data']]],
+  ['Services', [['jobs', 'Job board'], ['utilities', 'Utilities'], ['farmhands', 'Farmhands'], ['business', 'Business'], ['bank', 'Bank & taxes']]],
+  ['Records', [['economy', 'Economy'], ['data', 'Data']]],
 ];
 
 let section = 'overview';
 let root = null, ctx = null, pending = false;
 // What the player has typed or picked, kept across re-renders.
-const draft = { kind: 'closeRoad', title: '', price: '', rate: '', plan: '', project: '', why: '', loan: 500, shop: '', platform: '' };
+const draft = { save: 100, take: 100, kind: 'closeRoad', title: '', price: '', rate: '', plan: '', project: '', why: '', loan: 500, shop: '', platform: '' };
 
 export const cityOpen = () => !!root && !root.hidden;
 export function closeCity() { if (root) root.hidden = true; }
@@ -127,7 +129,7 @@ function head() {
 
 function side() {
   const { city, hand } = ctx;
-  const badge = { farmhands: hand ? 1 : 0, council: city ? city.proposals.filter((p) => p.status === 'open').length : 0 };
+  const badge = { jobs: city?.jobs?.shift ? 1 : 0, farmhands: hand ? 1 : 0, council: city ? city.proposals.filter((p) => p.status === 'open').length : 0 };
   root.querySelector('.ch-side').innerHTML = GROUPS.map(([g, items]) => `
     <div class="ch-group">${g.toUpperCase()}</div>
     ${items.map(([k, label]) => `<button type="button" class="ch-nav${section === k ? ' sel' : ''}" data-act="go" data-arg="${k}"${section === k ? ' aria-current="page"' : ''}>
@@ -239,11 +241,12 @@ const SECTIONS = {
       <form class="ch-card ch-col" data-form="propose">
         <b class="ch-big">Bring a proposal</b>
         <select name="kind" aria-label="Kind of proposal">
-          ${[['closeRoad', 'Close the road across my plot'], ['landPrice', 'Set the price of land'], ['tax', 'Set property tax'], ['project', 'Build a public project'], ['road', 'Build a road'], ['resolution', 'A resolution (anything else)']].map(([v, l]) => `<option value="${v}"${k === v ? ' selected' : ''}>${l}</option>`).join('')}
+          ${[['closeRoad', 'Close the road across my plot'], ['landPrice', 'Set the price of land'], ['tax', 'Set property tax'], ['salesTax', 'Set sales tax'], ['project', 'Build a public project'], ['road', 'Build a road'], ['resolution', 'A resolution (anything else)']].map(([v, l]) => `<option value="${v}"${k === v ? ' selected' : ''}>${l}</option>`).join('')}
         </select>
         ${k === 'resolution' ? `<input name="title" maxlength="60" placeholder="Title" value="${esc(draft.title)}">` : ''}
         ${k === 'landPrice' ? `<input name="price" type="number" min="1" max="20" placeholder="Coins per tile (1–20)" value="${esc(draft.price)}">` : ''}
         ${k === 'tax' ? `<input name="rate" type="number" min="0" max="20" placeholder="Coins per 10 tiles a month (0–20)" value="${esc(draft.rate)}">` : ''}
+        ${k === 'salesTax' ? `<input name="rate" type="number" min="0" max="15" placeholder="Percent of every sale (0–15)" value="${esc(draft.rate)}">` : ''}
         ${k === 'road' ? (plans.length ? `<select name="plan">${plans.map(([id, p]) => `<option value="${id}"${draft.plan === id ? ' selected' : ''}>🛣️ ${esc(p.name)} (🪙${num(city.roads?.[id]?.cost)})</option>`).join('')}</select>` : '<div class="ch-soft">Every planned road is built.</div>') : ''}
         ${k === 'project' ? (projs.length ? `<select name="project">${projs.map(([id, p]) => `<option value="${id}"${draft.project === id ? ' selected' : ''}>${p.icon} ${esc(p.name)} (🪙${num(p.cost)})</option>`).join('')}</select>` : '<div class="ch-soft">Every project is built.</div>') : ''}
         <textarea name="why" rows="2" maxlength="280" placeholder="Why? (the council and caretakers will read this)">${esc(draft.why)}</textarea>
@@ -321,7 +324,15 @@ const SECTIONS = {
     const loan = city.loan;
     const tiles = `<div class="ch-tiles ch-2">
       ${stat('Property tax', city.taxRate ? `${coin}${city.taxRate} per 10 tiles a month` : 'None', 'set by the council')}
+      ${stat('Sales tax', `${Math.round((city.econ?.salesTax || 0) * 100)}% of every sale`, 'set by the council')}
       ${stat('Land', `${coin}${num(city.landPrice)} a tile`, 'set by the council')}
+      ${stat('Building permit', `${coin}75`, 'the first roof on a plot')}
+    </div>
+    <div class="ch-card ch-col">
+      <div class="ch-row"><b class="ch-big ch-grow">Your savings</b>${chip('vote', '1% a week')}</div>
+      <div class="ch-tiles ch-2">${stat('Saved', `${coin}${num(city.savings)}`)}${stat('Interest', 'Paid every 7 days', 'from the treasury, up to 300 a week')}</div>
+      <div class="ch-row"><input name="save" type="number" min="1" value="${esc(draft.save)}" aria-label="Amount to save" class="ch-num"><button type="button" class="ch-btn" data-act="deposit">Save</button>
+        <input name="take" type="number" min="1" value="${esc(draft.take)}" aria-label="Amount to take out" class="ch-num"><button type="button" class="ch-btn ch-ghost" data-act="withdrawSavings">Take out</button></div>
     </div>`;
     if (loan) {
       return `${heading('Bank & taxes', 'The village bank lends from the treasury.')}${tiles}
@@ -340,6 +351,40 @@ const SECTIONS = {
         <div class="ch-tiles ch-3">${stat('You pay back', `${coin}<span data-out="back"></span>`, `×${1 + city.loanRate}`)}${stat('Due by', `Day ${city.day + MONTH_DAYS}`)}${stat('If late', '+10% a week')}</div>
         <div class="ch-row"><button class="ch-btn" data-submit>Borrow</button><span class="ch-soft" data-out="note"></span></div>
       </form>`;
+  },
+
+  jobs({ city }) {
+    const J = city.jobs || { jobs: [] }, sh = J.shift;
+    const fmtH = (h) => `${((Math.floor(h) + 11) % 12) + 1} ${h % 24 < 12 ? 'AM' : 'PM'}`;
+    const card = (j) => `<div class="ch-card ch-job">
+        <span class="ch-jobic">${j.icon}</span>
+        <div class="ch-grow"><b>${esc(j.name)}</b><div class="ch-soft">${esc(j.where)} · ${fmtH(j.hours[0])} – ${fmtH(j.hours[1])} · paid by ${esc(j.employerName)}</div></div>
+        <span class="ch-chip vote">${coin}${j.pay}</span>
+        <span class="ch-soft">${j.left} left</span>
+        <button type="button" class="ch-btn" data-act="jobTake" data-arg="${esc(j.id)}" ${j.left > 0 && !sh ? '' : 'disabled'}>Take shift</button>
+      </div>`;
+    const city_ = J.jobs.filter((j) => j.employer === 'city'), help = J.jobs.filter((j) => j.employer !== 'city');
+    return `${heading('Job board', 'Short paid shifts. City jobs are paid by the treasury; helper jobs by the villager who posts them. New shifts every morning.')}
+      ${sh ? `<div class="ch-card ch-col ch-shift"><div class="ch-row"><b class="ch-big ch-grow">${sh.icon} You’re the ${esc(sh.name.toLowerCase())}</b>${chip('vote', `${coin}${sh.pay}`)}<button type="button" class="ch-btn ch-ghost" data-act="jobQuit">Quit</button></div>
+        <div class="ch-soft">${sh.spots.filter((x) => x.done).length}/${sh.spots.length} done. The spots are marked on your map and in the world: walk to each and press the action button.</div></div>` : ''}
+      <div class="ch-group-h">CITY JOBS</div>${city_.map(card).join('')}
+      <div class="ch-group-h">HELPER JOBS AT VILLAGE SHOPS</div>${help.map(card).join('') || '<div class="ch-soft">No villager shops are hiring today.</div>'}`;
+  },
+
+  economy({ city }) {
+    const E = city.econ;
+    if (!E) return '<p class="ch-intro">No records yet.</p>';
+    const rows = (obj, names) => Object.entries(obj || {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<div class="ch-money"><span>${esc(names[k] || k)}</span><b>${coin}${num(n)}</b></div>`).join('') || '<div class="ch-soft">Nothing yet today.</div>';
+    const sum = (o) => Object.values(o || {}).reduce((a, b) => a + b, 0);
+    const h = E.history.slice(-7);
+    const max = Math.max(1, ...h.map((d) => Math.max(sum(d.in), sum(d.out))));
+    const rich = E.wealth.slice(0, 8);
+    return `${heading('Economy', 'Where the village’s money comes from and goes. City Hall takes in land sales, rent, fees and taxes, and pays public servants, city jobs, projects, prizes and interest.')}
+      <div class="ch-tiles ch-3">${stat('Treasury', `${coin}${num(city.treasury)}`)}${stat('In today', `${coin}${num(sum(E.today.in))}`)}${stat('Out today', `${coin}${num(sum(E.today.out))}`)}</div>
+      <div class="ch-grid2"><div class="ch-card ch-col"><b class="ch-big">Money in today</b>${rows(E.today.in, E.incomeNames)}</div><div class="ch-card ch-col"><b class="ch-big">Money out today</b>${rows(E.today.out, E.spendingNames)}</div></div>
+      ${h.length ? `<div class="ch-card ch-col"><b class="ch-big">The last week</b><div class="ch-flow">${h.map((d) => `<div class="ch-flowday"><div class="ch-flowbars"><i class="in" style="height:${(sum(d.in) / max) * 100}%" title="In ${num(sum(d.in))}"></i><i class="out" style="height:${(sum(d.out) / max) * 100}%" title="Out ${num(sum(d.out))}"></i></div><small>Day ${d.day}</small></div>`).join('')}</div><div class="ch-soft"><i class="ch-key in"></i> in <i class="ch-key out"></i> out</div></div>` : ''}
+      <div class="ch-card ch-col"><b class="ch-big">Villagers’ purses</b>${rich.map((v) => `<div class="ch-hbar ch-purse"><span>${esc(v.name)} <small class="ch-soft">${esc(v.job)}</small></span>${bar(v.wallet / Math.max(1, rich[0].wallet), 8)}<b>${coin}${num(v.wallet)}</b></div>`).join('')}</div>
+      <p class="ch-foot">Taxes: ${Math.round(E.salesTax * 100)}% on sales, ${coin}${city.taxRate} per 10 tiles a month on land. The council can change both.</p>`;
   },
 
   data({ city }) {
@@ -426,6 +471,10 @@ function onClick(e) {
       if (confirm(`Cancel ${UTILITIES[arg].name.toLowerCase()}? Sprinklers and machines on it stop working.`)) send({ type: 'utilStop', kind: arg });
       return;
     case 'hireHand': return send({ type: 'hireHand', id: arg });
+    case 'deposit': return send({ type: 'bankDeposit', amount: Number(draft.save) });
+    case 'withdrawSavings': return send({ type: 'bankWithdraw', amount: Number(draft.take) });
+    case 'jobTake': return send({ type: 'jobTake', id: arg });
+    case 'jobQuit': return send({ type: 'jobQuit' });
     case 'fireHand': return send({ type: 'fireHand' });
   }
   void city;
