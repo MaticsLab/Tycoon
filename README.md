@@ -1,4 +1,4 @@
-# Tycoon Village
+# CrossPaths
 
 A cozy multiplayer life-sim for the browser and Android: Stardew Valley's pixel art meets The Sims' build mode.
 Everyone shares one village. You claim a plot, build a house wall by wall in 3D, furnish it, and grow crops.
@@ -77,7 +77,14 @@ You can also befriend villagers whose personalities change based on how you trea
   - **Otto's Furniture** sells exclusive pieces: piano, fireplace, aquarium, grandfather clock, telescope and statue.
   - **Juniper** is the village gardener and gossip.
 - **Villagers with daily lives.** Every morning each villager plans their day. The routine is fixed but the AI picks the variations, and also decides what's on their mind and what they'll call out to passers-by. Rosa opens the market, lunches on a park bench and gossips with Otto in the evening. Juniper gardens and stargazes; Mabel takes her coffee outside City Hall before her shift. They walk real routes around the village (A* path finding over public land), sit on benches, and sleep indoors at night (no chatting while they're asleep). Friends meet up and trade AI-written banter in speech bubbles everyone nearby can see.
-- **Requests (quests).** Chat with a villager and they may ask a favour, at most once a day each, up to 3 at a time:
+- **Twenty villagers.** Besides Rosa (grocer), Otto (carpenter), Juniper (gardener) and Mabel (City Clerk), the village is home to:
+  - Hazel the fisher, Bram the blacksmith, Willa the librarian and Doc Ellis;
+  - young Pip, Marigold the florist, Gus at the Saloon and Theo the musician;
+  - Ivy the painter, Sam the postie, Nell the retired teacher and Fern the beekeeper;
+  - Rowan who farms East Field, Lila the baker (Rosa's niece), Felix the astronomer and Bea the teenage skater.
+
+  Each has their own home, look, sense of humour, daily routine (fishing, painting, playing music, delivering the post, playing in the square…), likes and dislikes, and friendship gifts.
+- **Requests (quests).** Favours are rare and on purpose: each day only a few villagers (about one in five, picked at random for you) have something to ask, and they show a bobbing **!** over their head. Talk to one of them to hear it; everyone else just chats. Up to 3 at a time:
   - bring them crops or gifts;
   - put a particular piece of furniture in your home;
   - do something (cook, read, paint, stargaze…);

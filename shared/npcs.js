@@ -1,6 +1,7 @@
 // Village NPCs: who they are and what they trade. Their evolving minds (traits,
 // memories, relationships) live on the server in worker/src/npc.js.
 import { TILE } from './world.js';
+import { MORE_VILLAGERS } from './villagers.js';
 
 export const TRAITS = ['warmth', 'cheer', 'trust', 'generosity', 'energy'];
 
@@ -98,3 +99,9 @@ export const HEART_GIFTS = {
   juniper: { 3: { items: { bigcan: 1 }, text: 'Your crops deserve better than that little can. Have my old big one, it waters three rows at once!' }, 4: { text: 'Friends get the tools at cost. Well, nearly at cost.' } },
   mabel: { 3: { coins: 150, text: 'A small grant from the village beautification fund, for being such an upstanding citizen. All above board, I assure you.' }, 4: { text: 'I’ve noted in the records that City Hall lends to you interest-free from now on.' } },
 };
+
+// The rest of the townsfolk (shared/villagers.js).
+for (const [id, v] of Object.entries(MORE_VILLAGERS)) {
+  NPCS[id] = { name: v.name, humor: v.humor, role: v.role, icon: v.icon, look: v.look, home: v.home, wander: v.wander, bio: v.bio, base: v.base, likes: v.likes, dislikes: v.dislikes, buys: [], sells: [] };
+  if (v.hearts) HEART_GIFTS[id] = v.hearts;
+}

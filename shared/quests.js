@@ -7,8 +7,19 @@
 import { GOODS, ITEMS } from './catalog.js';
 import { ACTIVITIES } from './needs.js';
 import { NPCS } from './npcs.js';
+import { MORE_VILLAGERS } from './villagers.js';
 
 export const MAX_QUESTS = 3;
+
+// Favours are rare and on purpose: each day only a few villagers (about 1 in 5, picked
+// at random per player) have something to ask, and they show a ❗ over their head.
+// Everyone else just chats.
+export const FAVOUR_CHANCE = 0.2;
+export function favourToday(npc, playerId, day) {
+  let h = 2166136261;
+  for (const ch of `${npc}|${playerId}|${day}`) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+  return ((h >>> 0) % 1000) / 1000 < FAVOUR_CHANCE;
+}
 
 // What each villager tends to ask for.
 const WANTS = {
@@ -18,6 +29,16 @@ const WANTS = {
   mabel: { deliver: ['tea', 'bookgift', 'honeycake'], build: ['desk', 'bookshelf', 'lowshelf', 'grandclock'], do: ['read', 'music'], visit: ['otto', 'juniper', 'rosa'] },
 };
 
+// The rest of the townsfolk: only favours the game can actually track.
+for (const [id, v] of Object.entries(MORE_VILLAGERS)) {
+  WANTS[id] = {
+    deliver: v.wants.deliver.filter((x) => GOODS[x]),
+    build: v.wants.build.filter((x) => ITEMS[x]),
+    do: v.wants.do.filter((x) => ACTIVITIES[x]),
+    visit: v.wants.visit.filter((x) => x !== id),
+  };
+}
+
 // Ready-made wording for when the AI isn't around (it normally writes these).
 const FALLBACK = {
   deliver: (q) => `Could you bring me ${q.n > 1 ? `${q.n} ` : 'a '}${GOODS[q.item].name}${q.n > 1 ? 's' : ''}? I’d be ever so grateful.`,
@@ -26,6 +47,7 @@ const FALLBACK = {
   visit: (q) => `Would you tell ${NPCS[q.target].name} something for me? Just say: “${q.message}”`,
 };
 const MESSAGES = {
+  ...Object.fromEntries(Object.entries(MORE_VILLAGERS).map(([id, v]) => [id, v.messages])),
   rosa: ['the pie dish is ready to collect', 'I saved them a slice', 'the turnips are in, finally'],
   otto: ['the chair is done, and no, it does not wobble', 'I want my good chisel back', 'thank you for the honey cake (I said it, don’t make it weird)'],
   juniper: ['the roses have been talking about them', 'the moon is extra round tonight', 'a snail moved into the fountain'],

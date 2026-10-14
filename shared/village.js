@@ -2,6 +2,7 @@
 // them on public land, and a reader for how a player writes (so villagers can match it).
 import { TILE, MAP_W, MAP_H, plotIdAtPixel } from './world.js';
 import { canStand, crossesWall } from './plot.js';
+import { MORE_PLACES, MORE_ACTS, MORE_VILLAGERS } from './villagers.js';
 
 // Named spots, in tiles. `seat` = where they sit (a bench) if the activity sits.
 // `inside` = indoors (they vanish from view while there, e.g. asleep at home).
@@ -260,3 +261,8 @@ export function toneGuide(t) {
   if (t.brief > 0.55) tips.push('they keep it short, so keep replies short and snappy');
   return tips.length ? `How ${'they'} talk: ${tips.join('; ')}.` : '';
 }
+
+// The rest of the townsfolk's places, doings and days (shared/villagers.js).
+Object.assign(PLACES, MORE_PLACES);
+Object.assign(NPC_ACTS, MORE_ACTS);
+for (const [id, v] of Object.entries(MORE_VILLAGERS)) ROUTINES[id] = v.routine;

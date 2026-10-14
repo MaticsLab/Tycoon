@@ -9,6 +9,7 @@
 //   diary    the NPC's memories of how they've changed and why.
 // Villagers also share a gossip feed, so what you tell one NPC can reach the others.
 import { NPCS, TRAITS, traitBand, personalityWords, moodLabel, friendshipLabel, heartsOf } from '../../shared/npcs.js';
+import { MORE_VILLAGERS } from '../../shared/villagers.js';
 import { GOODS, ITEMS, itemName } from '../../shared/catalog.js';
 import { canStand } from '../../shared/plot.js';
 import { worldClock, TILE } from '../../shared/world.js';
@@ -163,7 +164,7 @@ export class Npc {
         otto: `Hmph. Otto. I make furniture — real furniture, built to last. Look around, don't touch the varnish.`,
         juniper: `Hello hello! I'm Juniper. The tulips told me someone new was coming. Welcome to the village, ${n}!`,
         mabel: `Welcome to City Hall, ${n}. I'm Mabel, the City Clerk. Elections, proposals, road requests, city records: it all goes through my desk.`,
-      }[this.id];
+      }[this.id] || MORE_VILLAGERS[this.id]?.intro || `Hello, ${n}!`;
     }
     if (r.affinity <= -45) return `${n}. What do you want.`;
     if (m < -0.4) return `Not the best day, ${n}. But go on.`;
@@ -193,7 +194,7 @@ export class Npc {
     const traitText = TRAITS.map((k) => `${k} ${Math.round(t[k])}/100`).join(', ');
     const words = personalityWords(t);
     const lines = [
-      `You are ${this.def.name}, a villager in Tycoon Village, a cozy pixel-art farming and home-building town.`,
+      `You are ${this.def.name}, a villager in CrossPaths, a cozy pixel-art farming and home-building town.`,
       this.def.bio,
       `Your personality right now: ${words.length ? words.join(', ') : 'fairly even-tempered'} (${traitText}). Your personality has been shaped by how villagers treat you; let it show in your tone.`,
       `Your mood: ${moodLabel(this.mood(now)).label}.`,

@@ -1,6 +1,6 @@
 {
   "appId": "com.tycoon.village",
-  "appName": "Tycoon Village",
+  "appName": "CrossPaths",
   "webDir": "dist",
   "server": {
     "androidScheme": "http",

@@ -24,7 +24,7 @@ import { roomTiles, roomRegion, extract, rotateTimes, fragmentValue, removeAt, s
 import { STYLED_ROOMS } from '@shared/rooms.js';
 import { NEEDS, HEALTH, ACTIVITIES, FOODS, PLATES, usesOf, mood } from '@shared/needs.js';
 import { NPC_ACTS } from '@shared/village.js';
-import { questProgress } from '@shared/quests.js';
+import { questProgress, favourToday, MAX_QUESTS } from '@shared/quests.js';
 import { RECIPES, STAFF, OPEN_HOURS, recipesFor, sellable, valueOf, slotsOf, isMachine, shopOpen } from '@shared/business.js';
 import { drawFloor, drawObject } from './sprites.js';
 import { openCreator, closeCreator } from './creator.js';
@@ -327,10 +327,12 @@ function onMessage(m) {
       sysMsg(m.text);
       break;
     case 'questOffer':
+      (S.offered ||= new Set()).add(m.quest.npc);
       if (S.talk && S.talk.npc === m.quest.npc) { S.talk.offer = m.quest; renderQuestCard(); }
       break;
     case 'quests':
       S.quests = m.quests; S.stats = m.stats || {};
+      if (m.day != null) { S.questDay = m.day; S.offered = new Set(m.offered || []); }
       badges();
       if (S.talk) renderQuestCard();
       if (modalKind === 'quests') showQuests();
@@ -3626,7 +3628,7 @@ const ACT_ARMS = {
   eat: 'eat', eatHere: 'eat', snack: 'stir', cook: 'stir', grill: 'stir', read: 'read', tv: 'lap', sit: 'lap', nap: 'lap',
   piano: 'type', game: 'game', cashier: 'type', paint: 'paint', wash: 'wash', warm: 'warm', music: 'lap', fish: 'lap', stars: 'warm',
 };
-const NPC_ARMS = { lunch: 'eat', coffee: 'drink', read: 'read', nap: 'lap', whittle: 'whittle', chat: 'talk', garden: 'stir' };
+const NPC_ARMS = { lunch: 'eat', coffee: 'drink', read: 'read', nap: 'lap', whittle: 'whittle', chat: 'talk', garden: 'stir', fish: 'warm', paint: 'paint', music: 'type', post: 'carry', play: 'wave' };
 function actPose(p) {
   const a = p.act;
   if (!a && p.carry) return { pose: { arms: 'carry' } };
@@ -4063,6 +4065,7 @@ function drawOverlay(now) {
     tag(label, s.x, s.y, 11, col);
     if (p.bubble && performance.now() < p.bubbleUntil) bubble(p.bubble, s.x, s.y - 20, 13);
     else if (p.act && ACTIVITIES[p.act] && S.npcs.get(p.id) !== p) actIcon(p, s, now);
+    else if (S.npcs.get(p.id) === p && hasFavour(p.id)) favourMark(s, now);
     else if (p.act && S.npcs.get(p.id) === p && NPC_ACTS[p.act]?.icon) npcIcon(NPC_ACTS[p.act].icon, s, now);
     if (p.carry && PLATES[p.carry] && !p.act) {
       // Carrying a plate: it sits in their hands.
@@ -4113,6 +4116,17 @@ function drawOverlay(now) {
 }
 
 // A villager's activity (gardening, lunch, reading...) as a small floating icon.
+// A villager with a favour to ask you today (and who hasn't asked yet): a bobbing ❗.
+function hasFavour(id) {
+  if (S.questDay == null || !S.me || S.offered?.has(id) || (S.quests || []).some((q) => q.npc === id) || (S.quests || []).length >= MAX_QUESTS) return false;
+  return favourToday(id, S.me.id, S.questDay);
+}
+function favourMark(s, now) {
+  const y = s.y - 26 + Math.sin(now / 260) * 3;
+  octx.fillStyle = '#ffd23a'; octx.strokeStyle = '#6b3a10'; octx.lineWidth = 3;
+  octx.font = 'bold 20px ui-rounded, sans-serif';
+  octx.strokeText('!', s.x, y); octx.fillText('!', s.x, y);
+}
 function npcIcon(icon, s, now) {
   octx.font = '14px sans-serif';
   octx.globalAlpha = 0.9;

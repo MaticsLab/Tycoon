@@ -1029,9 +1029,16 @@ test('villager requests: offered on talking, accepted, handed in, messages deliv
   const a = await join({ name: 'Ana' });
   const s = a.session();
   game.events.onStat = () => {}; // (daily goals would pay out too: not what this test is about)
-  // Talking to Rosa: she asks a favour.
+  // Favours are rare: a villager without one today just chats.
   standBy(game, a, 'rosa');
   game.npcs.rosa.act = 'work';
+  game.life.favour = () => false;
+  a.send({ type: 'npcOpen', npc: 'rosa' });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(a.inbox.filter((m) => m.type === 'questOffer').length, 0, 'no favour today');
+  a.send({ type: 'npcClose' });
+  // Talking to Rosa on a day she has one: she asks.
+  game.life.favour = () => true;
   a.send({ type: 'npcOpen', npc: 'rosa' });
   await new Promise((r) => setTimeout(r, 0));
   const offer = a.last('questOffer').quest;

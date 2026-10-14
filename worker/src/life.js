@@ -3,7 +3,8 @@
 // villagers' requests to players (offered, accepted, handed in).
 import { NPCS } from '../../shared/npcs.js';
 import { PLACES, NPC_ACTS, ROUTINES, stepAt } from '../../shared/village.js';
-import { makeQuest, questProgress, questGoal, MAX_QUESTS } from '../../shared/quests.js';
+import { makeQuest, questProgress, questGoal, MAX_QUESTS, favourToday } from '../../shared/quests.js';
+import { MORE_VILLAGERS } from '../../shared/villagers.js';
 import { TILE } from '../../shared/world.js';
 
 const PLAN_SCHEMA = {
@@ -40,6 +41,7 @@ const THOUGHTS = {
   juniper: ['the snails are planning something', 'the sunflowers seem jealous of the pumpkins', 'naming every bee in the park'],
   mabel: ['Form 27-B needs a sequel', 'the fountain’s footfall is up 12 percent', 'colour-coding the council minutes'],
 };
+for (const [id, v] of Object.entries(MORE_VILLAGERS)) THOUGHTS[id] = v.thoughts;
 const BANTER = {
   'otto|rosa': [['rosa', 'Otto! You look like a man who skipped lunch.'], ['otto', 'I had sawdust. Very filling.'], ['rosa', 'I’m bringing you soup and you will like it.'], ['otto', '…Fine. But no carrots.']],
   'juniper|rosa': [['juniper', 'Rosa! The pumpkins asked about you.'], ['rosa', 'Did they now? What did they say?'], ['juniper', 'Mostly “please don’t make us into pie”.'], ['rosa', 'No promises, my dears.']],
@@ -207,9 +209,10 @@ export class Life {
     }
     const day = this.game.day();
     const active = p.quests.filter((q) => q.status === 'active');
-    if (p.questOffered[n.id] === day || active.length >= MAX_QUESTS || active.some((q) => q.npc === n.id) || n.affinity(p) < -30) return;
+    if (!(this.favour || favourToday)(n.id, p.id, day) || p.questOffered[n.id] === day || active.length >= MAX_QUESTS || active.some((q) => q.npc === n.id) || n.affinity(p) < -30) return;
     p.questOffered[n.id] = day;
     this.game.markProfile(p);
+    this.send(s);
     const q = makeQuest(n.id, Math.random, { day, stats: p.stats });
     if (!q) return;
     q.thanks = 'You’re a star. Here, take this.';
@@ -331,7 +334,9 @@ export class Life {
 
   send(s) {
     const p = this.state(s.profile);
-    s.send({ type: 'quests', quests: p.quests.filter((q) => q.status === 'active').map((q) => this.view(s, q)), done: p.questsDone || 0, stats: p.stats });
+    const day = this.game.day();
+    s.send({ type: 'quests', quests: p.quests.filter((q) => q.status === 'active').map((q) => this.view(s, q)), done: p.questsDone || 0, stats: p.stats,
+      day, offered: Object.keys(p.questOffered || {}).filter((k) => p.questOffered[k] === day) });
   }
 
   // For the villager's prompt: what they've asked this player for.
