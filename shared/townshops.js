@@ -2,9 +2,9 @@
 // into: plots owned by the village (nobody can claim or edit them), built from walls,
 // doors, floors and furniture like any house, with the shopkeeper behind the counter.
 // They're generated from this layout every time the world starts.
-import { GOODS } from './catalog.js';
+import { GOODS, ITEMS } from './catalog.js';
 import { edgeKey } from './plot.js';
-import { SHOPS } from './world.js';
+import { SHOPS, HOMES } from './world.js';
 
 export const TOWN_OWNER = 'village';
 export const TOWN_PLOT_BASE = 9000; // plot ids 9000+ (out of the way of player plots)
@@ -116,9 +116,83 @@ function shopPlot(shop, i, L = LAYOUTS[shop.id], keeper = true) {
   return plot;
 }
 
-// Every village plot: the shops, plus the projects built so far (ids from city data).
+// The villagers' cottages on Maple Lane. Laid out as if the door is in the south wall
+// (x = 2, or 3-4 for the saloon's double doors); houses facing north are mirrored.
+// Furniture: [item, x, y, r] (r: 0 faces south, 1 west, 2 north, 3 east).
+const BED = [['bed', 0, 0], ['nightstand', 1, 0]];
+export const HOME_LAYOUTS = {
+  hazel: { floor: 'floor_wood', outside: 'wall_wood', inside: 'wall_board', roof: 'roof_thatch',
+    obj: [...BED, ['aquarium', 3, 0], ['fishbowl', 5, 0], ['table', 4, 2], ['chair', 4, 3, 2], ['chair', 5, 3, 2], ['rug', 0, 3], ['lantern', 5, 4], ['houseplant', 3, 4]] },
+  bram: { floor: 'floor_stone', outside: 'wall_stone', inside: 'wall_darkstone', roof: 'roof_red',
+    obj: [['bed', 0, 0], ['chest', 1, 0], ['fireplace', 3, 0], ['smoker', 5, 0], ['counter', 5, 2], ['counter', 5, 3], ['table', 0, 3], ['chair', 0, 4, 2], ['chair', 1, 4, 2], ['lantern', 3, 3]] },
+  willa: { floor: 'floor_wood', outside: 'wall_brick', inside: 'wall_wainscot', roof: 'roof_green',
+    obj: [['bed', 0, 0], ['bookshelf', 1, 0], ['bookshelf', 3, 0], ['bookshelf', 4, 0], ['bookshelf', 5, 0], ['desk', 4, 2], ['chair', 4, 3, 2], ['armchair', 0, 3, 3], ['endtable', 0, 4], ['lamp', 1, 3], ['globe', 5, 4]] },
+  ellis: { floor: 'floor_tile', outside: 'wall_white', inside: 'wall_white', roof: 'roof_blue',
+    obj: [...BED, ['pedestalsink', 3, 0], ['towelrack', 4, 0], ['bookshelf', 5, 0], ['desk', 3, 2], ['chair', 3, 3, 2], ['bed', 5, 2], ['endtable', 0, 3], ['armchair', 0, 4, 3], ['houseplant', 5, 4]] },
+  pip: { floor: 'floor_blue', outside: 'wall_stucco', inside: 'wall_paper', roof: 'roof_red',
+    obj: [['bunkbed', 0, 0], ['chest', 1, 0], ['nightstand', 4, 0], ['bed', 5, 0], ['table', 3, 2], ['chair', 3, 3, 2], ['chair', 4, 3, 2], ['beanbag', 0, 3], ['petbed', 0, 4], ['lamp', 5, 4]] },
+  marigold: { floor: 'floor_wood', outside: 'wall_sage', inside: 'wall_paper', roof: 'roof_thatch',
+    obj: [...BED, ['monstera', 3, 0], ['flowerbuckets', 4, 0], ['houseplant', 5, 0], ['table', 4, 2], ['chair', 4, 3, 2], ['chair', 5, 3, 2], ['cactus', 0, 3], ['floorvase', 0, 4], ['succulents', 3, 4]] },
+  gus: { floor: 'floor_wood', outside: 'wall_board', inside: 'wall_wood', roof: 'roof_red', door: 'door_double',
+    obj: [['fridge', 0, 0], ['stove', 1, 0], ['kitchensink', 2, 0], ['counter', 0, 2], ['counter', 1, 2], ['counter', 2, 2], ['barstool', 0, 3, 2], ['barstool', 1, 3, 2], ['barstool', 2, 3, 2],
+      ['piano', 4, 0], ['nightstand', 6, 0], ['bed', 7, 0], ['chair', 5, 2], ['chair', 6, 2], ['table', 5, 3], ['chair', 5, 4, 2], ['chair', 6, 4, 2], ['arcade', 7, 4, 1], ['lantern', 0, 5], ['houseplant', 7, 5], ['recordplayer', 1, 5]] },
+  theo: { floor: 'floor_red', outside: 'wall_shingle', inside: 'wall_shiplap', roof: 'roof_blue',
+    obj: [...BED, ['piano', 3, 0], ['recordplayer', 5, 0], ['coffeetable', 4, 2], ['sofa', 4, 3, 2], ['arclamp', 0, 3], ['beanbag', 0, 4], ['lamp', 5, 4]] },
+  ivy: { floor: 'floor_wood', outside: 'wall_wood', inside: 'wall_white', roof: 'roof_green',
+    obj: [...BED, ['easel', 4, 0], ['bookshelf', 5, 0], ['easel', 3, 2, 3], ['table', 4, 3], ['chair', 4, 4, 2], ['houseplant', 0, 3], ['cattree', 0, 4], ['lamp', 5, 2]] },
+  sam: { floor: 'floor_wood', outside: 'wall_paintbrick', inside: 'wall_paper', roof: 'roof_red',
+    obj: [...BED, ['desk', 3, 0], ['chair', 3, 1, 2], ['chest', 5, 0], ['table', 4, 3], ['chair', 4, 2], ['chair', 4, 4, 2], ['lowshelf', 0, 4], ['lamp', 5, 1]] },
+  nell: { floor: 'floor_red', outside: 'wall_brick', inside: 'wall_wainscot', roof: 'roof_blue',
+    obj: [...BED, ['bookshelf', 3, 0], ['grandclock', 4, 0], ['bookshelf', 5, 0], ['rockingchair', 4, 2], ['loom', 4, 4], ['armchair', 0, 4, 3], ['endtable', 0, 3], ['lamp', 5, 2]] },
+  fern: { floor: 'floor_wood', outside: 'wall_wood', inside: 'wall_board', roof: 'roof_thatch',
+    obj: [...BED, ['preservesjar', 3, 0], ['counter', 4, 0], ['counter', 5, 0], ['table', 4, 2], ['chair', 4, 3, 2], ['chair', 5, 3, 2], ['houseplant', 0, 3], ['succulents', 0, 4], ['lamp', 5, 4]] },
+  rowan: { floor: 'floor_wood', outside: 'wall_board', inside: 'wall_shiplap', roof: 'roof_red',
+    obj: [...BED, ['stove', 3, 0], ['counter', 4, 0], ['fridge', 5, 0], ['table', 4, 2], ['chair', 4, 3, 2], ['chair', 5, 3, 2], ['chest', 0, 3], ['petbed', 0, 4], ['lamp', 5, 4]] },
+  lila: { floor: 'floor_checker', outside: 'wall_stucco', inside: 'wall_subway', roof: 'roof_red',
+    obj: [...BED, ['bakeryoven', 3, 0], ['counter', 4, 0], ['stove', 5, 0], ['island', 4, 2], ['barstool', 4, 3, 2], ['barstool', 5, 3, 2], ['houseplant', 0, 3], ['lamp', 0, 4]] },
+  bea: { floor: 'floor_blue', outside: 'wall_blue', inside: 'wall_paper', roof: 'roof_blue',
+    obj: [...BED, ['arcade', 3, 0], ['tv', 4, 0], ['recordplayer', 5, 0], ['beanbag', 4, 2], ['beanbag', 5, 2], ['wardrobe', 0, 3], ['pouf', 4, 3], ['lamp', 5, 4]] },
+  felix: { floor: 'floor_wood', outside: 'wall_darkstone', inside: 'wall_wood', roof: 'roof_glass',
+    obj: [...BED, ['globe', 3, 0], ['telescope', 4, 0], ['bookshelf', 5, 0], ['desk', 4, 2], ['chair', 4, 3, 2], ['telescope', 0, 3], ['lamp', 0, 4], ['grandclock', 5, 4]] },
+};
+
+const objSize = (t, r = 0) => { const [w, h] = ITEMS[t]?.size || [1, 1]; return r % 2 ? [h, w] : [w, h]; };
+function homePlot(H, i) {
+  const L = HOME_LAYOUTS[H.id], { w, h } = H, north = H.face === 'n';
+  const plot = blank({ id: TOWN_PLOT_BASE + 30 + i, x: H.x, y: H.y, w, h }, 'home', H.name, null);
+  plot.home = H.id;
+  plot.roofs = [{ x: 0, y: 0, w, h, l: 0, m: L.roof }];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) plot.floor[`${x},${y}`] = L.floor;
+  const out = L.outside, inn = L.inside;
+  for (let x = 0; x < w; x++) {
+    plot.walls[edgeKey(0, 'h', x, 0)] = { m: out, o: inn };
+    plot.walls[edgeKey(0, 'h', x, h)] = { m: inn, o: out };
+  }
+  for (let y = 0; y < h; y++) {
+    plot.walls[edgeKey(0, 'v', 0, y)] = { m: out, o: inn };
+    plot.walls[edgeKey(0, 'v', w, y)] = { m: inn, o: out };
+  }
+  // Front door (and a window either side of it), a window in each side wall and one at the back.
+  const door = Math.floor(w / 2) - 1, front = north ? 0 : h, back = north ? h : 0;
+  plot.walls[edgeKey(0, 'h', door, front)].f = L.door || 'door';
+  if (L.door) plot.walls[edgeKey(0, 'h', door + 1, front)].f = L.door;
+  plot.walls[edgeKey(0, 'h', 0, front)].f = 'window';
+  plot.walls[edgeKey(0, 'h', w - 1, front)].f = 'window';
+  plot.walls[edgeKey(0, 'h', w - 2, back)].f = 'window';
+  plot.walls[edgeKey(0, 'v', 0, Math.floor(h / 2))].f = 'window';
+  plot.walls[edgeKey(0, 'v', w, Math.floor(h / 2))].f = 'window';
+  for (const [t, x, y0, r0 = 0] of L.obj) {
+    const [, fh] = objSize(t, r0);
+    const y = north ? h - y0 - fh : y0, r = north && r0 % 2 === 0 ? (r0 + 2) % 4 : r0;
+    plot.obj[`${x},${y}`] = r ? { t, r } : { t };
+  }
+  return plot;
+}
+
+// Every village plot: the shops, the cottages, plus the projects built so far (ids from city data).
 export const townShopPlots = (projects = []) => [
   ...SHOPS.map((sh, i) => shopPlot(sh, i)),
+  ...HOMES.map((H, i) => homePlot(H, i)),
   ...Object.keys(PROJECTS).map((id, i) => (projects.includes(id) ? projectPlot(id, i) : null)).filter(Boolean),
 ];
 // Where the keeper stands behind the counter (world tiles).

@@ -172,6 +172,8 @@ class Heap {
   }
 }
 
+// Any plot on or next to this tile (a short step can clip a wall's corner from outside).
+const nearPlot = (world, x, y) => { for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) if (inPlot(world, x + i, y + j)) return true; return false; };
 const inPlot = (world, x, y) => x >= 0 && y >= 0 && x < MAP_W && y < MAP_H && world.plotAt[y * MAP_W + x] >= 0;
 
 // Is a tile walkable public land? Cached per map version (plots and roads), since
@@ -202,7 +204,7 @@ function smooth(walk, fx, fy, pts, world, plots) {
     for (let s = 1; s <= steps; s++) {
       const x = x0 + ((x1 - x0) * s) / steps, y = y0 + ((y1 - y0) * s) / steps;
       if (!walk(Math.floor(x / TILE), Math.floor(y / TILE))) return false;
-      if ((inPlot(world, Math.floor(x / TILE), Math.floor(y / TILE)) || inPlot(world, Math.floor(px / TILE), Math.floor(py / TILE))) && crossesWall(world, plots, px, py, x, y)) return false;
+      if (nearPlot(world, Math.floor(x / TILE), Math.floor(y / TILE)) && crossesWall(world, plots, px, py, x, y)) return false;
       px = x; py = y;
     }
     return true;

@@ -2,25 +2,12 @@
 // lives here (who they are, how they look, where they live and go each day, what they
 // like, what favours they ask, what's on their mind) and is merged into NPCS, ROUTINES,
 // PLACES, the favour lists and the AI fallbacks by the modules that own those tables.
-import { TILE } from './world.js';
+import { TILE, HOMES, homeSpot } from './world.js';
 
 // Homes (indoors: they vanish there) and new spots around the village, in tiles.
 export const MORE_PLACES = {
-  hazel_home:    { name: 'the cabin by the south road', x: 30.5, y: 62.5, inside: true },
-  bram_home:     { name: 'the forge on the north road', x: 100.5, y: 22.5, inside: true },
-  willa_home:    { name: 'her cottage full of books', x: 115.5, y: 30.5, inside: true },
-  ellis_home:    { name: 'the clinic', x: 100.5, y: 42.5, inside: true },
-  pip_home:      { name: 'home with Mum', x: 60.5, y: 30.5, inside: true },
-  marigold_home: { name: 'the flower cottage', x: 90.5, y: 62.5, inside: true },
-  gus_home:      { name: 'the Saloon', x: 100.5, y: 62.5, inside: true },
-  theo_home:     { name: 'his flat over the bakery', x: 80.5, y: 22.5, inside: true },
-  ivy_home:      { name: 'her studio in the woods', x: 5.5, y: 30.5, inside: true },
-  sam_home:      { name: 'the post office', x: 60.5, y: 72.5, inside: true },
-  nell_home:     { name: 'her cottage', x: 30.5, y: 22.5, inside: true },
-  fern_home:     { name: 'the apiary', x: 5.5, y: 55.5, inside: true },
-  rowan_home:    { name: 'East Field farm', x: 164.5, y: 42.5, inside: true },
-  felix_home:    { name: 'the observatory', x: 164.5, y: 62.5, inside: true },
-  bea_home:      { name: 'home', x: 20.5, y: 42.5, inside: true },
+  // Everyone's own cottage on Maple Lane.
+  ...Object.fromEntries(HOMES.map((H) => [`${H.id}_home`, { name: `${H.name.replace(/^The /, 'the ')} on Maple Lane`, ...homeSpot(H), inside: true }])),
   pond:          { name: 'the pond', x: 46.2, y: 53.5 },
   square_n:      { name: 'the north side of the square', x: 60, y: 47.5 },
   square_bench_w:{ name: 'a bench by the fountain', x: 51, y: 58.6, seat: [51, 57.6] },
@@ -76,7 +63,7 @@ export const MORE_VILLAGERS = {
     humor: 'Loud, hearty and literal: hammer and anvil metaphors for everything, booming laughter at his own jokes, and an endless feud with a stubborn horseshoe.',
     look: L(0, 16, 3, 7, 4, [10, 60, 35], [5, 70, 25], [5, 30, 25]),
     home: at(100.5, 22.5), wander: 1 * TILE,
-    bio: 'You are Bram, the village blacksmith. You make tools and fix everyone’s broken things at the forge on the north road. You are big, loud and kind, and you love a good meal and a better story.',
+    bio: 'You are Bram, the village blacksmith. You make tools and fix everyone’s broken things at the forge on Maple Lane. You are big, loud and kind, and you love a good meal and a better story.',
     base: { warmth: 66, cheer: 72, trust: 60, generosity: 64, energy: 82 },
     likes: ['pie', 'stone', 'soup'], dislikes: ['bouquet'],
     routine: [
@@ -360,7 +347,7 @@ export const MORE_VILLAGERS = {
       { at: 14, opts: [['square_bench_w', 'lunch'], ['gazebo', 'lunch']] },
       { at: 15, opts: [['flowerbeds', 'chat', 'marigold'], ['gazebo', 'chat', 'theo']] },
       { at: 17, opts: [['rosa_shop', 'work']] },
-      { at: 20, opts: [['rosa_home', 'sleep']] },
+      { at: 20, opts: [['lila_home', 'sleep']] },
     ],
     wants: { deliver: ['flour', 'wheat', 'egg', 'milk', 'berry'], build: ['stove', 'oven', 'counter', 'table'], do: ['cook', 'snack'], visit: ['rosa', 'marigold', 'theo'] },
     messages: ['Gerald the sourdough is alive', 'fresh rolls at six', 'she saved them a croissant'],
@@ -414,3 +401,6 @@ export const MORE_VILLAGERS = {
     hearts: { 3: { items: { juice: 4 }, text: 'Got you juice. It’s not a thing. Just… drink it.' }, 4: { text: 'Okay fine, you’re cool. Like, actually. Don’t tell anyone.' } },
   },
 };
+
+// They live in their cottages on Maple Lane.
+for (const H of HOMES) if (MORE_VILLAGERS[H.id]) { const p = homeSpot(H); MORE_VILLAGERS[H.id].home = at(p.x, p.y); }

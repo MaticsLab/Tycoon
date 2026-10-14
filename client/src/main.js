@@ -1,6 +1,6 @@
 import {
   generateWorld, applyRoads, plotIdAtPixel, worldClock, darkness,
-  TILE, MAP_W, MAP_H, PLAYER_SPEED, RUN_MULT, WORLD_VERSION, DAY_MS, T,
+  TILE, MAP_W, MAP_H, LANE, PLAYER_SPEED, RUN_MULT, WORLD_VERSION, DAY_MS, T,
 } from '@shared/world.js';
 import {
   canStand, crossesWall, inInterior, key, placementError, objAt, footprint, canRotate, levelView, wallSideAt,
@@ -3982,6 +3982,13 @@ function drawOverlay(now) {
   const W = innerWidth, H = innerHeight;
   const onScreen = (p) => p.x > -60 && p.y > -60 && p.x < W + 60 && p.y < H + 60;
   for (const st of Object.values(S.plots)) {
+    if (st.home) {
+      // Villagers' cottages: their name over the door, when you're on the lane nearby.
+      if (Math.hypot(st.x + st.w / 2 - S.me.x / TILE, st.y + st.h / 2 - S.me.y / TILE) > 12) continue;
+      const p = view.toScreen(st.x + st.w / 2, 3.2, st.y + (st.y > LANE.y ? 0 : st.h));
+      if (onScreen(p)) tag(`🏡 ${st.name}`, p.x, p.y, 11, '#fff3d6');
+      continue;
+    }
     if (st.town) {
       // Village shops: their name over the door.
       const p = view.toScreen(st.x + st.w / 2, 3.2, st.y + st.h);

@@ -280,6 +280,7 @@ test('"home" lands on a walkable tile outside every plot gate', async () => {
   const a = await join({ name: 'Ana' });
   const s = a.session();
   for (const p of Object.values(game.plots)) {
+    if (p.home) continue; // villagers' cottages
     s.profile.plotId = p.id;
     a.send({ type: 'home' });
     assert.ok(canStand(game.world, game.plots, s.x, s.y), `plot ${p.id}`);
@@ -1772,4 +1773,31 @@ test('wall heights: a joined run of walls goes short, medium or tall together, a
   assert.equal(wallHeight(plot, 0, 'h', 5, 4), WALL_HEIGHTS[2]);
   a.send({ type: 'wallHeight', plotId: 0, d: 'v', x: 4, y: 5, h: 2 });
   assert.equal(Object.values(plot.walls).filter((w) => w.ht).length, 0, 'back to medium');
+});
+
+test('every villager has a cottage on Maple Lane they can walk home to', async () => {
+  const game = new Game({});
+  const w = game.world;
+  const { findPath } = await import('../../shared/village.js');
+  const { crossesWall } = await import('../../shared/plot.js');
+  const { HOMES, homeSpot } = await import('../../shared/world.js');
+  const { MORE_VILLAGERS } = await import('../../shared/villagers.js');
+  assert.equal(HOMES.length, Object.keys(MORE_VILLAGERS).length);
+  for (const H of HOMES) {
+    const plot = Object.values(game.plots).find((p) => p.home === H.id);
+    assert.ok(plot && plot.owner === 'village', `${H.id} has a house`);
+    // No player plot overlaps a cottage.
+    for (const p of Object.values(game.plots)) if (!p.town) assert.ok(p.x + p.w <= H.x || p.x >= H.x + H.w || p.y + p.h <= H.y || p.y >= H.y + H.h);
+    const to = homeSpot(H);
+    for (const [fx, fy] of [[60, 58], [138, 70]]) {
+      const path = findPath(w, game.plots, fx * TILE, fy * TILE, to.x * TILE, to.y * TILE, 40000);
+      assert.ok(path, `a way home for ${H.id} from ${fx},${fy}`);
+      let [px, py] = [fx * TILE, fy * TILE];
+      for (const [x, y] of path) {
+        const steps = Math.ceil(Math.hypot(x - px, y - py) / 2);
+        for (let i = 1; i <= steps; i++) assert.ok(!crossesWall(w, game.plots, px + (x - px) * (i - 1) / steps, py + (y - py) * (i - 1) / steps, px + (x - px) * i / steps, py + (y - py) * i / steps), `${H.id}: in through the door`);
+        [px, py] = [x, y];
+      }
+    }
+  }
 });
