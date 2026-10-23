@@ -6,8 +6,8 @@
 //
 // See tools/legistar-scraper/README.md for details and caveats.
 
-import { writeFile } from 'node:fs/promises';
-import { scrapeLegislation, scrapeCalendar, toCSV, DEFAULT_CLIENT } from './lib/legistar.mjs';
+import { readFile, writeFile } from 'node:fs/promises';
+import { scrapeLegislation, scrapeCalendar, scrapeDetails, toCSV, DEFAULT_CLIENT } from './lib/legistar.mjs';
 
 function parseArgs(argv) {
   // Treat a leading flag (e.g. `--help`) as "no command".
@@ -15,10 +15,10 @@ function parseArgs(argv) {
   const hasCommand = first && !first.startsWith('-');
   const command = hasCommand ? first : undefined;
   const rest = hasCommand ? tail : argv;
-  const opts = {};
+  const opts = { _: [] };
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
-    if (!a.startsWith('--')) continue;
+    if (!a.startsWith('--')) { opts._.push(a); continue; } // positional (e.g. a detail URL)
     const key = a.slice(2);
     const next = rest[i + 1];
     if (next === undefined || next.startsWith('--')) { opts[key] = true; }
@@ -30,23 +30,53 @@ function parseArgs(argv) {
 const USAGE = `Philadelphia Legistar scraper
 
 Usage:
-  node tools/legistar-scraper/scrape.mjs <legislation|calendar> [options]
+  node tools/legistar-scraper/scrape.mjs <legislation|calendar|detail> [options]
+
+Commands:
+  legislation         scrape the bills/resolutions search grid
+  calendar            scrape the meeting calendar grid
+  detail              scrape full LegislationDetail page(s): fields, action
+                      history, and attachments. Give it --url, or --in a JSON
+                      file produced by the legislation command (it follows each
+                      row's "url"), or detail URLs as positional arguments.
 
 Options:
   --client <name>     Legistar client (default: ${DEFAULT_CLIENT})
   --years <v>         legislation only: all | default | a year (e.g. 2026)
   --max-pages <n>     pages of results to walk (default: 1; ~100 rows/page)
-  --limit <n>         stop after n rows
+  --url <url>         detail only: a single LegislationDetail.aspx URL
+  --in <file>         detail only: JSON file of rows; follows each row's "url"
+  --limit <n>         stop after n rows (or n detail pages)
   --delay <ms>        pause between pages (default: 1000)
   --format <fmt>      json | csv (default: json)
   --out <file>        write to file instead of stdout
   --headful           show the browser (debugging)
   --help
 
+Examples:
+  node tools/legistar-scraper/scrape.mjs legislation --years 2025 --out bills.json
+  node tools/legistar-scraper/scrape.mjs detail --in bills.json --limit 20 --out full.json
+  node tools/legistar-scraper/scrape.mjs detail --url "https://phila.legistar.com/LegislationDetail.aspx?ID=..."
+
 Notes:
   * Reads only public data from the Legistar web UI. No login or token.
   * For bulk/official use, request an API token from the City Clerk and use
     webapi.legistar.com/v1/phila instead — far faster and more stable.`;
+
+// Gather LegislationDetail URLs for the `detail` command from --url, positional
+// args, and/or an --in JSON file (an array of rows, each with a "url").
+async function collectDetailUrls(opts) {
+  const urls = [];
+  if (typeof opts.url === 'string') urls.push(opts.url);
+  for (const a of opts._) if (/^https?:\/\//.test(a)) urls.push(a);
+  if (typeof opts.in === 'string') {
+    const parsed = JSON.parse(await readFile(opts.in, 'utf8'));
+    const rows = Array.isArray(parsed) ? parsed : [];
+    for (const r of rows) if (r && typeof r.url === 'string') urls.push(r.url);
+  }
+  // De-dupe, keep only LegislationDetail links.
+  return [...new Set(urls)].filter((u) => /LegislationDetail\.aspx/i.test(u));
+}
 
 async function main() {
   const { command, opts } = parseArgs(process.argv.slice(2));
@@ -69,6 +99,14 @@ async function main() {
     rows = await scrapeLegislation({ ...common, years: opts.years || 'default' });
   } else if (command === 'calendar') {
     rows = await scrapeCalendar(common);
+  } else if (command === 'detail') {
+    const urls = await collectDetailUrls(opts);
+    if (!urls.length) {
+      console.error('No detail URLs. Pass --url, --in <file.json>, or URLs as arguments.\n');
+      console.log(USAGE);
+      process.exit(1);
+    }
+    rows = await scrapeDetails(urls, { delayMs: common.delayMs, limit: common.limit, headful: common.headful });
   } else {
     console.error(`Unknown command: ${command}\n`);
     console.log(USAGE);

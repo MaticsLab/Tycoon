@@ -54,6 +54,13 @@ node tools/legistar-scraper/scrape.mjs legislation --years all --limit 50
 
 # Upcoming / recent meetings
 node tools/legistar-scraper/scrape.mjs calendar --format csv --out meetings.csv
+
+# Full detail for one bill (fields + action history + attachments)
+node tools/legistar-scraper/scrape.mjs detail --url "https://phila.legistar.com/LegislationDetail.aspx?ID=..."
+
+# Enrich a whole legislation pull: follow every row's detail page
+node tools/legistar-scraper/scrape.mjs legislation --years 2025 --out bills.json
+node tools/legistar-scraper/scrape.mjs detail --in bills.json --limit 25 --out bills-full.json
 ```
 
 ### Options
@@ -62,6 +69,8 @@ node tools/legistar-scraper/scrape.mjs calendar --format csv --out meetings.csv
 |------|---------|
 | `--client <name>` | Legistar client (default `phila`). Other cities' public sites work too — `seattle`, `cook-county`, etc. |
 | `--years <v>` | legislation only: `all`, `default` (current year), or a year like `2026` |
+| `--url <url>` | detail only: a single `LegislationDetail.aspx` URL |
+| `--in <file>` | detail only: a JSON file of rows (e.g. `legislation` output); follows each row's `url` |
 | `--max-pages <n>` | pages of results to walk (default 1). Only matters where the grid has a pager — see below. |
 | `--limit <n>` | stop after N rows |
 | `--delay <ms>` | pause between pages (default 1000) — be a good citizen |
@@ -88,9 +97,32 @@ node tools/legistar-scraper/scrape.mjs calendar --format csv --out meetings.csv
 **calendar** rows carry `name`, `date`, `time`, `location`, agenda/minutes
 labels, and a `url` to the meeting record.
 
-The `url` on each row points at the detail page, which has the full text,
-sponsors, history, and attachments — a natural next step if you want to go
-deeper per item.
+**detail** rows carry the header fields (`file`, `type`, `status`, `created`,
+`finalAction`, `title`, `sponsors`, `indexes`, …) plus two arrays:
+
+```json
+{
+  "url": "https://phila.legistar.com/LegislationDetail.aspx?ID=7780381&...",
+  "file": "251101", "type": "Bill", "status": "HELD IN COMMITTEE",
+  "title": "Amending Chapter 14-500 ...",
+  "sponsors": "Councilmember Young", "indexes": "OVERLAY ZONING DISTRICT",
+  "history": [
+    { "date": "12/11/2025", "ver": "0", "actionBy": "CITY COUNCIL",
+      "action": "Introduced and Referred", "result": "", "tally": "",
+      "meetingDetailsUrl": "https://phila.legistar.com/MeetingDetail.aspx?ID=..." }
+  ],
+  "attachments": [
+    { "name": "Bill No. 25110100",
+      "url": "https://phila.legistar.com/View.ashx?M=F&ID=15032727&GUID=..." }
+  ]
+}
+```
+
+In CSV, the `history` and `attachments` arrays are JSON-encoded into their
+cells so each record stays on one line. The "Action details" column is a
+JavaScript postback with no stable URL, so it's omitted; `meetingDetailsUrl`
+(and `videoUrl`, when present) are kept. `attachments[].url` points at the
+downloadable file (the bill text, amendments, etc.).
 
 ## Known limitation: the 100-row cap
 
